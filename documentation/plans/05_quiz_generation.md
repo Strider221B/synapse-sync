@@ -2,7 +2,7 @@
 
 > **Priority:** P0  
 > **Depends On:** Epic 1 (Project Foundation), Epic 2 (Data Layer)  
-> **Design Refs:** [Product Requirements §3.3](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/01_product_requirements.md), [API Specs §2.4](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/04_api_specifications.md), [Data Models §5.1](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/03_data_models.md)  
+> **Design Refs:** [Product Requirements §3.3](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/01_product_requirements.md), [API Specs §2.3](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/04_api_specifications.md), [Data Models §5.1](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/03_data_models.md)  
 > **Coding Standards:** [coding_standards.md](file:///home/somesh/git_repos/synapse-sync/documentation/prompts/coding_standards.md)
 
 ---
@@ -33,7 +33,7 @@ Enable users to generate AI-powered MCQs and flashcards from any note, take quiz
   - Returns: `{ mcqs: [...], flashcards: [...], metadata: { model, inputTokens, outputTokens } }`
 - Use the `GeminiService.call_with_retry()` utility from Epic 4 for retry logic
 - Handle errors: text too short (400), rate limited (429), generation failed (500)
-- Refer to [API Specs §2.4](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/04_api_specifications.md) for the exact implementation
+- Refer to [API Specs §2.3](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/04_api_specifications.md) for the exact implementation
 - **Python virtual env:** `source ~/python_envs/p313_llm/bin/activate`
 
 **Task 5.1.2 — Define the Gemini quiz prompt**

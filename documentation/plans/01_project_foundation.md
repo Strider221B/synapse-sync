@@ -73,9 +73,21 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
 - This serves as a smoke test to verify Python functions deploy correctly
 - Follow coding standards: the handler logic should be inside a class
 
-**Task 1.2.3 — Verify Python environment**
+**Task 1.2.3 — Create the `tools/youtube_cli/` directory structure**
+- Create `tools/youtube_cli/` at the project root for local CLI tools (transcript fetching and note generation)
+- Create `tools/youtube_cli/requirements.txt` with:
+  ```
+  youtube-transcript-api>=0.6.0
+  google-generativeai>=0.8.0
+  rich>=13.0.0
+  requests>=2.31.0
+  ```
+- Create `tools/youtube_cli/__init__.py`
+
+**Task 1.2.4 — Verify Python environment**
 - Activate the virtual env: `source ~/python_envs/p313_llm/bin/activate`
 - Run `pip install -r api/requirements.txt`
+- Run `pip install -r tools/youtube_cli/requirements.txt`
 - Verify the health endpoint can be imported without errors
 
 ---
@@ -92,9 +104,11 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
   - `framework: "nextjs"`
   - Python function builds: `{ "src": "api/*.py", "use": "@vercel/python" }`
   - Function timeout and memory config:
-    - AI endpoints (`generate_quiz.py`, `summarize.py`, `chat.py`): `maxDuration: 60`, `memory: 1024`
+    - YouTube notes receiver (`youtube_notes.py`): `maxDuration: 60`, `memory: 1024`
+    - AI endpoints (`generate_quiz.py`, `summarize.py`): `maxDuration: 60`, `memory: 1024`
+    - Chat endpoint (`chat.py`): `maxDuration: 60`, `memory: 512`
     - Parsing endpoints (`parse_docx.py`): `maxDuration: 30`, `memory: 512`
-  - CORS headers for `/api/*` routes: allow `POST` and `OPTIONS`, `Content-Type` header
+  - CORS headers for `/api/*` routes: allow `POST`, `GET`, and `OPTIONS`, `Content-Type, Authorization` headers
   - Security headers for all routes: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`
 
 **Task 1.3.2 — Create environment file templates**
@@ -104,6 +118,7 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
   NEXT_PUBLIC_MSAL_CLIENT_ID=your_azure_client_id_here
   NEXT_PUBLIC_MSAL_REDIRECT_URI=http://localhost:3000
   NEXT_PUBLIC_API_URL=http://localhost:3000
+  YOUTUBE_NOTES_API_KEY=your_shared_secret_here
   ```
 - Create `.env.local` from the template (add to `.gitignore`)
 - Ensure `.env.local` is already listed in `.gitignore`
@@ -126,7 +141,7 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
 **Task 1.4.1 — Create GitHub Actions CI workflow**
 - Create `.github/workflows/ci.yml` with two jobs:
   - **`frontend`**: Setup Node.js 18, `npm ci`, `npm run lint`, `npx tsc --noEmit`, `npm test` (if tests exist), `npm run build`
-  - **`backend`**: Setup Python 3.12, activate venv, `pip install -r api/requirements.txt`, lint Python with ruff (`ruff check api/`)
+  - **`backend`**: Setup Python 3.12, activate venv, `pip install -r api/requirements.txt -r tools/youtube_cli/requirements.txt`, lint Python with ruff (`ruff check api/ tools/`)
 - Trigger on: push to `main`/`develop`, pull requests to `main`
 
 **Task 1.4.2 — Configure ESLint for the frontend**
@@ -143,7 +158,7 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
   [tool.ruff.lint]
   select = ["E", "W", "F", "I"]
   ```
-- Verify `ruff check api/` passes cleanly
+- Verify `ruff check api/ tools/` passes cleanly
 
 **Task 1.4.4 — Add a basic smoke test**
 - Create `src/__tests__/smoke.test.ts` that verifies the app can render without crashing
@@ -156,8 +171,9 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
 - [ ] `npm run dev` starts the Next.js dev server at `localhost:3000`
 - [ ] Visiting `localhost:3000` shows the app shell (sidebar + main area) with design tokens applied
 - [ ] `api/health.py` returns a valid JSON response
+- [ ] `tools/youtube_cli/` structure and requirements are initialized
 - [ ] `vercel.json` is properly configured
-- [ ] `.env.local.example` exists with all required env vars documented
+- [ ] `.env.local.example` exists with all required env vars documented (including `YOUTUBE_NOTES_API_KEY`)
 - [ ] `npm run lint` passes with zero errors
-- [ ] `ruff check api/` passes with zero errors
+- [ ] `ruff check api/ tools/` passes with zero errors
 - [ ] GitHub Actions CI workflow is created

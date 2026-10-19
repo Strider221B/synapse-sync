@@ -47,7 +47,7 @@ Use this for **all** Python work (backend API functions, tests, linting).
 | 1 | Project Foundation & Setup | [01_project_foundation.md](file:///home/somesh/git_repos/synapse-sync/documentation/plans/01_project_foundation.md) | P0 | — |
 | 2 | Client-Side Data Layer (IndexedDB) | [02_data_layer.md](file:///home/somesh/git_repos/synapse-sync/documentation/plans/02_data_layer.md) | P0 | Epic 1 |
 | 3 | OneDrive Integration & Note Management | [03_onedrive_notes.md](file:///home/somesh/git_repos/synapse-sync/documentation/plans/03_onedrive_notes.md) | P0 | Epic 1, Epic 2 |
-| 4 | YouTube Transcript Ingestion (Local-First) | [04_youtube_ingestion.md](file:///home/somesh/git_repos/synapse-sync/documentation/plans/04_youtube_ingestion.md) | P0 | Epic 1 |
+| 4 | YouTube Transcript Ingestion (Local-First) | [04_youtube_ingestion.md](file:///home/somesh/git_repos/synapse-sync/documentation/plans/04_youtube_ingestion.md) | P0 | Epic 1, Epic 2 |
 | 5 | AI-Powered Quiz & Flashcard Generation | [05_quiz_generation.md](file:///home/somesh/git_repos/synapse-sync/documentation/plans/05_quiz_generation.md) | P0 | Epic 1, Epic 2 |
 | 6 | Spaced Repetition System (SM-2) | [06_spaced_repetition.md](file:///home/somesh/git_repos/synapse-sync/documentation/plans/06_spaced_repetition.md) | P0 | Epic 2, Epic 5 |
 | 7 | AI Study Assistant (Chat) | [07_ai_chat.md](file:///home/somesh/git_repos/synapse-sync/documentation/plans/07_ai_chat.md) | P0 | Epic 1, Epic 2, Epic 3 |
@@ -122,4 +122,4 @@ The epics should be executed roughly in this order. Some epics can run in parall
 | 7. AI Chat | 3 | Medium |
 | 8. PWA & Offline | 4 | Medium-High |
 | 9. Polish & Enhancements | 5 | Medium |
-| **Total** | **35 stories** | — |
+| **Total** | **37 stories** | — |

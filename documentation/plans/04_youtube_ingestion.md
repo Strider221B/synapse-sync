@@ -110,16 +110,18 @@ Enable users to generate **detailed, comprehensive study notes** from YouTube vi
 **Task 4.3.2 — Build the `/api/youtube-notes` Vercel endpoint**
 - Create `api/youtube_notes.py`
 - Implement a handler class that:
-  - Accepts POST with JSON body: `{ notebook: { name, source, sourceUrl, description, tags }, notes: [{ title, content, contentFormat, sourceType, sourceUrl, videoId, wordCount }] }`
-  - Validates the API key from the `Authorization` header
+  - Accepts `POST` with JSON body: `{ notebook: { name, source, sourceUrl, description, tags }, notes: [{ title, content, contentFormat, sourceType, sourceUrl, videoId, wordCount }] }`
+  - Validates the API key from the `Authorization` header (`Bearer <key>`)
   - Validates all required fields are present in notebook and each note
-  - Generates UUIDs for notebook and each note
-  - Returns: `{ notebookId, noteIds[], notesStored }`
+  - Generates UUIDs for notebook and each note if not provided
+  - Persists the notebook and notes, returning: `{ notebookId, noteIds[], notesStored }`
+  - Accepts `GET` request (with optional `?notebookId=<id>`) to return stored YouTube notebooks and notes so the PWA frontend can fetch and synchronize them into IndexedDB
 - Include proper error responses:
-  - Missing auth → `401` with code `UNAUTHORIZED`
+  - Missing auth on POST → `401` with code `UNAUTHORIZED`
   - Missing notebook → `400` with code `MISSING_NOTEBOOK`
   - Missing notes → `400` with code `MISSING_NOTES`
   - Invalid note data → `400` with code `INVALID_NOTE`
+  - Storage error → `500` with code `STORAGE_FAILED`
 
 ---
 
@@ -168,7 +170,7 @@ Enable users to generate **detailed, comprehensive study notes** from YouTube vi
 **Task 4.5.1 — Update the YouTube page to display server-pushed notes**
 - Update `src/app/youtube/page.tsx`
 - UI sections:
-  - List all YouTube notebooks (fetched from the server via `/api/youtube-notes`)
+  - List all YouTube notebooks (fetched from the server via `GET /api/youtube-notes` and cached in IndexedDB via `NotebookService` and `NoteService`)
   - Show notebook details: name, source playlist URL, video count, created date
   - Navigate to individual note reader view for each video's detailed notes
   - Manual paste fallback section (for individual videos not processed locally)

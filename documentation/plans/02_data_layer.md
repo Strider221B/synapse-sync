@@ -111,6 +111,7 @@ Build the complete IndexedDB data layer — database initialization, TypeScript 
   - `create(data)` — generates UUID, computes `wordCount`, sets timestamps
   - `getById(id)` — retrieves a single note
   - `getByNotebook(notebookId)` — uses the `by-notebook` index
+  - `getBySourceType(sourceType)` — uses the `by-source-type` index
   - `getAll()` — retrieves all notes
   - `update(id, data)` — updates fields, recomputes `wordCount` if content changed
   - `delete(id)` — removes the note
