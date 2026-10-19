@@ -58,10 +58,10 @@ Build the complete IndexedDB data layer — database initialization, TypeScript 
 
 ### Tasks
 
-**Task 2.2.1 — Install the `idb` library**
-- Run `npm install idb`
-- This gives a Promise-based wrapper over the native IndexedDB API
-- Run `npm install uuid` and `npm install --save-dev @types/uuid` for UUID generation
+**Task 2.2.1 — Install the `idb` and `uuid` libraries**
+- Run `npm install idb@8.0.4 uuid@14.0.3`
+- This gives a Promise-based wrapper over the native IndexedDB API and UUID generation
+- Run `npm install --save-dev @types/uuid` for TypeScript definitions
 
 **Task 2.2.2 — Define the database schema**
 - Create `src/lib/db/schema.ts`
@@ -111,6 +111,7 @@ Build the complete IndexedDB data layer — database initialization, TypeScript 
   - `create(data)` — generates UUID, computes `wordCount`, sets timestamps
   - `getById(id)` — retrieves a single note
   - `getByNotebook(notebookId)` — uses the `by-notebook` index
+  - `getBySourceType(sourceType)` — uses the `by-source-type` index
   - `getAll()` — retrieves all notes
   - `update(id, data)` — updates fields, recomputes `wordCount` if content changed
   - `delete(id)` — removes the note

@@ -15,12 +15,12 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
 
 ## Story 1.1 — Initialize the Next.js Project
 
-**As a developer, I need a working Next.js 14+ project with App Router so I can start building pages and components.**
+**As a developer, I need a working Next.js 16.4.2 project (React 19) with App Router so I can start building pages and components.**
 
 ### Tasks
 
 **Task 1.1.1 — Create Next.js application**
-- Run `npx -y create-next-app@latest ./` from the project root with these options:
+- Run `npx -y create-next-app@16.4.2 ./` from the project root with these options:
   - TypeScript: Yes
   - ESLint: Yes
   - App Router: Yes
@@ -56,15 +56,15 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
 
 ## Story 1.2 — Set Up the Python Backend Directory
 
-**As a developer, I need the Python serverless function directory configured so I can build API endpoints.**
+**As a developer, I need the Python 3.13 serverless function directory configured with locked dependency versions so I can build API endpoints.**
 
 ### Tasks
 
 **Task 1.2.1 — Create the `api/` directory structure**
 - Create `api/` at the project root (Vercel detects this as Python serverless functions)
-- Create `api/requirements.txt` with initial dependency:
+- Create `api/requirements.txt` with locked version:
   ```
-  google-generativeai>=0.8.0
+  google-generativeai==0.8.6
   ```
 - Create a placeholder `api/__init__.py` (empty, needed for imports)
 
@@ -73,9 +73,21 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
 - This serves as a smoke test to verify Python functions deploy correctly
 - Follow coding standards: the handler logic should be inside a class
 
-**Task 1.2.3 — Verify Python environment**
+**Task 1.2.3 — Create the `tools/youtube_cli/` directory structure**
+- Create `tools/youtube_cli/` at the project root for local CLI tools (transcript fetching and note generation)
+- Create `tools/youtube_cli/requirements.txt` with locked versions:
+  ```
+  youtube-transcript-api==1.2.4
+  google-generativeai==0.8.6
+  rich==15.0.0
+  requests==2.34.2
+  ```
+- Create `tools/youtube_cli/__init__.py`
+
+**Task 1.2.4 — Verify Python environment**
 - Activate the virtual env: `source ~/python_envs/p313_llm/bin/activate`
-- Run `pip install -r api/requirements.txt`
+- Run `uv pip install -r api/requirements.txt`
+- Run `uv pip install -r tools/youtube_cli/requirements.txt`
 - Verify the health endpoint can be imported without errors
 
 ---
@@ -92,9 +104,11 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
   - `framework: "nextjs"`
   - Python function builds: `{ "src": "api/*.py", "use": "@vercel/python" }`
   - Function timeout and memory config:
-    - AI endpoints (`generate_quiz.py`, `summarize.py`, `chat.py`): `maxDuration: 60`, `memory: 1024`
+    - YouTube notes receiver (`youtube_notes.py`): `maxDuration: 60`, `memory: 1024`
+    - AI endpoints (`generate_quiz.py`, `summarize.py`): `maxDuration: 60`, `memory: 1024`
+    - Chat endpoint (`chat.py`): `maxDuration: 60`, `memory: 512`
     - Parsing endpoints (`parse_docx.py`): `maxDuration: 30`, `memory: 512`
-  - CORS headers for `/api/*` routes: allow `POST` and `OPTIONS`, `Content-Type` header
+  - CORS headers for `/api/*` routes: allow `POST`, `GET`, and `OPTIONS`, `Content-Type, Authorization` headers
   - Security headers for all routes: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`
 
 **Task 1.3.2 — Create environment file templates**
@@ -104,6 +118,7 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
   NEXT_PUBLIC_MSAL_CLIENT_ID=your_azure_client_id_here
   NEXT_PUBLIC_MSAL_REDIRECT_URI=http://localhost:3000
   NEXT_PUBLIC_API_URL=http://localhost:3000
+  YOUTUBE_NOTES_API_KEY=your_shared_secret_here
   ```
 - Create `.env.local` from the template (add to `.gitignore`)
 - Ensure `.env.local` is already listed in `.gitignore`
@@ -125,8 +140,8 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
 
 **Task 1.4.1 — Create GitHub Actions CI workflow**
 - Create `.github/workflows/ci.yml` with two jobs:
-  - **`frontend`**: Setup Node.js 18, `npm ci`, `npm run lint`, `npx tsc --noEmit`, `npm test` (if tests exist), `npm run build`
-  - **`backend`**: Setup Python 3.12, activate venv, `pip install -r api/requirements.txt`, lint Python with ruff (`ruff check api/`)
+  - **`frontend`**: Setup Node.js 20, `npm ci`, `npm run lint`, `npx tsc --noEmit`, `npm test` (if tests exist), `npm run build`
+  - **`backend`**: Setup Python 3.13, activate venv, `pip install uv && uv pip install -r api/requirements.txt -r tools/youtube_cli/requirements.txt ruff==0.16.9`, lint Python with ruff (`ruff check api/ tools/`)
 - Trigger on: push to `main`/`develop`, pull requests to `main`
 
 **Task 1.4.2 — Configure ESLint for the frontend**
@@ -143,7 +158,7 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
   [tool.ruff.lint]
   select = ["E", "W", "F", "I"]
   ```
-- Verify `ruff check api/` passes cleanly
+- Verify `ruff check api/ tools/` passes cleanly
 
 **Task 1.4.4 — Add a basic smoke test**
 - Create `src/__tests__/smoke.test.ts` that verifies the app can render without crashing
@@ -156,8 +171,9 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
 - [ ] `npm run dev` starts the Next.js dev server at `localhost:3000`
 - [ ] Visiting `localhost:3000` shows the app shell (sidebar + main area) with design tokens applied
 - [ ] `api/health.py` returns a valid JSON response
+- [ ] `tools/youtube_cli/` structure and requirements are initialized
 - [ ] `vercel.json` is properly configured
-- [ ] `.env.local.example` exists with all required env vars documented
+- [ ] `.env.local.example` exists with all required env vars documented (including `YOUTUBE_NOTES_API_KEY`)
 - [ ] `npm run lint` passes with zero errors
-- [ ] `ruff check api/` passes with zero errors
+- [ ] `ruff check api/ tools/` passes with zero errors
 - [ ] GitHub Actions CI workflow is created

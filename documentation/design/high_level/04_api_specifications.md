@@ -1,14 +1,14 @@
 # SynapseSync — API Specifications
 
-> **Version:** 1.0  
-> **Date:** 2026-09-10  
+> **Version:** 1.1  
+> **Date:** 2026-10-19  
 > **Status:** Draft  
 
 ---
 
 ## 1. Overview
 
-All API endpoints are **Vercel Python Serverless Functions** deployed under the `/api/` directory. Each function is a self-contained, stateless handler that spins up fresh on every invocation.
+All API endpoints are **Vercel Python Serverless Functions** deployed under the `/api/` directory. Each function is a self-contained, stateless handler that spins up fresh on every invocation. YouTube transcript fetching and detailed note generation run **locally** on the developer's machine via a Python CLI tool; the processed notes are pushed to the `/api/youtube-notes` endpoint.
 
 ### Base URL
 - **Production:** `https://synapse-sync.vercel.app/api`
@@ -121,180 +121,74 @@ def handler(request):
 
 ---
 
-### 2.2 POST `/api/transcript`
+### 2.2 POST `/api/youtube-notes`
+
+Receives pre-processed YouTube notes from the local CLI tool. The local Python CLI handles transcript fetching (via `youtube-transcript-api`) and detailed note generation (via Gemini) on the developer's machine, then pushes the results here.
 
 > [!IMPORTANT]
-> **Runtime: Node.js (Next.js API Route)** — This endpoint runs as a Next.js route handler (`src/app/api/transcript/route.ts`), **not** as a Python serverless function. This is because:
-> 1. **CORS blocks client-side fetching**: Browsers refuse direct cross-origin requests to YouTube's transcript endpoints
-> 2. **The `youtube-transcript` npm package** integrates naturally with the Next.js deployment
-> 3. **Fallback available**: If the server-side fetch is blocked by YouTube (datacenter IP), the UI prompts the user to paste the transcript manually
-
-Fetches the transcript/subtitles for a single YouTube video using the `youtube-transcript` npm package.
+> **This endpoint does NOT fetch transcripts or call Gemini.** All AI processing happens locally on the developer's machine. This endpoint only receives and stores the already-processed notebook and notes.
 
 #### Request
 
 ```json
 {
-  "videoUrl": "https://www.youtube.com/watch?v=jGwO_UgTS7I",
-  "language": "en"
-}
-```
-
-| Field      | Type   | Required | Default | Description                        |
-|:-----------|:-------|:---------|:--------|:-----------------------------------|
-| `videoUrl` | string | Yes      | —       | Full YouTube video URL or video ID |
-| `language` | string | No       | `"en"`  | Preferred transcript language code |
-
-#### Response — `200 OK`
-
-```json
-{
-  "transcript": "Welcome to lecture 1 of CS229. Today we're going to talk about...",
-  "videoId": "jGwO_UgTS7I",
-  "language": "en",
-  "metadata": {
-    "wordCount": 8234,
-    "segmentCount": 412
-  }
-}
-```
-
-#### Error Scenarios
-
-| Error Code                | HTTP | When                                           |
-|:--------------------------|:-----|:-----------------------------------------------|
-| `INVALID_URL`             | 400  | URL is not a valid YouTube video URL           |
-| `TRANSCRIPTS_DISABLED`    | 404  | Video has no captions/subtitles                |
-| `REQUEST_BLOCKED`         | 429  | YouTube blocked the request (cloud IP)         |
-| `VIDEO_UNAVAILABLE`       | 404  | Video is private, deleted, or region-locked    |
-
-#### Implementation — TypeScript (Next.js Route Handler)
-
-```typescript
-// src/app/api/transcript/route.ts
-import { YoutubeTranscript } from 'youtube-transcript';
-import { NextRequest, NextResponse } from 'next/server';
-
-function extractVideoId(url: string): string | null {
-  const patterns = [
-    /(?:v=|\/v\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
-    /^([a-zA-Z0-9_-]{11})$/,
-  ];
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match) return match[1];
-  }
-  return null;
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { videoUrl, language = 'en' } = body;
-
-    if (!videoUrl) {
-      return NextResponse.json(
-        { error: { code: 'MISSING_URL', message: 'videoUrl is required' } },
-        { status: 400 }
-      );
-    }
-
-    const videoId = extractVideoId(videoUrl);
-    if (!videoId) {
-      return NextResponse.json(
-        { error: { code: 'INVALID_URL', message: `Invalid YouTube URL: ${videoUrl}` } },
-        { status: 400 }
-      );
-    }
-
-    const segments = await YoutubeTranscript.fetchTranscript(videoId, {
-      lang: language,
-    });
-
-    const fullText = segments.map((seg) => seg.text).join(' ');
-
-    return NextResponse.json({
-      transcript: fullText,
-      videoId,
-      language,
-      metadata: {
-        wordCount: fullText.split(/\s+/).length,
-        segmentCount: segments.length,
-      },
-    });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-
-    if (message.includes('disabled') || message.includes('not available')) {
-      return NextResponse.json(
-        { error: { code: 'TRANSCRIPTS_DISABLED', message: 'No transcripts available.' } },
-        { status: 404 }
-      );
-    }
-    if (message.includes('blocked') || message.includes('429')) {
-      return NextResponse.json(
-        { error: { code: 'REQUEST_BLOCKED', message: 'YouTube blocked this request. Use manual paste.' } },
-        { status: 429 }
-      );
-    }
-
-    return NextResponse.json(
-      { error: { code: 'FETCH_FAILED', message } },
-      { status: 500 }
-    );
-  }
-}
-```
-
-> [!WARNING]
-> **Cloud IP Blocking Risk (Reduced):** While YouTube still may block Vercel datacenter IPs, the Node.js implementation is lighter-weight and the `youtube-transcript` npm package has different request patterns than the Python library. Mitigations:
-> 1. **Retry logic** with exponential backoff on the frontend
-> 2. **Manual paste fallback** — UI prompts user to paste transcript if auto-fetch fails
-> 3. **Aggressive caching** — transcripts stored in IndexedDB; never re-fetched
-> 4. **Python fallback** — `youtube-transcript-api` available as an alternative endpoint if needed
-
----
-
-### 2.3 POST `/api/playlist-info`
-
-> **Runtime: Node.js** (Next.js API Route — `src/app/api/playlist-info/route.ts`)
-
-Resolves a YouTube playlist URL into a list of individual video URLs and titles. Uses lightweight HTML parsing (no YouTube Data API required).
-
-#### Request
-
-```json
-{
-  "playlistUrl": "https://www.youtube.com/playlist?list=PLoROMvodv4rMiGQp3WXShtMGgzqpfVfbU"
-}
-```
-
-#### Response — `200 OK`
-
-```json
-{
-  "playlistTitle": "Stanford CS229: Machine Learning",
-  "videoCount": 20,
-  "videos": [
+  "notebook": {
+    "name": "Stanford CS229: Machine Learning",
+    "source": "youtube_playlist",
+    "sourceUrl": "https://www.youtube.com/playlist?list=PLoROMvodv4rMiGQp3WXShtMGgzqpfVfbU",
+    "description": "Complete lecture series from Stanford CS229",
+    "tags": ["machine-learning", "stanford", "cs229"]
+  },
+  "notes": [
     {
-      "videoId": "jGwO_UgTS7I",
       "title": "Lecture 1 - Welcome | Stanford CS229",
-      "url": "https://www.youtube.com/watch?v=jGwO_UgTS7I",
-      "index": 1
-    },
-    {
-      "videoId": "4b4MUYve_U8",
-      "title": "Lecture 2 - Linear Regression | Stanford CS229",
-      "url": "https://www.youtube.com/watch?v=4b4MUYve_U8",
-      "index": 2
+      "content": "# Lecture 1: Introduction to Machine Learning\n\n## 1. What is Machine Learning?\n\nMachine learning is defined as...\n\n### 1.1 Formal Definition\n\nArthur Samuel (1959) defined machine learning as...\n\n### 1.2 Types of Machine Learning\n\n#### Supervised Learning\n- **Definition:** Learning from labeled training data...\n- **Example:** Given a dataset of house prices with features (size, bedrooms, location)...\n\n#### Unsupervised Learning\n- **Definition:** Finding patterns in unlabeled data...\n\n#### Reinforcement Learning\n- **Definition:** Learning through interaction with an environment...\n\n## 2. Linear Regression\n\n### 2.1 The Hypothesis Function\n\nThe hypothesis function h(x) = θ0 + θ1*x maps inputs to predicted outputs...\n\n### 2.2 Cost Function\n\nThe cost function J(θ) measures how well our hypothesis fits the training data...\n\n(... exhaustively detailed notes continuing for the entire lecture ...)",
+      "contentFormat": "markdown",
+      "sourceType": "youtube_transcript",
+      "sourceUrl": "https://www.youtube.com/watch?v=jGwO_UgTS7I",
+      "videoId": "jGwO_UgTS7I",
+      "wordCount": 8500
     }
   ]
 }
 ```
 
+| Field              | Type   | Required | Description                                                  |
+|:-------------------|:-------|:---------|:-------------------------------------------------------------|
+| `notebook`         | object | Yes      | Notebook metadata (name, source, sourceUrl, description, tags) |
+| `notes`            | array  | Yes      | Array of processed notes to store                            |
+| `notes[].title`    | string | Yes      | Video title                                                  |
+| `notes[].content`  | string | Yes      | Detailed markdown notes (generated by Gemini locally)        |
+| `notes[].contentFormat` | string | Yes | Always `"markdown"`                                          |
+| `notes[].sourceType`    | string | Yes | Always `"youtube_transcript"`                                |
+| `notes[].sourceUrl`     | string | Yes | YouTube video URL                                            |
+| `notes[].videoId`       | string | Yes | 11-character YouTube video ID                                |
+| `notes[].wordCount`     | int    | Yes | Word count of the generated notes                            |
+
+#### Response — `200 OK`
+
+```json
+{
+  "notebookId": "nb_a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "noteIds": [
+    "note_11111111-2222-3333-4444-555555555555"
+  ],
+  "notesStored": 1
+}
+```
+
+#### Error Scenarios
+
+| Error Code                 | HTTP | When                                           |
+|:---------------------------|:-----|:-----------------------------------------------|
+| `MISSING_NOTEBOOK`         | 400  | `notebook` field is missing or empty           |
+| `MISSING_NOTES`            | 400  | `notes` array is missing or empty              |
+| `INVALID_NOTE`             | 400  | A note is missing required fields              |
+| `STORAGE_FAILED`           | 500  | Failed to persist the data                     |
+
 ---
 
-### 2.4 POST `/api/generate-quiz`
+### 2.3 POST `/api/generate-quiz`
 
 Sends note text to Google Gemini and receives structured MCQs and flashcards. Uses Gemini's structured output mode with a JSON schema to guarantee clean responses.
 
@@ -462,9 +356,12 @@ based strictly on the following text:
 
 ---
 
-### 2.5 POST `/api/summarize`
+### 2.4 POST `/api/summarize`
 
-Summarizes a YouTube transcript or long document into structured study notes using Gemini.
+Generates **detailed, comprehensive notes** from a YouTube transcript or long document using Gemini. Used as a server-side fallback when the local CLI tool is not used (e.g., manual transcript paste in the PWA).
+
+> [!IMPORTANT]
+> **Detailed notes, not summaries.** Gemini is instructed to capture every concept, definition, example, analogy, formula, and explanation from the source material. The output should be exhaustive enough that a reader can fully understand the topic without referring to the original video or text.
 
 #### Request
 
@@ -502,9 +399,7 @@ Summarizes a YouTube transcript or long document into structured study notes usi
 }
 ```
 
----
-
-### 2.6 POST `/api/chat`
+### 2.5 POST `/api/chat`
 
 AI study assistant that answers questions about note content. Maintains context through conversation history sent from the client.
 
@@ -632,6 +527,7 @@ def call_gemini_with_retry(model, prompt, config, max_retries=3):
 | `NEXT_PUBLIC_MSAL_CLIENT_ID` | Microsoft Entra | Vercel + `.env.local` | App registration client ID  |
 | `NEXT_PUBLIC_MSAL_REDIRECT_URI` | Microsoft Entra | Vercel + `.env.local` | OAuth redirect URI      |
 | `NEXT_PUBLIC_API_URL` | Internal   | Vercel + `.env.local` | API base URL (for absolute URLs)      |
+| `YOUTUBE_NOTES_API_KEY` | Internal | Vercel Dashboard | Shared secret for authenticating local CLI pushes to `/api/youtube-notes` |
 
 > [!IMPORTANT]
 > Variables prefixed with `NEXT_PUBLIC_` are exposed to the browser. **Never** prefix sensitive keys (like `GEMINI_API_KEY`) with `NEXT_PUBLIC_`.
@@ -673,7 +569,7 @@ def call_gemini_with_retry(model, prompt, config, max_retries=3):
 
 ## 6. Dependencies
 
-### 6.1 Python Dependencies
+### 6.1 Python Dependencies (Vercel Serverless)
 
 ```txt
 # api/requirements.txt
@@ -682,18 +578,18 @@ google-generativeai==0.8.0
 
 > [!NOTE]
 > - The `.docx` parser uses only Python standard library modules (`zipfile`, `xml.etree.ElementTree`, `io`, `json`, `re`)
-> - YouTube transcript fetching has moved to a **Node.js API route** (see Section 2.2)
-> - The Python `youtube-transcript-api` package can be added back as a fallback if needed
+> - YouTube transcript fetching and detailed note generation run **locally** via the CLI tool (see Section 2.2)
+> - The `/api/youtube-notes` endpoint only receives and stores pre-processed data
 
-### 6.2 Node.js Dependencies (package.json)
+### 6.2 Python Dependencies (Local CLI Tool)
 
-```json
-{
-  "dependencies": {
-    "youtube-transcript": "^1.2.0"
-  }
-}
+```txt
+# tools/youtube_cli/requirements.txt
+youtube-transcript-api>=0.6.0
+google-generativeai>=0.8.0
+httpx>=0.27.0
+rich>=13.0.0      # CLI progress display
 ```
 
 > [!TIP]
-> The `youtube-transcript` npm package is lightweight (~15 KB) and handles YouTube's transcript XML format natively in Node.js — no Python bridge or subprocess needed.
+> The local CLI tool uses `youtube-transcript-api` for transcript fetching (Python, runs locally with residential IP — no cloud blocking), `google-generativeai` for detailed note generation, `httpx` for pushing results to the Vercel API, and `rich` for beautiful CLI progress output.

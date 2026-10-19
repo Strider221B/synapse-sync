@@ -1,7 +1,7 @@
 # SynapseSync — Deployment & Infrastructure Guide
 
-> **Version:** 1.0  
-> **Date:** 2026-09-10  
+> **Version:** 1.1  
+> **Date:** 2026-10-19  
 > **Status:** Draft  
 
 ---
@@ -94,12 +94,22 @@ Before deploying, register the app with the following services:
 synapse-sync/
 ├── api/                          # ← Vercel detects as Python serverless functions
 │   ├── parse_docx.py
-│   ├── transcript.py
-│   ├── playlist_info.py
+│   ├── youtube_notes.py          # Receives processed notes from local CLI
 │   ├── generate_quiz.py
 │   ├── summarize.py
 │   ├── chat.py
 │   └── requirements.txt         # ← Auto-installed by Vercel
+│
+├── tools/                        # ← Local CLI tools (NOT deployed to Vercel)
+│   └── youtube_cli/
+│       ├── main.py
+│       ├── transcript_fetcher.py
+│       ├── playlist_resolver.py
+│       ├── note_generator.py
+│       ├── server_pusher.py
+│       ├── transcript_cache.py
+│       ├── config.py
+│       └── requirements.txt
 │
 ├── src/                          # ← Next.js source
 │   ├── app/
@@ -136,6 +146,7 @@ vercel env add GEMINI_API_KEY production
 vercel env add NEXT_PUBLIC_MSAL_CLIENT_ID production
 vercel env add NEXT_PUBLIC_MSAL_REDIRECT_URI production
 vercel env add NEXT_PUBLIC_API_URL production
+vercel env add YOUTUBE_NOTES_API_KEY production
 ```
 
 ### 3.2 Environment Variables
@@ -146,6 +157,7 @@ vercel env add NEXT_PUBLIC_API_URL production
 | `NEXT_PUBLIC_MSAL_CLIENT_ID`   | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`       | Same                               |
 | `NEXT_PUBLIC_MSAL_REDIRECT_URI`| `https://synapse-sync.vercel.app`            | `http://localhost:3000`            |
 | `NEXT_PUBLIC_API_URL`          | `https://synapse-sync.vercel.app`            | `http://localhost:3000`            |
+| `YOUTUBE_NOTES_API_KEY`        | `<shared-secret>`                            | Same                               |
 
 ### 3.3 Vercel Configuration File
 
@@ -160,7 +172,7 @@ vercel env add NEXT_PUBLIC_API_URL production
     }
   ],
   "functions": {
-    "api/transcript.py": {
+    "api/youtube_notes.py": {
       "maxDuration": 60,
       "memory": 1024
     },
@@ -179,10 +191,6 @@ vercel env add NEXT_PUBLIC_API_URL production
     "api/parse_docx.py": {
       "maxDuration": 30,
       "memory": 512
-    },
-    "api/playlist_info.py": {
-      "maxDuration": 30,
-      "memory": 512
     }
   },
   "headers": [
@@ -190,8 +198,8 @@ vercel env add NEXT_PUBLIC_API_URL production
       "source": "/api/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
+        { "key": "Access-Control-Allow-Methods", "value": "POST, GET, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
       ]
     },
     {
@@ -227,9 +235,10 @@ vercel ls
 
 | Tool     | Version  | Purpose                          |
 |:---------|:---------|:---------------------------------|
-| Node.js  | 18+      | Next.js runtime                  |
-| Python   | 3.12+    | API function development         |
+| Node.js  | 20+      | Next.js 16 runtime               |
+| Python   | 3.13     | API functions & local CLI tool   |
 | npm      | 9+       | Package management               |
+| uv       | Latest   | Fast Python package management   |
 
 ### 4.2 Setup Steps
 
@@ -241,19 +250,20 @@ cd synapse-sync
 # 2. Install Node.js dependencies
 npm install
 
-# 3. Set up Python virtual environment for API development
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# .venv\Scripts\activate   # Windows
+# 3. Activate the Python virtual environment
+source ~/python_envs/p313_llm/bin/activate
 
-# 4. Install Python dependencies
-pip install -r api/requirements.txt
+# 4. Install Python dependencies for API functions (using uv pip)
+uv pip install -r api/requirements.txt
 
-# 5. Create local environment file
+# 5. Install Python dependencies for local YouTube CLI tool (using uv pip)
+uv pip install -r tools/youtube_cli/requirements.txt
+
+# 6. Create local environment file
 cp .env.example .env.local
 # Edit .env.local with your API keys
 
-# 6. Run development server (Vercel CLI handles both Next.js and Python)
+# 7. Run development server (Vercel CLI handles both Next.js and Python)
 vercel dev
 ```
 
@@ -265,7 +275,27 @@ GEMINI_API_KEY=your_gemini_api_key_here
 NEXT_PUBLIC_MSAL_CLIENT_ID=your_azure_client_id_here
 NEXT_PUBLIC_MSAL_REDIRECT_URI=http://localhost:3000
 NEXT_PUBLIC_API_URL=http://localhost:3000
+YOUTUBE_NOTES_API_KEY=your_shared_secret_here
 ```
+
+### 4.4 Local YouTube CLI Tool Usage
+
+```bash
+# Activate the Python virtual environment
+source ~/python_envs/p313_llm/bin/activate
+
+# Process a single YouTube video
+python -m tools.youtube_cli.main process --url "https://www.youtube.com/watch?v=jGwO_UgTS7I"
+
+# Process a YouTube playlist
+python -m tools.youtube_cli.main process --url "https://www.youtube.com/playlist?list=PLoROMvodv4rMiGQp3WXShtMGgzqpfVfbU"
+
+# Push processed notes to the server
+python -m tools.youtube_cli.main push --notebook-id <id> --server-url https://synapse-sync.vercel.app
+```
+
+> [!TIP]
+> The local CLI tool uses your machine's residential IP to fetch YouTube transcripts, completely avoiding the cloud IP blocking issue that affects Vercel datacenter IPs.
 
 ---
 
@@ -370,13 +400,13 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.13'
       
       - name: Install dependencies
-        run: pip install -r api/requirements.txt flake8
+        run: pip install uv && uv pip install -r api/requirements.txt -r tools/youtube_cli/requirements.txt ruff
       
       - name: Lint Python
-        run: flake8 api/ --max-line-length=120
+        run: ruff check api/ tools/
 ```
 
 ### 6.2 Vercel Auto-Deploy
@@ -436,12 +466,13 @@ Vercel automatically deploys:
 |:-------------------------------------|:-------------------------------|:-------------------------------------------------|
 | `504 Gateway Timeout`                | Function exceeds 60s           | Reduce payload size; split into micro-requests   |
 | `429 Too Many Requests` from Gemini  | Rate limit exceeded            | Increase delay between requests; check quotas    |
-| YouTube transcript returns empty     | Cloud IP blocked by YouTube    | Retry with backoff; consider proxy service        |
+| YouTube transcript returns empty     | Video has no captions          | Use manual paste fallback in PWA                  |
 | OneDrive login fails                 | Redirect URI mismatch          | Verify redirect URI in Entra matches exactly      |
 | PWA not installing                   | Missing manifest fields        | Verify all required PWA manifest fields present   |
 | IndexedDB quota exceeded             | Too much cached data           | Implement data pruning for old notes/chats       |
 | CORS errors on API calls             | Missing CORS headers           | Check `vercel.json` headers configuration         |
 | Python function "module not found"   | Missing from `requirements.txt`| Add dependency to `api/requirements.txt`          |
+| Local CLI fails to push to server    | Invalid API key or server URL  | Verify `YOUTUBE_NOTES_API_KEY` matches on both sides |
 
 ### 9.2 Useful Debug Commands
 

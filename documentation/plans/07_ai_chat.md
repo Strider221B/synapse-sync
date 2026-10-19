@@ -2,7 +2,7 @@
 
 > **Priority:** P0  
 > **Depends On:** Epic 1 (Project Foundation), Epic 2 (Data Layer), Epic 3 (Notes)  
-> **Design Refs:** [Product Requirements §3.5](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/01_product_requirements.md), [API Specs §2.6](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/04_api_specifications.md)  
+> **Design Refs:** [Product Requirements §3.5](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/01_product_requirements.md), [API Specs §2.5](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/04_api_specifications.md)  
 > **Coding Standards:** [coding_standards.md](file:///home/somesh/git_repos/synapse-sync/documentation/prompts/coding_standards.md)
 
 ---
@@ -36,6 +36,7 @@ Enable users to ask AI-powered questions about their notes, get explanations of 
   - Calls Gemini and returns: `{ answer, metadata: { model, inputTokens, outputTokens } }`
 - Use the `GeminiService.call_with_retry()` utility for retry logic
 - Handle errors: missing fields (400), rate limited (429), failure (500)
+- Refer to [API Specs §2.5](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/04_api_specifications.md) for the exact implementation
 - **Python virtual env:** `source ~/python_envs/p313_llm/bin/activate`
 
 **Task 7.1.2 — Design the chat system prompts**

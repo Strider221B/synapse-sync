@@ -56,7 +56,7 @@ Make SynapseSync installable on mobile home screens, cache the app shell for ins
 ### Tasks
 
 **Task 8.2.1 — Install and configure Serwist (PWA tooling for Next.js)**
-- Run `npm install @serwist/next` and `npm install --save-dev serwist`
+- Run `npm install @serwist/next@9.5.13` and `npm install --save-dev serwist@9.5.13`
 - Serwist is the maintained successor to `next-pwa` for Next.js App Router
 - Configure in `next.config.js`:
   - Enable Serwist plugin

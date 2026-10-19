@@ -1,7 +1,7 @@
 # SynapseSync — Product Requirements Document (PRD)
 
-> **Version:** 1.0  
-> **Date:** 2026-09-10  
+> **Version:** 1.1  
+> **Date:** 2026-10-19  
 > **Status:** Draft  
 
 ---
@@ -38,19 +38,20 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 | NM-07 | Full-text search across all cached notes                                                        | P1       |
 | NM-08 | Edit / annotate notes inline and sync changes back to OneDrive                                  | P2       |
 
-### 3.2 YouTube Transcript Ingestion
+### 3.2 YouTube Transcript Ingestion (Local-First Pipeline)
 
 | ID    | Requirement                                                                                     | Priority |
 |:------|:------------------------------------------------------------------------------------------------|:---------|
-| YT-01 | **Primary path:** Accept a single YouTube URL → fetch transcript via Next.js API route (Node.js) using `youtube-transcript` npm package | P0       |
-| YT-02 | **Fallback path:** Allow user to manually paste a transcript (for when server-side fetch is blocked) | P0       |
-| YT-03 | Accept a YouTube playlist URL → resolve individual video URLs on the frontend                   | P0       |
-| YT-04 | Process playlist videos **one at a time** (micro-request pattern) to stay within 60 s timeout   | P0       |
-| YT-05 | Summarize each transcript into structured notes via Gemini                                      | P0       |
-| YT-06 | Auto-create one Notebook per playlist, one note per video                                       | P1       |
-| YT-07 | Show progress indicator during playlist ingestion                                               | P1       |
-| YT-08 | Implement retry logic + exponential backoff for transient IP blocking                           | P1       |
-| YT-09 | Cache fetched transcripts in IndexedDB — never re-fetch the same video                          | P1       |
+| YT-01 | **Local processing:** Transcript fetching and note generation run on the developer's local machine via a Python CLI tool using `youtube-transcript-api` | P0       |
+| YT-02 | **Local Gemini note generation:** Gemini generates **detailed, comprehensive notes** (not summaries) from each transcript locally — capturing every concept, example, definition, and explanation from the video | P0       |
+| YT-03 | **Server push:** After local processing completes, the final notes (notebooks + individual notes) are pushed to the Vercel server via a REST API endpoint for storage and access by the PWA | P0       |
+| YT-04 | Accept a YouTube playlist URL → resolve individual video URLs locally                           | P0       |
+| YT-05 | Process playlist videos **one at a time** locally (no timeout constraints — runs on local machine) | P0       |
+| YT-06 | Auto-create one Notebook per playlist, one detailed note per video                              | P1       |
+| YT-07 | Show progress output in CLI during local playlist processing                                    | P1       |
+| YT-08 | Implement retry logic + exponential backoff for transient failures (Gemini rate limits, network) | P1       |
+| YT-09 | Cache fetched transcripts locally — never re-fetch the same video                               | P1       |
+| YT-10 | **Fallback path:** Allow user to manually paste a transcript in the PWA UI (for individual videos not processed locally) | P2       |
 
 ### 3.3 AI-Powered Quiz & Flashcard Generation
 
@@ -146,15 +147,16 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 | Throttling         | 429 responses with `retry-after` header       |
 | Cost               | Free (included with Microsoft account)        |
 
-### 5.4 YouTube Transcripts
+### 5.4 YouTube Transcripts (Local-First Processing)
 
 | Constraint            | Detail                                        | Mitigation                                    |
 |:----------------------|:----------------------------------------------|:----------------------------------------------|
-| Library               | `youtube-transcript` (Node.js npm package)    | Runs in Next.js API route (same Vercel deploy)|
-| CORS restriction      | Browser **cannot** fetch YouTube directly (CORS blocked) | Must proxy through server-side API route  |
-| Cloud IP blocking     | YouTube may block Vercel data-center IPs      | Retry + backoff; manual paste fallback; cache transcripts in IndexedDB |
-| Timeout               | Long playlists exceed 60 s                    | Frontend loops one-video-at-a-time            |
-| Python `youtube-transcript-api` | Originally planned; still available as alternative | Can be used if Node.js route is insufficient; deployed as `/api/transcript.py` |
+| Library               | `youtube-transcript-api` (Python)             | Runs locally on developer's machine — no cloud IP blocking |
+| CORS restriction      | N/A — transcripts are fetched locally, not from the browser | Local processing eliminates CORS concerns entirely |
+| Cloud IP blocking     | **Eliminated** — local machine uses residential IP | No mitigation needed; local IPs are not blocked by YouTube |
+| Timeout               | **Eliminated** — no 60s serverless timeout    | Local CLI runs without time constraints       |
+| Gemini rate limits    | Free tier ~15-30 RPM                          | Local CLI queues requests with delay; retry + exponential backoff |
+| Server push           | Final notes must be pushed to Vercel API      | Dedicated `/api/youtube-notes` endpoint receives processed data |
 
 ---
 
