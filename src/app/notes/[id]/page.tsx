@@ -277,7 +277,10 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
               color: 'var(--color-text-primary)',
               fontSize: '0.825rem',
               fontWeight: 600,
+              textDecoration: 'none',
+              transition: 'all var(--transition-fast)',
             }}
+            data-testid="ask-ai-button"
           >
             <span>💬</span> Ask AI Tutor
           </Link>
