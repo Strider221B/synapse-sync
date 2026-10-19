@@ -45,9 +45,6 @@ export function ChatInterface({ noteId, noteTitle, noteContent }: ChatInterfaceP
   // Load chat history for the active note
   useEffect(() => {
     let active = true;
-    setIsHistoryLoading(true);
-    setErrorMessage(null);
-
     const dbService = new DatabaseService();
     const chatService = new ChatMessageService(dbService);
 
@@ -87,33 +84,20 @@ export function ChatInterface({ noteId, noteTitle, noteContent }: ChatInterfaceP
     const dbService = new DatabaseService();
     const chatService = new ChatMessageService(dbService);
 
-    // Optimistically create and save user message
-    let savedUserMessage: ChatMessage;
     try {
-      savedUserMessage = await chatService.create(noteId, 'user', questionText);
-    } catch {
-      savedUserMessage = {
-        id: `temp-${Date.now()}`,
-        noteId,
-        role: 'user',
-        content: questionText,
-        timestamp: new Date().toISOString(),
-      };
-    }
+      const savedUserMessage = await chatService.create(noteId, 'user', questionText);
+      const currentConversation = [...messages, savedUserMessage];
+      setMessages(currentConversation);
+      setIsLoading(true);
 
-    const currentConversation = [...messages, savedUserMessage];
-    setMessages(currentConversation);
-    setIsLoading(true);
+      // Prepare bounded conversation history for API
+      const historyPayload = currentConversation
+        .slice(-MAX_HISTORY_FOR_API)
+        .map((msg) => ({
+          role: msg.role,
+          content: msg.content,
+        }));
 
-    // Prepare bounded conversation history for API
-    const historyPayload = currentConversation
-      .slice(-MAX_HISTORY_FOR_API)
-      .map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
-
-    try {
       const client = new ApiClient();
       const response = await client.post<ChatApiResponse>('/api/chat', {
         noteContext: noteContent,
@@ -122,20 +106,7 @@ export function ChatInterface({ noteId, noteTitle, noteContent }: ChatInterfaceP
         mode: selectedMode,
       });
 
-      // Save AI answer to database
-      let savedAssistantMessage: ChatMessage;
-      try {
-        savedAssistantMessage = await chatService.create(noteId, 'assistant', response.answer);
-      } catch {
-        savedAssistantMessage = {
-          id: `temp-${Date.now() + 1}`,
-          noteId,
-          role: 'assistant',
-          content: response.answer,
-          timestamp: new Date().toISOString(),
-        };
-      }
-
+      const savedAssistantMessage = await chatService.create(noteId, 'assistant', response.answer);
       setMessages((prev) => [...prev, savedAssistantMessage]);
     } catch (err: unknown) {
       console.error('Chat API invocation failed:', err);
