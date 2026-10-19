@@ -10,10 +10,14 @@
     "test": "tsx --test"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.25.1",
+    "@azure/msal-react": "^5.7.2",
     "idb": "^8.0.4",
     "next": "16.4.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "uuid": "^14.0.3"
   },
   "devDependencies": {

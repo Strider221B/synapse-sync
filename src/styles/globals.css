@@ -257,3 +257,118 @@ button {
     padding: var(--space-4);
   }
 }
+
+/* ==========================================================================
+   Markdown Reader Typography Styles
+   ========================================================================== */
+
+.markdown-body {
+  color: var(--color-text-primary);
+  line-height: 1.75;
+  font-size: 1rem;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  color: var(--color-text-primary);
+  font-weight: 700;
+  margin-top: 1.75rem;
+  margin-bottom: 0.85rem;
+  letter-spacing: -0.02em;
+}
+
+.markdown-body h1 {
+  font-size: 1.85rem;
+  border-bottom: 1px solid var(--color-surface-border);
+  padding-bottom: 0.5rem;
+}
+
+.markdown-body h2 {
+  font-size: 1.45rem;
+  border-bottom: 1px solid var(--color-surface-border-subtle);
+  padding-bottom: 0.35rem;
+}
+
+.markdown-body h3 {
+  font-size: 1.2rem;
+}
+
+.markdown-body p {
+  margin-bottom: 1.25rem;
+  color: var(--color-text-secondary);
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin-bottom: 1.25rem;
+  padding-left: 1.5rem;
+  color: var(--color-text-secondary);
+}
+
+.markdown-body li {
+  margin-bottom: 0.35rem;
+}
+
+.markdown-body pre {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-surface-border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  overflow-x: auto;
+  margin-bottom: 1.5rem;
+}
+
+.markdown-body code {
+  font-family: var(--font-family-mono);
+  font-size: 0.875em;
+  background: var(--color-surface-raised);
+  padding: 0.15rem 0.35rem;
+  border-radius: var(--radius-sm);
+  color: #a5b4fc;
+}
+
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+  color: #e2e8f0;
+}
+
+.markdown-body blockquote {
+  border-left: 3px solid var(--color-primary);
+  padding-left: 1rem;
+  margin: 1.25rem 0;
+  color: var(--color-text-muted);
+  font-style: italic;
+  background: var(--color-primary-light);
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.markdown-body th,
+.markdown-body td {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-surface-border);
+  text-align: left;
+}
+
+.markdown-body th {
+  background: var(--color-surface-raised);
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.markdown-body td {
+  color: var(--color-text-secondary);
+}
+
