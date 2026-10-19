@@ -21,6 +21,7 @@ export const viewport: Viewport = {
 };
 
 import { MsalProviderWrapper } from "@/components/auth/MsalProviderWrapper";
+import { ReviewNavBadge } from "@/components/review/ReviewNavBadge";
 
 export default function RootLayout({
   children,
@@ -93,6 +94,7 @@ export default function RootLayout({
               >
                 {[
                   { label: "Dashboard", href: "/", icon: "🏠" },
+                  { label: "Daily Review", href: "/review", icon: "🧠", hasBadge: true },
                   { label: "Study Notes", href: "/notes", icon: "📚" },
                   { label: "YouTube Notes", href: "/youtube", icon: "▶️" },
                   { label: "Import Notes", href: "/notes/import", icon: "📥" },
@@ -121,6 +123,7 @@ export default function RootLayout({
                   >
                     <span style={{ fontSize: "1.1rem" }}>{item.icon}</span>
                     <span>{item.label}</span>
+                    {item.hasBadge && <ReviewNavBadge />}
                   </a>
                 ))}
               </nav>

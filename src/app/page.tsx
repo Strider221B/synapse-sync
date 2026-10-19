@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { SRSDashboardWidget } from "@/components/review/SRSDashboardWidget";
+
 export default function Home() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
@@ -72,9 +75,9 @@ export default function Home() {
           </p>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
-            <button
+            <Link
               id="cta-import-video"
-              type="button"
+              href="/youtube"
               style={{
                 padding: "0.75rem 1.5rem",
                 borderRadius: "var(--radius-md)",
@@ -86,14 +89,15 @@ export default function Home() {
                 alignItems: "center",
                 gap: "0.5rem",
                 boxShadow: "var(--shadow-glow)",
+                textDecoration: "none",
                 transition: "background var(--transition-fast)",
               }}
             >
               <span>🎬</span> Import YouTube Lecture
-            </button>
-            <button
+            </Link>
+            <Link
               id="cta-take-quiz"
-              type="button"
+              href="/review"
               style={{
                 padding: "0.75rem 1.5rem",
                 borderRadius: "var(--radius-md)",
@@ -105,13 +109,19 @@ export default function Home() {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "0.5rem",
+                textDecoration: "none",
                 transition: "all var(--transition-fast)",
               }}
             >
-              <span>📝</span> Review Due Cards
-            </button>
+              <span>🧠</span> Review Due Cards
+            </Link>
           </div>
         </div>
+      </section>
+
+      {/* Spaced Repetition Interactive Dashboard Widget */}
+      <section>
+        <SRSDashboardWidget />
       </section>
 
       {/* Feature Architecture Cards */}
