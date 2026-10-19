@@ -1,14 +1,14 @@
 # SynapseSync — System Architecture Document
 
-> **Version:** 1.0  
-> **Date:** 2026-09-10  
+> **Version:** 1.1  
+> **Date:** 2026-10-19  
 > **Status:** Draft  
 
 ---
 
 ## 1. Architecture Overview
 
-SynapseSync follows an **offline-first, client-heavy architecture** where the browser (PWA) is the primary runtime and Vercel Python serverless functions serve as lightweight, stateless processing endpoints.
+SynapseSync follows an **offline-first, client-heavy architecture** where the browser (PWA) is the primary runtime, Vercel Python serverless functions serve as lightweight stateless processing endpoints, and a **local Python CLI tool** handles YouTube transcript fetching and detailed note generation on the developer's machine.
 
 ```mermaid
 graph TB
@@ -17,13 +17,12 @@ graph TB
         PHONE["📱 Phone Browser (PWA)"]
     end
 
-    subgraph "Vercel Edge Network"
-        CDN["Vercel CDN<br/>Static Assets + App Shell"]
+    subgraph "Developer's Local Machine"
+        CLI["🐍 YouTube CLI Tool<br/>(Python)<br/>Transcript Fetch + Detailed Note Generation"]
     end
 
-    subgraph "Vercel Serverless — Node.js (Next.js API Routes)"
-        FN_TRANSCRIPT["/api/transcript<br/>YouTube Transcript Fetcher<br/>(youtube-transcript npm)"]
-        FN_PLAYLIST["/api/playlist-info<br/>YouTube Playlist Resolver"]
+    subgraph "Vercel Edge Network"
+        CDN["Vercel CDN<br/>Static Assets + App Shell"]
     end
 
     subgraph "Vercel Serverless — Python Functions"
@@ -31,12 +30,13 @@ graph TB
         FN_QUIZ["/api/generate-quiz<br/>Quiz Generator"]
         FN_SUMMARIZE["/api/summarize<br/>Note Summarizer"]
         FN_CHAT["/api/chat<br/>AI Study Assistant"]
+        FN_YT_NOTES["/api/youtube-notes<br/>Receives Processed Notes<br/>(from local CLI)"]
     end
 
     subgraph "External Services"
         ONEDRIVE["Microsoft OneDrive<br/>(Graph API)"]
         GEMINI["Google Gemini API<br/>(Free Tier)"]
-        YOUTUBE["YouTube<br/>(Transcript Scraping)"]
+        YOUTUBE["YouTube<br/>(Transcript Source)"]
     end
 
     subgraph "Client-Side Storage"
@@ -50,15 +50,15 @@ graph TB
     CDN --> LAPTOP
     CDN --> PHONE
 
-    LAPTOP --> FN_TRANSCRIPT
-    LAPTOP --> FN_PLAYLIST
     LAPTOP --> FN_PARSE
     LAPTOP --> FN_QUIZ
     LAPTOP --> FN_SUMMARIZE
     LAPTOP --> FN_CHAT
 
-    FN_TRANSCRIPT --> YOUTUBE
-    FN_PLAYLIST --> YOUTUBE
+    CLI --> YOUTUBE
+    CLI --> GEMINI
+    CLI -->|"Push processed notes"| FN_YT_NOTES
+
     FN_QUIZ --> GEMINI
     FN_SUMMARIZE --> GEMINI
     FN_CHAT --> GEMINI
@@ -154,52 +154,68 @@ graph LR
 | Quiz taking & scoring        | Entirely client-side; results stored in IndexedDB                       |
 | SM-2 algorithm execution     | Pure client-side computation — no server roundtrip needed               |
 | Offline data management      | IndexedDB as primary store; sync queue for pending operations           |
-| YouTube playlist orchestration | Frontend loops through video URLs, calling `/api/transcript` per video |
+| YouTube playlist orchestration | Handled by local Python CLI tool; PWA displays results after push to server |
+| YouTube note viewing          | PWA fetches processed notes from server; displays in reader view           |
 
-### 3.2 Backend: Hybrid Node.js + Python Serverless Functions
+### 3.2 Backend: Python Serverless Functions + Local CLI Tool
 
-The backend uses a **hybrid runtime strategy**: YouTube transcript fetching runs as a **Next.js API route (Node.js)** using the `youtube-transcript` npm package, while AI processing and document parsing run as **Python serverless functions**.
+The backend uses **Python serverless functions** on Vercel for AI processing, document parsing, and receiving YouTube notes. YouTube transcript fetching and detailed note generation run on the **developer's local machine** via a Python CLI tool, completely eliminating cloud IP blocking and serverless timeout constraints.
 
 > [!IMPORTANT]
-> **Why Node.js for YouTube transcripts?** Direct client-side browser fetching from YouTube is **blocked by CORS** — browsers refuse cross-origin requests to YouTube's transcript endpoints. The request must be proxied through a server-side route. Using a Next.js API route (Node.js) keeps the transcript logic in the same deployment as the frontend, while still using the user's Vercel deployment as the proxy.
+> **Why local processing for YouTube?** YouTube aggressively blocks cloud/datacenter IPs from scraping transcripts. By running the transcript fetch on a local machine (residential IP), blocking is eliminated entirely. Local processing also removes the 60-second Vercel timeout constraint, allowing Gemini to generate **detailed, comprehensive notes** without rushing. The final processed notes are pushed to a Vercel API endpoint for the PWA to consume.
 
-Each function is a **micro-scoped, stateless endpoint** that performs one focused task and returns structured JSON.
+Each serverless function is a **micro-scoped, stateless endpoint** that performs one focused task and returns structured JSON.
 
 ```mermaid
 graph TD
-    subgraph "API Layer — /api/"
+    subgraph "API Layer — /api/ (Vercel)"
         direction TB
         
         subgraph "Document Processing (Python)"
             PARSE["/api/parse-docx<br/>POST • Max 60s<br/>Input: .docx binary<br/>Output: extracted text"]
         end
 
-        subgraph "YouTube Processing (Node.js — Next.js API Routes)"
-            TRANSCRIPT["/api/transcript<br/>POST • Max 60s<br/>Input: video_url<br/>Output: transcript text"]
-            PLAYLIST["/api/playlist-info<br/>POST • Max 60s<br/>Input: playlist_url<br/>Output: video URL list"]
+        subgraph "YouTube Notes Receiver (Python)"
+            YT_NOTES["/api/youtube-notes<br/>POST • Max 60s<br/>Input: processed notes from local CLI<br/>Output: stored notebook + notes"]
         end
 
         subgraph "AI Processing — Gemini (Python)"
             QUIZ_GEN["/api/generate-quiz<br/>POST • Max 60s<br/>Input: text chunk<br/>Output: MCQs + Flashcards JSON"]
-            SUMMARIZE_EP["/api/summarize<br/>POST • Max 60s<br/>Input: transcript text<br/>Output: structured notes"]
+            SUMMARIZE_EP["/api/summarize<br/>POST • Max 60s<br/>Input: transcript text<br/>Output: detailed notes"]
             CHAT_EP["/api/chat<br/>POST • Max 60s<br/>Input: context + question<br/>Output: AI response"]
         end
     end
+
+    subgraph "Local CLI Tool (Python — Developer's Machine)"
+        direction TB
+        FETCH["Fetch transcript<br/>(youtube-transcript-api)"]
+        GENERATE["Generate detailed notes<br/>(Gemini API — local call)"]
+        PUSH["Push to server<br/>(POST /api/youtube-notes)"]
+        FETCH --> GENERATE --> PUSH
+    end
 ```
 
-#### Endpoint Specifications
+#### Endpoint Specifications (Vercel)
 
-| Endpoint              | Runtime   | Method | Input                         | Output                          | Gemini? | Max Time |
-|:----------------------|:----------|:-------|:------------------------------|:--------------------------------|:--------|:---------|
-| `/api/parse-docx`     | Python    | POST   | `.docx` file (multipart)     | `{ text: string }`             | No      | ~5s      |
-| `/api/transcript`     | **Node.js** | POST | `{ videoUrl: string }`       | `{ transcript: string, title }` | No      | ~15s     |
-| `/api/playlist-info`  | **Node.js** | POST | `{ playlistUrl: string }`    | `{ videos: [{url, title}] }`   | No      | ~10s     |
-| `/api/generate-quiz`  | Python    | POST   | `{ text: string }`           | `{ mcqs: [], flashcards: [] }` | Yes     | ~20s     |
-| `/api/summarize`      | Python    | POST   | `{ text: string }`           | `{ notes: string }`            | Yes     | ~15s     |
-| `/api/chat`           | Python    | POST   | `{ context, question, history }` | `{ answer: string }`       | Yes     | ~10s     |
+| Endpoint              | Runtime   | Method | Input                                            | Output                          | Gemini? | Max Time |
+|:----------------------|:----------|:-------|:-------------------------------------------------|:--------------------------------|:--------|:---------|
+| `/api/parse-docx`     | Python    | POST   | `.docx` file (multipart)                         | `{ text: string }`             | No      | ~5s      |
+| `/api/youtube-notes`  | Python    | POST   | `{ notebook, notes[] }` (from local CLI)         | `{ notebookId, noteIds[] }`    | No      | ~10s     |
+| `/api/generate-quiz`  | Python    | POST   | `{ text: string }`                               | `{ mcqs: [], flashcards: [] }` | Yes     | ~20s     |
+| `/api/summarize`      | Python    | POST   | `{ text: string }`                               | `{ notes: string }`            | Yes     | ~15s     |
+| `/api/chat`           | Python    | POST   | `{ context, question, history }`                 | `{ answer: string }`           | Yes     | ~10s     |
+
+#### Local CLI Tool Specifications
+
+| Operation               | Library/Tool                  | Input                           | Output                                | Gemini? | Timeout  |
+|:------------------------|:------------------------------|:--------------------------------|:--------------------------------------|:--------|:---------|
+| Fetch transcript        | `youtube-transcript-api` (Python) | YouTube video URL              | Raw transcript text                   | No      | None (local) |
+| Resolve playlist        | `youtube-transcript-api` / HTTP | YouTube playlist URL            | List of `{ videoId, title, url }`     | No      | None (local) |
+| Generate detailed notes | `google-generativeai` (Python)  | Raw transcript text             | Detailed markdown notes               | Yes     | None (local) |
+| Push to server          | `requests` / `httpx` (Python)   | Notebook + notes payload        | Server confirmation                   | No      | None (local) |
 
 > [!NOTE]
-> **Manual paste fallback:** If the Node.js transcript endpoint fails (due to YouTube IP blocking), the UI provides a text area for users to manually paste a transcript. The raw text is then sent directly to `/api/summarize` for AI processing.
+> **Manual paste fallback:** The PWA still provides a text area for users to manually paste a transcript for individual videos not processed via the local CLI. The pasted text is sent to `/api/summarize` for server-side AI processing.
 
 ### 3.3 Offline-First Data Layer
 
@@ -291,44 +307,47 @@ sequenceDiagram
     PWA->>User: Display note in reader view
 ```
 
-### 5.2 YouTube → Notes Flow (Dual-Path)
+### 5.2 YouTube → Notes Flow (Local-First Pipeline)
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant PWA
-    participant PL_API as /api/playlist-info (Node.js)
-    participant TR_API as /api/transcript (Node.js)
-    participant SUM_API as /api/summarize (Python)
+    participant Dev as Developer (Local Machine)
+    participant CLI as YouTube CLI Tool (Python)
+    participant YT as YouTube
+    participant Gemini as Google Gemini API
+    participant API as /api/youtube-notes (Vercel)
+    participant PWA as SynapseSync PWA
     participant IDB as IndexedDB
 
-    User->>PWA: Paste playlist URL
-    PWA->>PL_API: POST { playlistUrl }
-    PL_API->>PWA: { videos: [{url, title}, ...] }
-    PWA->>IDB: Create notebook + check cached transcripts
+    Dev->>CLI: Run: synapse-yt process <playlist_url>
+    CLI->>YT: Resolve playlist → get video list
+    YT->>CLI: { videos: [{videoId, title}, ...] }
 
-    loop For each video (sequential)
-        PWA->>IDB: Check transcript cache
+    loop For each video (sequential, no timeout)
+        CLI->>CLI: Check local transcript cache
         alt Cached transcript exists
-            IDB->>PWA: Return cached transcript
-        else Not cached — fetch from server
-            PWA->>TR_API: POST { videoUrl }
-            alt Success
-                TR_API->>PWA: { transcript, title }
-                PWA->>IDB: Cache transcript
-            else Blocked (429/403)
-                TR_API->>PWA: Error: REQUEST_BLOCKED
-                PWA->>User: "Auto-fetch failed. Paste transcript manually?"
-                User->>PWA: Pastes transcript text
-            end
+            CLI->>CLI: Load from local cache
+        else Not cached
+            CLI->>YT: Fetch transcript (residential IP)
+            YT->>CLI: Raw transcript text
+            CLI->>CLI: Cache transcript locally
         end
-        PWA->>SUM_API: POST { text: transcript }
-        SUM_API->>PWA: { notes: "structured summary" }
-        PWA->>IDB: Store note in notebook
-        PWA->>User: Update progress (3/15 videos...)
+        CLI->>Gemini: Generate detailed notes from transcript
+        Note over CLI,Gemini: Detailed notes: every concept,<br/>example, definition, explanation<br/>captured in structured markdown
+        Gemini->>CLI: Comprehensive detailed notes (markdown)
+        CLI->>Dev: Progress: "Video 3/20 processed"
     end
 
-    PWA->>User: "Notebook ready! 15 notes created."
+    CLI->>API: POST /api/youtube-notes<br/>{ notebook, notes[] }
+    API->>API: Validate and store
+    API->>CLI: { notebookId, noteIds[] }
+    CLI->>Dev: "✅ Notebook pushed to server. 20 detailed notes created."
+
+    Note over PWA,IDB: Later... user opens PWA
+    PWA->>API: GET /api/youtube-notes/{notebookId}
+    API->>PWA: { notebook, notes[] }
+    PWA->>IDB: Cache notebook + notes locally
+    PWA->>PWA: Display detailed notes in reader view
 ```
 
 ### 5.3 Quiz Generation & SRS Flow
@@ -370,19 +389,27 @@ synapse-sync/
 ├── api/                              # Vercel Python Serverless Functions
 │   ├── parse_docx.py                 # .docx text extraction
 │   ├── generate_quiz.py              # Gemini quiz generation
-│   ├── summarize.py                  # Gemini note summarization
+│   ├── summarize.py                  # Gemini note summarization (for manual paste fallback)
 │   ├── chat.py                       # Gemini study assistant
+│   ├── youtube_notes.py              # Receives processed YouTube notes from local CLI
 │   └── requirements.txt              # Python dependencies
+│
+├── tools/                            # Local CLI Tools (run on developer machine)
+│   └── youtube_cli/                  # YouTube transcript + note generation CLI
+│       ├── __init__.py
+│       ├── main.py                   # CLI entry point
+│       ├── transcript_fetcher.py     # Fetches transcripts via youtube-transcript-api
+│       ├── playlist_resolver.py      # Resolves playlist URLs to video lists
+│       ├── note_generator.py         # Generates detailed notes via Gemini
+│       ├── server_pusher.py          # Pushes processed notes to Vercel API
+│       ├── transcript_cache.py       # Local file-based transcript cache
+│       ├── config.py                 # CLI configuration constants
+│       └── requirements.txt          # Python dependencies for CLI tool
 │
 ├── src/                              # Next.js Frontend Source
 │   ├── app/                          # App Router pages
 │   │   ├── layout.tsx                # Root layout + PWA meta
 │   │   ├── page.tsx                  # Dashboard / Home
-│   │   ├── api/                      # Next.js API Routes (Node.js)
-│   │   │   ├── transcript/
-│   │   │   │   └── route.ts          # YouTube transcript fetcher (Node.js)
-│   │   │   └── playlist-info/
-│   │   │       └── route.ts          # YouTube playlist resolver (Node.js)
 │   │   ├── notes/
 │   │   │   ├── page.tsx              # Notes listing
 │   │   │   └── [id]/page.tsx         # Note reader view
@@ -392,7 +419,7 @@ synapse-sync/
 │   │   ├── review/
 │   │   │   └── page.tsx              # SRS daily review queue
 │   │   ├── youtube/
-│   │   │   └── page.tsx              # YouTube import page
+│   │   │   └── page.tsx              # YouTube notes viewer (displays notes pushed from CLI)
 │   │   ├── chat/
 │   │   │   └── page.tsx              # AI study assistant
 │   │   └── settings/
@@ -412,7 +439,7 @@ synapse-sync/
 │   │   │   ├── FlashCard.tsx
 │   │   │   └── QuizResults.tsx
 │   │   ├── youtube/
-│   │   │   ├── PlaylistImporter.tsx   # Playlist URL input + progress
+│   │   │   ├── YouTubeNotesViewer.tsx # Displays notes generated by local CLI
 │   │   │   └── TranscriptPaster.tsx   # Manual paste fallback UI
 │   │   ├── review/
 │   │   │   ├── ReviewCard.tsx
@@ -448,11 +475,11 @@ synapse-sync/
 │
 ├── vercel.json                       # Vercel deployment configuration
 ├── next.config.js                    # Next.js configuration
-├── package.json                      # Includes youtube-transcript npm dep
+├── package.json
 ├── tsconfig.json
 └── documentation/
     ├── prompts/
-    │   └── 000_high_level.md
+    │   └── coding_standards.md
     └── design/
         └── high_level/
             ├── 01_product_requirements.md
@@ -476,10 +503,10 @@ synapse-sync/
 | **Offline Storage**  | IndexedDB via `idb`         | Structured client-side storage; large capacity             |
 | **Auth Library**     | MSAL.js v2                  | Official Microsoft OAuth library; handles PKCE             |
 | **Backend Runtime (AI/Parsing)** | Python 3.12 on Vercel | User requirement; Gemini SDK + docx parsing              |
-| **Backend Runtime (YouTube)**    | Node.js (Next.js API Routes) | `youtube-transcript` npm; avoids Python cloud-IP issues |
+| **Local CLI Tool (YouTube)** | Python 3.13 (local machine) | Transcript fetch + detailed note generation; residential IP avoids blocking |
 | **Doc Parsing**      | Python stdlib (`zipfile` + `xml`) | Zero dependencies; fast; reliable                    |
-| **YouTube Transcripts** | `youtube-transcript` (npm) + `youtube-transcript-api` (Python fallback) | Dual-path: Node.js primary, Python backup; manual paste fallback |
-| **AI Model**         | Google Gemini (Flash)       | Free tier; structured output; fast responses               |
+| **YouTube Transcripts** | `youtube-transcript-api` (Python, local) | Runs locally; no cloud IP blocking; no timeout constraints |
+| **AI Model**         | Google Gemini (Flash)       | Free tier; structured output; fast responses; used both locally (notes) and on Vercel (quiz/chat) |
 | **Deployment**       | Vercel (Hobby tier)         | Free; auto-deploy from Git; edge CDN                       |
 
 ---

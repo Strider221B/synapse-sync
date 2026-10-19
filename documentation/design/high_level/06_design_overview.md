@@ -1,7 +1,7 @@
 # SynapseSync — Design Overview & Architectural Decisions
 
-> **Version:** 1.0  
-> **Date:** 2026-09-10  
+> **Version:** 1.1  
+> **Date:** 2026-10-19  
 > **Status:** Draft  
 
 ---
@@ -27,17 +27,20 @@ graph TB
         PHONE["📱 Phone (PWA)"]
     end
 
+    subgraph "💻 Developer's Local Machine"
+        CLI["🐍 YouTube CLI Tool<br/>(Python)<br/>Transcript + Detailed Notes"]
+    end
+
     subgraph "☁️ Vercel (Free Tier)"
         direction TB
         CDN["🌐 Edge CDN<br/>Static Assets"]
         
         subgraph "🐍 Python Serverless Functions"
             FN1["📄 /api/parse-docx"]
-            FN2["🎬 /api/transcript"]
-            FN3["📋 /api/playlist-info"]
             FN4["🧠 /api/generate-quiz"]
             FN5["📝 /api/summarize"]
             FN6["💬 /api/chat"]
+            FN7["📺 /api/youtube-notes<br/>(receives from CLI)"]
         end
     end
 
@@ -53,9 +56,11 @@ graph TB
     end
 
     LAPTOP & PHONE <--> CDN
-    LAPTOP & PHONE <--> FN1 & FN2 & FN3 & FN4 & FN5 & FN6
+    LAPTOP & PHONE <--> FN1 & FN4 & FN5 & FN6
     LAPTOP & PHONE <-->|"OAuth PKCE<br/>(Direct)"| GRAPH
-    FN2 & FN3 --> YT
+    CLI --> YT
+    CLI --> GEMINI
+    CLI -->|"Push detailed notes"| FN7
     FN4 & FN5 & FN6 --> GEMINI
     LAPTOP & PHONE --- IDB & SW
 ```
@@ -91,32 +96,32 @@ graph TB
 | **Rationale**| SPA registration requires no client secret; simpler architecture; reduces backend complexity; more secure (tokens don't traverse an intermediary) |
 | **Tradeoff**| Must handle token refresh logic in the frontend; requires CORS-compatible API calls |
 
-### ADR-04: Hybrid Python + Node.js Backend on Vercel
+### ADR-04: Pure Python Backend + Local CLI Tool
 
 | Aspect     | Decision                                                                  |
 |:-----------|:--------------------------------------------------------------------------|
-| **Context**| User requires Python backend; YouTube transcript fetching needs server-side proxy (CORS blocks browser-direct); `youtube-transcript` npm is lighter than Python equivalent |
-| **Decision**| **Hybrid runtime:** Python serverless functions for AI processing (Gemini) and document parsing; **Next.js API routes (Node.js)** for YouTube transcript/playlist fetching |
-| **Rationale**| Python satisfies user requirement for AI/parsing endpoints; Node.js transcript route integrates naturally with Next.js and avoids Python cold-start overhead for YouTube calls; `youtube-transcript` npm is lightweight (~15 KB) |
-| **Tradeoff**| Two runtimes increase deployment complexity slightly; must maintain both `requirements.txt` and `package.json` dependencies |
+| **Context**| User requires Python backend; YouTube transcript fetching from cloud IPs gets blocked by YouTube; Gemini needs unrestricted time to generate detailed notes |
+| **Decision**| **Pure Python backend:** All Vercel serverless functions run Python. **Local CLI tool:** A separate Python CLI tool runs on the developer's local machine for YouTube transcript fetching and detailed note generation. Results are pushed to a Vercel API endpoint (`/api/youtube-notes`) |
+| **Rationale**| Local machine uses residential IP — YouTube never blocks residential IPs. Local execution removes the 60-second Vercel timeout, allowing Gemini to generate exhaustively detailed notes. Single runtime (Python) simplifies deployment. |
+| **Tradeoff**| Requires running a CLI tool locally before notes are available in the PWA; two separate deployment contexts (Vercel + local) |
 
-### ADR-05: Micro-Request Pattern for Heavy Operations
-
-| Aspect     | Decision                                                                  |
-|:-----------|:--------------------------------------------------------------------------|
-| **Context**| YouTube playlists can have 50+ videos; processing all at once exceeds 60s |
-| **Decision**| Frontend orchestrates: loops through videos one-at-a-time, calling `/api/transcript` per video |
-| **Rationale**| Each individual request completes well within 60s; user sees real-time progress; failures are isolated to individual videos |
-| **Tradeoff**| Total wall-clock time is higher (sequential); more function invocations (but well within 1M/month limit) |
-
-### ADR-06: Dual-Path YouTube Transcript Strategy
+### ADR-05: Local Sequential Processing for YouTube
 
 | Aspect     | Decision                                                                  |
 |:-----------|:--------------------------------------------------------------------------|
-| **Context**| YouTube blocks CORS requests from browsers; Vercel datacenter IPs may also be blocked; user needs reliable transcript access |
-| **Decision**| **Primary:** Next.js API route (Node.js) using `youtube-transcript` npm to proxy transcript fetches through Vercel. **Fallback:** Manual transcript paste UI — user copies transcript from YouTube and pastes into a text area |
-| **Rationale**| CORS makes true client-side fetching impossible (browser blocks cross-origin requests to YouTube). Server-side proxying through Next.js API route keeps everything in one deployment. Manual paste guarantees 100% reliability regardless of IP blocking |
-| **Tradeoff**| Server route may still face IP blocking (reduced vs. Python library); manual paste adds friction but guarantees functionality |
+| **Context**| YouTube playlists can have 50+ videos; each video needs transcript fetching AND detailed note generation via Gemini |
+| **Decision**| Local CLI tool processes videos one-at-a-time sequentially, with no timeout constraints |
+| **Rationale**| Local processing has no 60-second timeout. Gemini can take as long as needed to generate comprehensive, detailed notes. Sequential processing respects Gemini rate limits naturally. Progress is shown in the CLI terminal. |
+| **Tradeoff**| Total wall-clock time can be significant for large playlists (but runs unattended); requires local machine to be online during processing |
+
+### ADR-06: Local-First YouTube Transcript Strategy
+
+| Aspect     | Decision                                                                  |
+|:-----------|:--------------------------------------------------------------------------|
+| **Context**| YouTube blocks CORS requests from browsers AND aggressively blocks cloud/datacenter IPs; detailed note generation requires significant Gemini API time |
+| **Decision**| **Primary:** Local Python CLI tool fetches transcripts using `youtube-transcript-api` from the developer's residential IP, generates detailed notes via Gemini locally, and pushes the final results to the Vercel server. **Fallback:** Manual transcript paste UI in the PWA for individual videos |
+| **Rationale**| Residential IPs are never blocked by YouTube. Local execution eliminates both the CORS problem (no browser involved) and the cloud IP blocking problem. Unlimited processing time enables Gemini to generate truly detailed, comprehensive notes rather than rushed summaries. |
+| **Tradeoff**| Extra step for the user (run CLI tool); notes not instantly available until CLI push completes; manual paste is still available as PWA fallback |
 
 ### ADR-07: Gemini Structured Output for Quiz Generation
 
@@ -190,36 +195,41 @@ sequenceDiagram
     PWA->>Student: "12 cards reviewed! 🎉"
 ```
 
-### 4.2 YouTube Playlist Ingestion Flow
+### 4.2 YouTube Playlist Ingestion Flow (Local-First)
 
 ```mermaid
 sequenceDiagram
-    actor Student
+    actor Developer
+    participant CLI as YouTube CLI Tool (Python)
+    participant YT as YouTube
+    participant Gemini as Google Gemini
+    participant API as /api/youtube-notes (Vercel)
     participant PWA as SynapseSync PWA
-    participant PL as /api/playlist-info
-    participant TR as /api/transcript
-    participant SUM as /api/summarize
-    participant IDB as IndexedDB
 
-    Student->>PWA: Paste playlist URL
-    PWA->>PL: POST { playlistUrl }
-    PL->>PWA: { videos: [20 items] }
-    PWA->>IDB: Create notebook "Stanford CS229"
+    Developer->>CLI: synapse-yt process <playlist_url>
+    CLI->>YT: Resolve playlist
+    YT->>CLI: { videos: [20 items] }
 
     rect rgb(240, 240, 255)
-        Note over PWA,IDB: Sequential loop (one video at a time)
+        Note over CLI,Gemini: Local sequential processing (no timeout)
         loop Video 1 of 20
-            PWA->>Student: "Processing video 1/20..."
-            PWA->>TR: POST { videoUrl: video[0].url }
-            TR->>PWA: { transcript: "..." }
-            PWA->>SUM: POST { text: transcript }
-            SUM->>PWA: { notes: "# Lecture 1..." }
-            PWA->>IDB: Store note in notebook
+            CLI->>Developer: "Processing video 1/20..."
+            CLI->>YT: Fetch transcript (residential IP)
+            YT->>CLI: Raw transcript text
+            CLI->>Gemini: Generate detailed notes
+            Note over CLI,Gemini: Exhaustively detailed notes:<br/>every concept, definition,<br/>example, formula captured
+            Gemini->>CLI: Comprehensive markdown notes
         end
     end
 
-    PWA->>Student: "✅ Notebook ready! 20 notes created."
-    Student->>PWA: "Generate Quiz" on Lecture 1
+    CLI->>API: POST /api/youtube-notes<br/>{ notebook, notes[] }
+    API->>CLI: { notebookId, noteIds[] }
+    CLI->>Developer: "✅ Notebook pushed! 20 detailed notes created."
+
+    Developer->>PWA: Open app
+    PWA->>API: Fetch notebook
+    PWA->>PWA: Display detailed notes
+    Developer->>PWA: "Generate Quiz" on Lecture 1
 ```
 
 ---
@@ -267,15 +277,15 @@ stateDiagram-v2
 
 | # | Risk                                              | Probability | Impact | Mitigation                                                    |
 |:--|:--------------------------------------------------|:------------|:-------|:--------------------------------------------------------------|
-| 1 | YouTube blocks transcript fetching from Vercel IPs | **Medium** (reduced from High) | Medium | Node.js API route as proxy; manual paste fallback; cache aggressively; retry + backoff |
-| 2 | Gemini free tier rate limits hit during heavy use   | **Medium**  | Medium | Client-side throttling (4s between requests); cache all generated quizzes |
-| 3 | Vercel function timeout (60s) on large documents    | **Medium**  | Medium | Truncate documents to ~8000 words; process in chunks          |
-| 4 | IndexedDB cleared by browser                        | **Low**     | High   | Warn users about browser storage policies; export feature (v2)|
+| 1 | YouTube blocks transcript fetching                 | **Very Low** (eliminated) | N/A | Local CLI uses residential IP; YouTube does not block residential IPs |
+| 2 | Gemini free tier rate limits hit during heavy use   | **Medium**  | Medium | Local CLI has built-in delay between requests; cache all generated notes |
+| 3 | Vercel function timeout (60s) on large documents    | **Medium**  | Medium | Truncate documents to ~8000 words; YouTube processing runs locally (no timeout) |
+| 4 | IndexedDB cleared by browser                        | **Low**     | High   | Warn users about browser storage policies; export feature (v2); notes also stored on server |
 | 5 | MSAL.js token refresh fails silently               | **Low**     | Medium | Detect 401 responses; prompt re-login; cache token expiry     |
-| 6 | Large playlists (100+ videos) take very long         | **Medium**  | Low    | Show progress UI; allow pause/resume; process in background   |
+| 6 | Large playlists (100+ videos) take very long locally | **Medium**  | Low   | Show CLI progress; allow resume from where it left off; process overnight |
 | 7 | Gemini generates incorrect quiz answers              | **Medium**  | Medium | Show explanations with answers; allow user to flag/report     |
 | 8 | PWA install experience varies across browsers        | **Medium**  | Low    | Test on Chrome, Safari, Firefox; provide manual install guide |
-| 9 | CORS prevents direct browser-to-YouTube transcript fetch | **Certain** | N/A  | Acknowledged; proxied through Next.js API route by design     |
+| 9 | Local CLI fails to push notes to server              | **Low**     | Low    | Notes are cached locally; can retry push; clear error messages |
 
 ---
 
@@ -324,9 +334,9 @@ stateDiagram-v2
 
 | Option                    | Pros                          | Cons                           | Verdict      |
 |:--------------------------|:------------------------------|:-------------------------------|:-------------|
-| **`youtube-transcript` (npm)** | Node.js; lightweight; integrates with Next.js | Still faces datacenter IP blocking | ✅ **Selected** (primary, via Next.js API route) |
-| `youtube-transcript-api` (Python) | Mature; feature-rich; user originally requested | Heavier; CORS means can't run client-side; IP blocking | ✅ **Available** (Python fallback) |
-| Direct browser fetch     | Uses residential IP (no blocking!) | **CORS blocks all browser→YouTube requests** | ❌ Not viable (CORS) |
+| **`youtube-transcript-api` (Python, local)** | Runs locally; residential IP never blocked; full Python ecosystem; no timeout | Requires running a CLI tool | ✅ **Selected** (primary, via local CLI) |
+| `youtube-transcript` (npm, Vercel) | Node.js; lightweight | Cloud IP blocking; 60s timeout | ❌ Replaced by local approach |
+| Direct browser fetch     | Uses residential IP | **CORS blocks all browser→YouTube requests** | ❌ Not viable (CORS) |
 | YouTube Data API          | Official; reliable            | Requires API key; quota limits; no transcript endpoint | Not viable |
 | Managed API service       | Most reliable; maintained     | Costs money                    | Future upgrade |
-| Manual paste              | 100% reliable; no API needed  | Requires user effort           | ✅ **Selected** (fallback) |
+| Manual paste              | 100% reliable; no API needed  | Requires user effort           | ✅ **Selected** (PWA fallback) |

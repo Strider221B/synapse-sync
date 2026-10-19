@@ -1,7 +1,7 @@
 # SynapseSync — Data Models & Schema Design
 
-> **Version:** 1.0  
-> **Date:** 2026-09-10  
+> **Version:** 1.1  
+> **Date:** 2026-10-19  
 > **Status:** Draft  
 
 ---
@@ -591,23 +591,35 @@ This JSON schema is passed to Gemini's structured output mode to guarantee clean
 }
 ```
 
-### 5.2 Note Summarization Schema
+### 5.2 Detailed Note Generation Schema
+
+Used by both the local CLI tool (for YouTube transcripts) and the `/api/summarize` endpoint. Instructs Gemini to generate **comprehensive, detailed notes** — not summaries.
 
 ```json
 {
   "type": "object",
   "properties": {
     "title": { "type": "string" },
-    "summary": { "type": "string" },
+    "summary": {
+      "type": "string",
+      "description": "A brief 2-3 sentence executive summary of the content"
+    },
     "keyPoints": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": { "type": "string" },
+      "description": "Top 5-10 key takeaways from the content"
     },
-    "markdownNotes": { "type": "string" }
+    "markdownNotes": {
+      "type": "string",
+      "description": "Comprehensive, detailed notes in Markdown format. Must capture every concept, definition, example, analogy, formula, and explanation from the source material. Use headings, subheadings, bullet points, numbered lists, bold/italic emphasis, and code blocks where appropriate. The notes should be detailed enough that someone reading only these notes would have a thorough understanding of the topic without needing to watch the original video or read the original text."
+    }
   },
   "required": ["title", "summary", "keyPoints", "markdownNotes"]
 }
 ```
+
+> [!IMPORTANT]
+> The `markdownNotes` field is the primary output and must be **exhaustively detailed**. Gemini is instructed to act as a meticulous note-taker, not a summarizer. Every concept, example, definition, and explanation from the source material must be captured.
 
 ---
 
