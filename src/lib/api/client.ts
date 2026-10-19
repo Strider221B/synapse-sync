@@ -28,6 +28,7 @@ export class ApiClient {
   private static readonly _HEADER_ACCEPT = 'Accept';
   private static readonly _MIME_JSON = 'application/json';
   private static readonly _METHOD_POST = 'POST';
+  private static readonly _METHOD_GET = 'GET';
   private static readonly _MAX_RETRIES = 3;
   private static readonly _INITIAL_BACKOFF_MS = 300;
   private static readonly _STATUS_TOO_MANY_REQUESTS = 429;
@@ -40,6 +41,25 @@ export class ApiClient {
   public constructor(baseUrl: string = ApiClient._DEFAULT_BASE_URL, fetchFn: typeof fetch = fetch) {
     this._baseUrl = baseUrl;
     this._fetchFn = fetchFn;
+  }
+
+  /**
+   * Sends a JSON GET request to the specified endpoint with retry capability.
+   */
+  public async get<T>(endpoint: string, customHeaders: Record<string, string> = {}): Promise<T> {
+    const url = this._buildUrl(endpoint);
+    const headers = {
+      [ApiClient._HEADER_ACCEPT]: ApiClient._MIME_JSON,
+      ...customHeaders,
+    };
+
+    return this._executeWithRetry(async () => {
+      const response = await this._fetchFn(url, {
+        method: ApiClient._METHOD_GET,
+        headers,
+      });
+      return this._handleResponse<T>(response);
+    });
   }
 
   /**
