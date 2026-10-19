@@ -134,7 +134,7 @@ function QuizContent({ params }: QuizPageProps) {
         if (srsCard) {
           // Standard SM-2 calculations
           const isCorrect = quality >= 3;
-          let repetitions = isCorrect ? srsCard.repetitions + 1 : 0;
+          const repetitions = isCorrect ? srsCard.repetitions + 1 : 0;
           let easiness = srsCard.easinessFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
           easiness = Math.max(1.3, easiness);
 
@@ -547,6 +547,12 @@ function QuizContent({ params }: QuizPageProps) {
                 <p style={{ margin: 0, color: 'var(--color-text-secondary)', fontSize: '1.05rem' }}>
                   You reviewed all {flashcards.length} flashcards. Spaced repetition intervals have been updated!
                 </p>
+                {flashRatings.length > 0 && (
+                  <p style={{ margin: '0.5rem 0 0 0', color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.95rem' }}>
+                    Average Recall Score:{' '}
+                    {(flashRatings.reduce((acc, r) => acc + r.quality, 0) / flashRatings.length).toFixed(1)} / 5
+                  </p>
+                )}
               </div>
 
               <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
