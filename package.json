@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test \"src/__tests__/**/*.test.ts\""
+    "test": "tsx --test"
   },
   "dependencies": {
     "idb": "^8.0.4",
