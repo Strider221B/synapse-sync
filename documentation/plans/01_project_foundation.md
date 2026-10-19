@@ -15,12 +15,12 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
 
 ## Story 1.1 — Initialize the Next.js Project
 
-**As a developer, I need a working Next.js 14+ project with App Router so I can start building pages and components.**
+**As a developer, I need a working Next.js 16.4.2 project (React 19) with App Router so I can start building pages and components.**
 
 ### Tasks
 
 **Task 1.1.1 — Create Next.js application**
-- Run `npx -y create-next-app@latest ./` from the project root with these options:
+- Run `npx -y create-next-app@16.4.2 ./` from the project root with these options:
   - TypeScript: Yes
   - ESLint: Yes
   - App Router: Yes
@@ -56,15 +56,15 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
 
 ## Story 1.2 — Set Up the Python Backend Directory
 
-**As a developer, I need the Python serverless function directory configured so I can build API endpoints.**
+**As a developer, I need the Python 3.13 serverless function directory configured with locked dependency versions so I can build API endpoints.**
 
 ### Tasks
 
 **Task 1.2.1 — Create the `api/` directory structure**
 - Create `api/` at the project root (Vercel detects this as Python serverless functions)
-- Create `api/requirements.txt` with initial dependency:
+- Create `api/requirements.txt` with locked version:
   ```
-  google-generativeai>=0.8.0
+  google-generativeai==0.8.6
   ```
 - Create a placeholder `api/__init__.py` (empty, needed for imports)
 
@@ -75,19 +75,19 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
 
 **Task 1.2.3 — Create the `tools/youtube_cli/` directory structure**
 - Create `tools/youtube_cli/` at the project root for local CLI tools (transcript fetching and note generation)
-- Create `tools/youtube_cli/requirements.txt` with:
+- Create `tools/youtube_cli/requirements.txt` with locked versions:
   ```
-  youtube-transcript-api>=0.6.0
-  google-generativeai>=0.8.0
-  rich>=13.0.0
-  requests>=2.31.0
+  youtube-transcript-api==1.2.4
+  google-generativeai==0.8.6
+  rich==15.0.0
+  requests==2.34.2
   ```
 - Create `tools/youtube_cli/__init__.py`
 
 **Task 1.2.4 — Verify Python environment**
 - Activate the virtual env: `source ~/python_envs/p313_llm/bin/activate`
-- Run `pip install -r api/requirements.txt`
-- Run `pip install -r tools/youtube_cli/requirements.txt`
+- Run `uv pip install -r api/requirements.txt`
+- Run `uv pip install -r tools/youtube_cli/requirements.txt`
 - Verify the health endpoint can be imported without errors
 
 ---
@@ -140,8 +140,8 @@ Set up the complete project scaffolding — Next.js frontend, Python backend dir
 
 **Task 1.4.1 — Create GitHub Actions CI workflow**
 - Create `.github/workflows/ci.yml` with two jobs:
-  - **`frontend`**: Setup Node.js 18, `npm ci`, `npm run lint`, `npx tsc --noEmit`, `npm test` (if tests exist), `npm run build`
-  - **`backend`**: Setup Python 3.12, activate venv, `pip install -r api/requirements.txt -r tools/youtube_cli/requirements.txt`, lint Python with ruff (`ruff check api/ tools/`)
+  - **`frontend`**: Setup Node.js 20, `npm ci`, `npm run lint`, `npx tsc --noEmit`, `npm test` (if tests exist), `npm run build`
+  - **`backend`**: Setup Python 3.13, activate venv, `pip install uv && uv pip install -r api/requirements.txt -r tools/youtube_cli/requirements.txt ruff==0.16.9`, lint Python with ruff (`ruff check api/ tools/`)
 - Trigger on: push to `main`/`develop`, pull requests to `main`
 
 **Task 1.4.2 — Configure ESLint for the frontend**

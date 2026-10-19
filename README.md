@@ -5,8 +5,8 @@
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Version](https://img.shields.io/badge/version-1.1.0-orange)](#)
-[![Next.js](https://img.shields.io/badge/Next.js-14+-black?logo=next.js)](https://nextjs.org/)
-[![Python](https://img.shields.io/badge/python-3.12%2B-blue?logo=python)](https://python.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-16.4.2-black?logo=next.js)](https://nextjs.org/)
+[![Python](https://img.shields.io/badge/python-3.13-blue?logo=python)](https://python.org/)
 [![AI](https://img.shields.io/badge/AI-Google%20Gemini-4285F4?logo=google)](https://aistudio.google.com/)
 [![PWA](https://img.shields.io/badge/PWA-offline--first-success)](#)
 
@@ -105,9 +105,10 @@ graph TB
 
 Before running the application, ensure your environment meets the following requirements:
 
-- **Node.js:** `18.0.0` or higher
+- **Node.js:** `20.0.0` or higher
 - **npm:** `9.0.0` or higher
-- **Python:** `3.12+` (configured with the designated project environment: `~/python_envs/p313_llm`)
+- **Python:** `3.13` (configured with the designated project environment: `~/python_envs/p313_llm`)
+- **uv:** Fast Python package installer (`uv pip`)
 - **Google Gemini API Key:** Free tier from [Google AI Studio](https://aistudio.google.com/)
 - **Microsoft Entra (Azure AD) Client ID:** (Optional for YouTube-only usage, required for OneDrive sync) Registered Single-Page Application (SPA) client ID from [Microsoft Entra Admin Center](https://entra.microsoft.com/)
 
@@ -134,14 +135,14 @@ npm install
 source ~/python_envs/p313_llm/bin/activate
 ```
 
-### 4. Install Python Backend Dependencies
+### 4. Install Python Backend Dependencies (using uv pip)
 
 ```bash
 # Serverless API dependencies
-pip install -r api/requirements.txt
+uv pip install -r api/requirements.txt
 
 # Local YouTube CLI dependencies
-pip install -r tools/youtube_cli/requirements.txt
+uv pip install -r tools/youtube_cli/requirements.txt
 ```
 
 ---
@@ -343,15 +344,15 @@ synapse-sync/
 
 | Layer | Technologies |
 |:------|:-------------|
-| **Frontend Framework** | [Next.js 14+](https://nextjs.org/) (App Router), React 18, TypeScript (Strict) |
+| **Frontend Framework** | [Next.js 16.4.2](https://nextjs.org/) (App Router), React 19.3.1, TypeScript 7.0.2 |
 | **Styling & Design** | Vanilla CSS with CSS Custom Properties (Design Tokens), Dark/Light Themes |
-| **Local Offline Storage**| [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) via [`idb`](https://github.com/jakearchibald/idb) |
-| **PWA & Caching** | Service Workers, Web App Manifest, Cache-First & Network-First strategies |
-| **Backend Runtime** | Python 3.12+ Serverless Functions (Vercel) |
-| **AI Engine** | [Google Gemini 2.0 Flash](https://aistudio.google.com/) via `google-generativeai` with Structured Output |
-| **Cloud Authentication**| [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js) (Microsoft Authentication Library) with PKCE |
-| **Local CLI Pipeline** | Python 3.12+, `youtube-transcript-api`, `rich`, `requests` |
-| **Code Quality** | ESLint, TypeScript (`tsc`), Ruff, Pytest |
+| **Local Offline Storage**| [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) via [`idb@8.0.4`](https://github.com/jakearchibald/idb) |
+| **PWA & Caching** | Serwist 9.5.13 ([`@serwist/next@9.5.13`](https://serwist.pages.dev/)), Web App Manifest, Cache-First & Network-First strategies |
+| **Backend Runtime** | Python 3.13 Serverless Functions (Vercel) |
+| **AI Engine** | [Google Gemini 2.0 Flash](https://aistudio.google.com/) via `google-generativeai==0.8.6` with Structured Output |
+| **Cloud Authentication**| [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js) (`@azure/msal-browser@5.25.1`, `@azure/msal-react@5.7.2`) with PKCE |
+| **Local CLI Pipeline** | Python 3.13 (`uv pip`), `youtube-transcript-api==1.2.4`, `rich==15.0.0`, `requests==2.34.2` |
+| **Code Quality** | ESLint, TypeScript (`tsc`), Ruff 0.16.9, Pytest 9.1.1 |
 
 ---
 

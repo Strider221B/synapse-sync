@@ -30,13 +30,13 @@ All implementation work **must** follow the [Coding Standards](file:///home/some
 - No magic strings/numbers — use named constants
 - SOLID, DRY, YAGNI at all times
 
-### Python Virtual Environment
+### Python Virtual Environment (Python 3.13 & uv)
 
 ```bash
 source ~/python_envs/p313_llm/bin/activate
 ```
 
-Use this for **all** Python work (backend API functions, tests, linting).
+Use this for **all** Python work (backend API functions, tests, linting). Use `uv pip` for fast, locked dependency installation throughout the project.
 
 ---
 

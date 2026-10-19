@@ -235,9 +235,10 @@ vercel ls
 
 | Tool     | Version  | Purpose                          |
 |:---------|:---------|:---------------------------------|
-| Node.js  | 18+      | Next.js runtime                  |
-| Python   | 3.12+    | API function development         |
+| Node.js  | 20+      | Next.js 16 runtime               |
+| Python   | 3.13     | API functions & local CLI tool   |
 | npm      | 9+       | Package management               |
+| uv       | Latest   | Fast Python package management   |
 
 ### 4.2 Setup Steps
 
@@ -252,11 +253,11 @@ npm install
 # 3. Activate the Python virtual environment
 source ~/python_envs/p313_llm/bin/activate
 
-# 4. Install Python dependencies for API functions
-pip install -r api/requirements.txt
+# 4. Install Python dependencies for API functions (using uv pip)
+uv pip install -r api/requirements.txt
 
-# 5. Install Python dependencies for local YouTube CLI tool
-pip install -r tools/youtube_cli/requirements.txt
+# 5. Install Python dependencies for local YouTube CLI tool (using uv pip)
+uv pip install -r tools/youtube_cli/requirements.txt
 
 # 6. Create local environment file
 cp .env.example .env.local
@@ -399,13 +400,13 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.13'
       
       - name: Install dependencies
-        run: pip install -r api/requirements.txt flake8
+        run: pip install uv && uv pip install -r api/requirements.txt -r tools/youtube_cli/requirements.txt ruff
       
       - name: Lint Python
-        run: flake8 api/ --max-line-length=120
+        run: ruff check api/ tools/
 ```
 
 ### 6.2 Vercel Auto-Deploy

@@ -20,8 +20,8 @@ Enable users to generate **detailed, comprehensive study notes** from YouTube vi
 ### Tasks
 
 **Task 4.1.1 — Install the `youtube-transcript-api` Python package**
-- Add `youtube-transcript-api>=0.6.0` to `tools/youtube_cli/requirements.txt`
-- Install into the local Python virtual environment: `source ~/python_envs/p313_llm/bin/activate && pip install -r tools/youtube_cli/requirements.txt`
+- Add `youtube-transcript-api==1.2.4` to `tools/youtube_cli/requirements.txt`
+- Install into the local Python virtual environment: `source ~/python_envs/p313_llm/bin/activate && uv pip install -r tools/youtube_cli/requirements.txt`
 - This runs locally on the developer's machine — residential IP avoids YouTube blocking
 
 **Task 4.1.2 — Build the `TranscriptFetcher` class**

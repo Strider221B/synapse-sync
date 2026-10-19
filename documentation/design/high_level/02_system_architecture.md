@@ -496,17 +496,17 @@ synapse-sync/
 
 | Layer                | Technology                  | Justification                                              |
 |:---------------------|:----------------------------|:-----------------------------------------------------------|
-| **Frontend Framework** | Next.js 14+ (App Router)  | SSR + static generation; native Vercel support             |
-| **UI Library**       | React 18+                   | Component-based; massive ecosystem                         |
+| **Frontend Framework** | Next.js 16.4.2 (App Router) | SSR + static generation; native Vercel support             |
+| **UI Library**       | React 19.3.1                | Component-based; modern React 19 architecture              |
 | **Styling**          | Vanilla CSS (custom properties) | Maximum control; no build-time dependency              |
-| **PWA Tooling**      | Serwist (next-pwa successor) | Service Worker management; precaching                    |
-| **Offline Storage**  | IndexedDB via `idb`         | Structured client-side storage; large capacity             |
-| **Auth Library**     | MSAL.js v2                  | Official Microsoft OAuth library; handles PKCE             |
-| **Backend Runtime (AI/Parsing)** | Python 3.12 on Vercel | User requirement; Gemini SDK + docx parsing              |
-| **Local CLI Tool (YouTube)** | Python 3.13 (local machine) | Transcript fetch + detailed note generation; residential IP avoids blocking |
+| **PWA Tooling**      | Serwist 9.5.13 (`@serwist/next`) | Service Worker management; precaching                    |
+| **Offline Storage**  | IndexedDB via `idb` 8.0.4   | Structured client-side storage; large capacity             |
+| **Auth Library**     | MSAL.js (`@azure/msal-browser` 5.25.1, `@azure/msal-react` 5.7.2) | Official Microsoft OAuth library; handles PKCE |
+| **Backend Runtime (AI/Parsing)** | Python 3.13 on Vercel | User requirement; Gemini SDK + docx parsing              |
+| **Local CLI Tool (YouTube)** | Python 3.13 (local machine, `uv pip`) | Transcript fetch + detailed note generation; residential IP avoids blocking |
 | **Doc Parsing**      | Python stdlib (`zipfile` + `xml`) | Zero dependencies; fast; reliable                    |
-| **YouTube Transcripts** | `youtube-transcript-api` (Python, local) | Runs locally; no cloud IP blocking; no timeout constraints |
-| **AI Model**         | Google Gemini (Flash)       | Free tier; structured output; fast responses; used both locally (notes) and on Vercel (quiz/chat) |
+| **YouTube Transcripts** | `youtube-transcript-api` 1.2.4 (Python, local) | Runs locally; no cloud IP blocking; no timeout constraints |
+| **AI Model & SDK**   | Google Gemini (Flash) via `google-generativeai` 0.8.6 | Free tier; structured output; fast responses; used both locally (notes) and on Vercel (quiz/chat) |
 | **Deployment**       | Vercel (Hobby tier)         | Free; auto-deploy from Git; edge CDN                       |
 
 ---

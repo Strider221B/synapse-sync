@@ -20,7 +20,7 @@ Enable users to authenticate with Microsoft, browse their OneDrive files, import
 ### Tasks
 
 **Task 3.1.1 — Install and configure MSAL.js**
-- Run `npm install @azure/msal-browser @azure/msal-react`
+- Run `npm install @azure/msal-browser@5.25.1 @azure/msal-react@5.7.2`
 - Create `src/lib/auth/msal_config.ts` with:
   - MSAL `Configuration` object reading `NEXT_PUBLIC_MSAL_CLIENT_ID` and `NEXT_PUBLIC_MSAL_REDIRECT_URI` from environment variables
   - Auth authority: `https://login.microsoftonline.com/common`
@@ -138,8 +138,8 @@ Enable users to authenticate with Microsoft, browse their OneDrive files, import
 - Clicking a note card navigates to the reader view
 
 **Task 3.4.2 — Install and configure `react-markdown`**
-- Run `npm install react-markdown`
-- Optionally install `remark-gfm` for GitHub Flavored Markdown support (tables, strikethrough, etc.)
+- Run `npm install react-markdown@10.1.0 remark-gfm@4.0.1`
+- `remark-gfm` adds GitHub Flavored Markdown support (tables, strikethrough, etc.)
 - Create a `MarkdownRenderer` component that wraps `react-markdown` with consistent styling
 
 **Task 3.4.3 — Build the note reader page**

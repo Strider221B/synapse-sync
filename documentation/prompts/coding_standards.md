@@ -111,10 +111,9 @@ Public members/methods MUST appear BEFORE non-public (protected/private) members
 
 ## 11. Python Virtual Environment
 
-- Do NOT create a new Python virtual environment unless one does not already exist.
-- By default, use the project-local virtual environment at `backend/.venv` (the standard Python convention).
-- Activate with: `source backend/.venv/bin/activate`.
-- All dependency installations (`pip install`, `uv sync`) and script executions MUST run within the active virtual environment.
+- Use the project Python virtual environment: `~/python_envs/p313_llm` (Python 3.13).
+- Activate with: `source ~/python_envs/p313_llm/bin/activate`.
+- All dependency installations (`uv pip install`) and script executions MUST run within the active virtual environment.
 
 ---
 
