@@ -12,6 +12,7 @@ import { SRSCardService } from '@/lib/db/services/srs_card_service';
 import { MCQCard as MCQCardComponent } from '@/components/quiz/MCQCard';
 import { QuizResults } from '@/components/quiz/QuizResults';
 import { FlashCard as FlashCardComponent } from '@/components/quiz/FlashCard';
+import { SM2Engine } from '@/lib/srs/sm2';
 
 interface QuizPageProps {
   params: Promise<{ id: string }>;
@@ -132,29 +133,14 @@ function QuizContent({ params }: QuizPageProps) {
         const srsCard = await srsService.getByCardId(currentCard.id);
 
         if (srsCard) {
-          // Standard SM-2 calculations
+          const result = SM2Engine.calculate(srsCard, quality);
           const isCorrect = quality >= 3;
-          const repetitions = isCorrect ? srsCard.repetitions + 1 : 0;
-          let easiness = srsCard.easinessFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
-          easiness = Math.max(1.3, easiness);
-
-          let interval = 1;
-          if (repetitions === 1) {
-            interval = 1;
-          } else if (repetitions === 2) {
-            interval = 6;
-          } else if (repetitions > 2) {
-            interval = Math.round(srsCard.interval * easiness);
-          }
-
-          const nextReviewDate = new Date();
-          nextReviewDate.setDate(nextReviewDate.getDate() + interval);
 
           await srsService.update(srsCard.id, {
-            repetitions,
-            easinessFactor: easiness,
-            interval,
-            nextReview: nextReviewDate.toISOString(),
+            repetitions: result.repetitions,
+            easinessFactor: result.easinessFactor,
+            interval: result.interval,
+            nextReview: result.nextReview,
             lastReview: new Date().toISOString(),
             totalReviews: srsCard.totalReviews + 1,
             correctCount: isCorrect ? srsCard.correctCount + 1 : srsCard.correctCount,
