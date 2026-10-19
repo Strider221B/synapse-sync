@@ -4,13 +4,33 @@ import React, { Suspense, use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { MarkdownRenderer } from '@/components/notes/MarkdownRenderer';
+import { ApiClient } from '@/lib/api/client';
 import { DatabaseService } from '@/lib/db/database_service';
-import type { Note, Notebook } from '@/lib/db/models';
+import type { Note, Notebook, Quiz } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
 import { NotebookService } from '@/lib/db/services/notebook_service';
+import { QuizService } from '@/lib/db/services/quiz_service';
 
 interface NoteReaderPageProps {
   params: Promise<{ id: string }>;
+}
+
+interface GenerateQuizApiResponse {
+  mcqs: {
+    question: string;
+    options: [string, string, string, string];
+    correctIndex: number;
+    explanation: string;
+  }[];
+  flashcards: {
+    front: string;
+    back: string;
+  }[];
+  metadata: {
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+  };
 }
 
 function NoteReaderContent({ params }: NoteReaderPageProps) {
@@ -20,14 +40,18 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
 
   const [note, setNote] = useState<Note | null>(null);
   const [notebook, setNotebook] = useState<Notebook | null>(null);
+  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
+  const [quizError, setQuizError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     const dbService = new DatabaseService();
     const noteService = new NoteService(dbService);
     const nbService = new NotebookService(dbService);
+    const quizService = new QuizService(dbService);
 
     async function fetchNote() {
       const foundNote = await noteService.getById(noteId);
@@ -41,6 +65,12 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
         const foundNb = await nbService.getById(foundNote.notebookId);
         if (active) setNotebook(foundNb ?? null);
       }
+
+      const foundQuizzes = await quizService.getByNote(noteId);
+      if (active) {
+        setQuizzes(foundQuizzes);
+      }
+
       setIsLoading(false);
     }
 
@@ -49,6 +79,63 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
       active = false;
     };
   }, [noteId]);
+
+  const handleGenerateQuiz = async () => {
+    if (!note || isGeneratingQuiz) return;
+    if (!note.content || note.content.trim().length < 50) {
+      setQuizError('Note needs more content (at least 50 characters) to generate a quiz.');
+      return;
+    }
+
+    setIsGeneratingQuiz(true);
+    setQuizError(null);
+
+    try {
+      const client = new ApiClient();
+      const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
+        text: note.content,
+        difficulty: 'medium',
+        mcqCount: 5,
+        flashcardCount: 5,
+      });
+
+      const formattedMCQs = response.mcqs.map((q) => ({
+        question: q.question,
+        options: q.options,
+        correctIndex: q.correctIndex,
+        explanation: q.explanation,
+      }));
+
+      const formattedFlashcards = response.flashcards.map((f) => ({
+        front: f.front,
+        back: f.back,
+        tags: [note.title],
+      }));
+
+      const dbService = new DatabaseService();
+      const quizService = new QuizService(dbService);
+      const newQuiz = await quizService.create(
+        note.id,
+        formattedMCQs,
+        formattedFlashcards,
+        response.metadata?.model || 'gemini-2.0-flash'
+      );
+
+      router.push(`/quiz/${newQuiz.quiz.id}`);
+    } catch (err: unknown) {
+      const errorMsg =
+        err instanceof Error
+          ? err.message.includes('429') || err.message.includes('RATE_LIMITED')
+            ? 'Gemini API rate limit reached. Try again in a minute.'
+            : err.message.includes('TEXT_TOO_SHORT')
+            ? 'Note needs more content (at least 50 characters) to generate a quiz.'
+            : err.message
+          : 'Failed to generate quiz. Please try again.';
+      setQuizError(errorMsg);
+    } finally {
+      setIsGeneratingQuiz(false);
+    }
+  };
 
   const handleDelete = async () => {
     if (!note) return;
@@ -131,9 +218,32 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
           ← Back to Notes
         </Link>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <Link
-            href={`/quizzes?noteId=${note.id}`}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {quizzes.length > 0 && (
+            <Link
+              href={`/quiz/${quizzes[quizzes.length - 1].id}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.45rem 0.75rem',
+                borderRadius: 'var(--radius-full)',
+                backgroundColor: 'var(--color-accent-light)',
+                border: '1px solid var(--color-accent)',
+                color: 'var(--color-accent)',
+                fontSize: '0.775rem',
+                fontWeight: 700,
+                textDecoration: 'none',
+              }}
+            >
+              <span>🎯</span> {quizzes.length} {quizzes.length === 1 ? 'Quiz Available' : 'Quizzes Available'}
+            </Link>
+          )}
+
+          <button
+            type="button"
+            onClick={handleGenerateQuiz}
+            disabled={isGeneratingQuiz}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -145,10 +255,14 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
               border: '1px solid var(--color-primary-glow)',
               fontSize: '0.825rem',
               fontWeight: 600,
+              cursor: isGeneratingQuiz ? 'not-allowed' : 'pointer',
+              opacity: isGeneratingQuiz ? 0.7 : 1,
+              transition: 'all var(--transition-fast)',
             }}
           >
-            <span>📝</span> Generate Quiz
-          </Link>
+            <span>{isGeneratingQuiz ? '⏳' : '📝'}</span>
+            {isGeneratingQuiz ? 'Generating quiz...' : 'Generate Quiz'}
+          </button>
 
           <Link
             href={`/chat?noteId=${note.id}`}
@@ -187,6 +301,38 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
           </button>
         </div>
       </div>
+
+      {quizError && (
+        <div
+          style={{
+            padding: '0.875rem 1.25rem',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: 'var(--color-error-bg)',
+            border: '1px solid var(--color-error)',
+            color: 'var(--color-error)',
+            fontSize: '0.875rem',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <span>{quizError}</span>
+          <button
+            type="button"
+            onClick={() => setQuizError(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--color-error)',
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '1rem',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Note Header Metadata */}
       <header style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
