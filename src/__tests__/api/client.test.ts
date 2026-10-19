@@ -74,4 +74,22 @@ describe('ApiClient', () => {
     assert.equal(result.done, true);
     assert.equal(calls, 2);
   });
+
+  it('performs GET request and parses response', async () => {
+    let capturedMethod = '';
+    const mockFetch = async (_url: RequestInfo | URL, init?: RequestInit) => {
+      capturedMethod = init?.method || '';
+      return new Response(JSON.stringify({ notebooks: [], notes: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    const client = new ApiClient('https://api.example.com', mockFetch as typeof fetch);
+    const result = await client.get<{ notebooks: unknown[]; notes: unknown[] }>('/api/youtube-notes');
+
+    assert.equal(capturedMethod, 'GET');
+    assert.deepEqual(result.notebooks, []);
+  });
 });
+

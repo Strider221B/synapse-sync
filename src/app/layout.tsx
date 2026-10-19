@@ -94,6 +94,7 @@ export default function RootLayout({
                 {[
                   { label: "Dashboard", href: "/", icon: "🏠" },
                   { label: "Study Notes", href: "/notes", icon: "📚" },
+                  { label: "YouTube Notes", href: "/youtube", icon: "▶️" },
                   { label: "Import Notes", href: "/notes/import", icon: "📥" },
                   { label: "Quizzes", href: "/quizzes", icon: "📝" },
                   { label: "Flashcards", href: "/flashcards", icon: "🔄" },
