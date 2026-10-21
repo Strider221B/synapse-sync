@@ -25,3 +25,7 @@ export type {
 
 export { PreferencesService, PREFERENCE_DEFAULTS } from './preferences_service';
 export type { KnownPreferenceKey } from './preferences_service';
+
+export { StatsService } from './stats_service';
+export type { DashboardStats } from './stats_service';
+

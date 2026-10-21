@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { NoteCard } from '@/components/notes/NoteCard';
 import { NotebookList } from '@/components/notes/NotebookList';
+import { Skeleton } from '@/components/common/Skeleton';
 import { DatabaseService } from '@/lib/db/database_service';
 import type { Note, Notebook } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
@@ -213,8 +214,10 @@ export default function NotesPage() {
           )}
 
           {isLoading ? (
-            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-              Loading study notes...
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} variant="card" height="130px" />
+              ))}
             </div>
           ) : displayedNotes.length === 0 ? (
             <div
