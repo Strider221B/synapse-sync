@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { DashboardStatsGrid } from '@/components/dashboard/DashboardStatsGrid';
 import { RecentNotesSection } from '@/components/dashboard/RecentNotesSection';
@@ -8,7 +8,9 @@ export default function Home() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       {/* 1. Welcome Header Banner & Quick Actions */}
-      <DashboardHeader />
+      <Suspense fallback={null}>
+        <DashboardHeader />
+      </Suspense>
 
       {/* 2. Study Statistics Grid */}
       <DashboardStatsGrid />

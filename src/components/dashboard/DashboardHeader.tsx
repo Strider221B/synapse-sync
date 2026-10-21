@@ -1,31 +1,39 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 
-function getInitialGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour >= 12 && hour < 17) return 'Good afternoon, Scholar';
-  if (hour >= 17 || hour < 5) return 'Good evening, Scholar';
-  return 'Good morning, Scholar';
-}
-
-function getInitialDateString(): string {
-  try {
-    return new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    }).format(new Date());
-  } catch {
-    return new Date().toDateString();
-  }
-}
-
 export function DashboardHeader() {
-  const [greeting] = useState<string>(getInitialGreeting);
-  const [dateString] = useState<string>(getInitialDateString);
+  const [greeting, setGreeting] = useState<string>('Welcome, Scholar');
+  const [dateString, setDateString] = useState<string>('Today');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const now = new Date();
+      const hour = now.getHours();
+      let prefix = 'Good morning';
+      if (hour >= 12 && hour < 17) {
+        prefix = 'Good afternoon';
+      } else if (hour >= 17 || hour < 5) {
+        prefix = 'Good evening';
+      }
+      setGreeting(`${prefix}, Scholar`);
+
+      try {
+        const formatted = new Intl.DateTimeFormat('en-US', {
+          weekday: 'long',
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        }).format(now);
+        setDateString(formatted);
+      } catch {
+        setDateString(now.toDateString());
+      }
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <section
