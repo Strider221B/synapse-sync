@@ -3,3 +3,4 @@ export * from './database_service';
 export * from './models';
 export * from './schema';
 export * from './services';
+export * from './sync_manager';

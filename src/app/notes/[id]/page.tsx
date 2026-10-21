@@ -82,6 +82,10 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
 
   const handleGenerateQuiz = async () => {
     if (!note || isGeneratingQuiz) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setQuizError('Quiz generation requires an internet connection to connect to Gemini AI. You can still study existing quizzes and flashcards offline.');
+      return;
+    }
     if (!note.content || note.content.trim().length < 50) {
       setQuizError('Note needs more content (at least 50 characters) to generate a quiz.');
       return;
@@ -89,6 +93,7 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
 
     setIsGeneratingQuiz(true);
     setQuizError(null);
+
 
     try {
       const client = new ApiClient();
@@ -127,11 +132,14 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
         err instanceof Error
           ? err.message.includes('429') || err.message.includes('RATE_LIMITED')
             ? 'Gemini API rate limit reached. Try again in a minute.'
+            : err.message.includes('internet connection') || err.message.includes('offline')
+            ? 'This feature requires an internet connection.'
             : err.message.includes('TEXT_TOO_SHORT')
             ? 'Note needs more content (at least 50 characters) to generate a quiz.'
             : err.message
           : 'Failed to generate quiz. Please try again.';
       setQuizError(errorMsg);
+
     } finally {
       setIsGeneratingQuiz(false);
     }

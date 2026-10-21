@@ -3,6 +3,8 @@ import { DB_INDEXES, DB_STORES } from '../constants';
 import type { DatabaseService } from '../database_service';
 import type { Note } from '../models';
 
+import type { SyncQueueService } from './sync_queue_service';
+
 export type CreateNoteInput = Omit<
   Note,
   'id' | 'createdAt' | 'updatedAt' | 'wordCount' | 'isSynced'
@@ -18,11 +20,17 @@ export type UpdateNoteInput = Partial<Omit<Note, 'id' | 'createdAt' | 'wordCount
 export class NoteService {
   private static readonly _ERROR_NOTE_NOT_FOUND = 'Note not found';
   private static readonly _EMPTY_WORD_COUNT = 0;
+  private static readonly _ENTITY_TYPE = 'note';
+  private static readonly _OP_CREATE = 'create';
+  private static readonly _OP_UPDATE = 'update';
+  private static readonly _OP_DELETE = 'delete';
 
   private readonly _databaseService: DatabaseService;
+  private readonly _syncQueueService?: SyncQueueService;
 
-  public constructor(databaseService: DatabaseService) {
+  public constructor(databaseService: DatabaseService, syncQueueService?: SyncQueueService) {
     this._databaseService = databaseService;
+    this._syncQueueService = syncQueueService;
   }
 
   /**
@@ -47,6 +55,7 @@ export class NoteService {
     };
 
     await db.put(DB_STORES.NOTES, note);
+    await this._enqueueIfOffline(note.id, NoteService._OP_CREATE, note as unknown as Record<string, unknown>);
     return note;
   }
 
@@ -56,6 +65,7 @@ export class NoteService {
   public async delete(id: string): Promise<void> {
     const db = await this._databaseService.getDB();
     await db.delete(DB_STORES.NOTES, id);
+    await this._enqueueIfOffline(id, NoteService._OP_DELETE, { id });
   }
 
   /**
@@ -129,6 +139,7 @@ export class NoteService {
     };
 
     await db.put(DB_STORES.NOTES, updated);
+    await this._enqueueIfOffline(id, NoteService._OP_UPDATE, input as Record<string, unknown>);
     return updated;
   }
 
@@ -142,4 +153,29 @@ export class NoteService {
     }
     return trimmed.split(/\s+/).length;
   }
+
+  /**
+   * Enqueues a mutation operation if the service is configured with a sync queue and offline.
+   */
+  protected async _enqueueIfOffline(
+    entityId: string,
+    operation: 'create' | 'update' | 'delete',
+    payload: Record<string, unknown>
+  ): Promise<void> {
+    if (this._syncQueueService && this._isOffline()) {
+      await this._syncQueueService.enqueue(NoteService._ENTITY_TYPE, entityId, operation, payload);
+    }
+  }
+
+  /**
+   * Returns whether the client environment is offline.
+   */
+  protected _isOffline(): boolean {
+    if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean') {
+      return false;
+    }
+    return !navigator.onLine;
+  }
 }
+
+

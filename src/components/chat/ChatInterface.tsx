@@ -6,6 +6,8 @@ import { DatabaseService } from '@/lib/db/database_service';
 import type { ChatMessage } from '@/lib/db/models';
 import { ChatMessageService } from '@/lib/db/services/chat_message_service';
 import { ChatBubble } from './ChatBubble';
+import { OfflineNotice } from '@/components/common/OfflineNotice';
+
 
 export type ChatMode = 'default' | 'explain' | 'quiz';
 
@@ -591,11 +593,17 @@ export function ChatInterface({ noteId, noteTitle, noteContent }: ChatInterfaceP
           borderTop: '1px solid var(--color-surface-border)',
           backgroundColor: 'var(--color-bg-secondary)',
           display: 'flex',
+          flexDirection: 'column',
           gap: '0.75rem',
-          alignItems: 'flex-end',
         }}
       >
-        <textarea
+        <OfflineNotice
+          featureName="AI Tutor Chat"
+          description="Connecting to the AI Tutor requires an active internet connection. You can still review all past conversation history saved locally."
+        />
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', width: '100%' }}>
+          <textarea
+
           ref={textareaRef}
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
@@ -645,7 +653,9 @@ export function ChatInterface({ noteId, noteTitle, noteContent }: ChatInterfaceP
           <span>Send</span>
           <span>🚀</span>
         </button>
+        </div>
       </div>
     </div>
   );
 }
+

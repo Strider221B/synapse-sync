@@ -4,6 +4,7 @@ import { DB_INDEXES, DB_STORES } from '../constants';
 import type { DatabaseService } from '../database_service';
 import type { Flashcard, MCQCard, Quiz, SRSCard } from '../models';
 import type { SynapseSyncDB } from '../schema';
+import type { SyncQueueService } from './sync_queue_service';
 
 export type CreateMCQInput = Omit<MCQCard, 'id' | 'quizId'>;
 export type CreateFlashcardInput = Omit<Flashcard, 'id' | 'quizId'>;
@@ -31,11 +32,15 @@ export class QuizService {
   private static readonly _INITIAL_CORRECT_COUNT = 0;
   private static readonly _VERSION_INCREMENT = 1;
   private static readonly _INITIAL_VERSION = 1;
+  private static readonly _ENTITY_TYPE = 'quiz';
+  private static readonly _OP_CREATE = 'create';
 
   private readonly _databaseService: DatabaseService;
+  private readonly _syncQueueService?: SyncQueueService;
 
-  public constructor(databaseService: DatabaseService) {
+  public constructor(databaseService: DatabaseService, syncQueueService?: SyncQueueService) {
     this._databaseService = databaseService;
+    this._syncQueueService = syncQueueService;
   }
 
   /**
@@ -64,8 +69,10 @@ export class QuizService {
     const savedFlashcards = await this._saveFlashcards(tx, quizId, flashcards, timestamp);
     await tx.done;
 
+    await this._enqueueIfOffline(quizId, { noteId, modelUsed, version });
     return { quiz, mcqCards: savedMCQs, flashcards: savedFlashcards };
   }
+
 
   /**
    * Deletes a quiz and cascades removal across cards and their SRS tracking records.
@@ -191,7 +198,28 @@ export class QuizService {
     }
   }
 
+  /**
+   * Enqueues a quiz creation mutation operation if offline.
+   */
+  protected async _enqueueIfOffline(quizId: string, payload: Record<string, unknown>): Promise<void> {
+    if (this._syncQueueService && this._isOffline()) {
+      await this._syncQueueService.enqueue(QuizService._ENTITY_TYPE, quizId, QuizService._OP_CREATE, payload);
+    }
+  }
+
+  /**
+   * Returns whether the client environment is offline.
+   */
+  protected _isOffline(): boolean {
+    if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean') {
+      return false;
+    }
+    return !navigator.onLine;
+  }
+
+
   private _buildInitialSRSCard(cardId: string, cardType: 'mcq' | 'flashcard', nowIso: string): SRSCard {
+
     return {
       id: uuidv4(),
       cardId,
