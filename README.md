@@ -176,6 +176,13 @@ NEXT_PUBLIC_MSAL_CLIENT_ID=<YOUR_AZURE_CLIENT_ID>
 NEXT_PUBLIC_MSAL_REDIRECT_URI=http://localhost:3000
 ```
 
+> [!NOTE]
+> **Understanding `YOUTUBE_NOTES_API_KEY`:**
+> - **What it is:** This is **not** an official key from Google or YouTube. It is a **shared secret / password** that you choose yourself to protect the `/api/youtube-notes` endpoint so only authorized callers can push notes to your web application.
+> - **For Local Development:** Any arbitrary string is fine (e.g. `local-dev-secret-key-12345`).
+> - **For Production (Vercel):** Generate a strong random token (e.g., `openssl rand -hex 32`) and save it in your Vercel project environment variables.
+> - **Important:** The value set on your server (in `.env.local` or Vercel) **must match** the `YOUTUBE_NOTES_API_KEY` exported in your terminal when running the CLI pusher (`tools.youtube_cli`).
+
 ### 2. Start the Local Web App & API
 
 You can start the local development server using either Next.js or Vercel CLI (which runs both Next.js and Python serverless functions concurrently):
@@ -239,6 +246,9 @@ python -m tools.youtube_cli.main process --url "https://www.youtube.com/playlist
 2. Sign in via Microsoft OAuth popup (PKCE).
 3. Browse OneDrive folders, select `.docx` or `.md` files, and click **Import Selected**.
 4. Word documents are parsed via `/api/parse-docx` and stored in IndexedDB.
+
+> [!TIP]
+> **OneDrive Folder Structure:** You do not need to place files in any special folder. You can store your documents anywhere in OneDrive (or inside organized subfolders like `Study/Course_Name/`). The in-app file browser navigates through your folders starting at root `My Drive` and lists all `.docx` and `.md` files.
 
 ### YouTube Transcript Ingestion (Local-First)
 - Ingest playlists via the local Python CLI (`python -m tools.youtube_cli.main process --url ...`).
