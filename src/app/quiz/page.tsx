@@ -7,6 +7,7 @@ import { DatabaseService } from '@/lib/db/database_service';
 import type { Note, Quiz } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
 import { QuizService } from '@/lib/db/services/quiz_service';
+import { Skeleton } from '@/components/common/Skeleton';
 
 interface NoteQuizSummary {
   note: Note;
@@ -158,8 +159,10 @@ function QuizListContent() {
 
       {/* Content Area */}
       {isLoading ? (
-        <div style={{ padding: '4rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-          Loading your quizzes...
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} variant="card" height="150px" />
+          ))}
         </div>
       ) : summaries.length === 0 ? (
         <div

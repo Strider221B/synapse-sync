@@ -176,13 +176,13 @@ Polish the UI/UX, add dark/light theme support, build the main dashboard, implem
 
 ## Definition of Done
 
-- [ ] Dark/light/system theme toggle works correctly and persists across sessions
-- [ ] Desktop sidebar and mobile bottom nav both display with correct active states
-- [ ] Dashboard shows study stats, due cards, recent notes, and quick actions
-- [ ] Settings page allows configuring preferences, managing OneDrive connection, and clearing data
-- [ ] Loading states (skeletons) appear on all data-dependent pages
-- [ ] Error states display helpful messages with retry options
-- [ ] Toast notifications provide feedback on user actions
-- [ ] Micro-animations make the app feel polished and responsive
-- [ ] All pages render correctly across all tested breakpoints (320px to 2560px)
-- [ ] WCAG 2.1 AA compliance verified (contrast, focus, keyboard nav, screen reader)
+- [x] Dark/light/system theme toggle works correctly and persists across sessions
+- [x] Desktop sidebar and mobile bottom nav both display with correct active states
+- [x] Dashboard shows study stats, due cards, recent notes, and quick actions
+- [x] Settings page allows configuring preferences, managing OneDrive connection, and clearing data
+- [x] Loading states (skeletons) appear on all data-dependent pages
+- [x] Error states display helpful messages with retry options
+- [x] Toast notifications provide feedback on user actions
+- [x] Micro-animations make the app feel polished and responsive
+- [x] All pages render correctly across all tested breakpoints (320px to 2560px)
+- [x] WCAG 2.1 AA compliance verified (contrast, focus, keyboard nav, screen reader)

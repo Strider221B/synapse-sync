@@ -4,6 +4,8 @@ import React, { Suspense, use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { MarkdownRenderer } from '@/components/notes/MarkdownRenderer';
+import { Skeleton } from '@/components/common/Skeleton';
+import { ErrorState } from '@/components/common/ErrorState';
 import { ApiClient } from '@/lib/api/client';
 import { DatabaseService } from '@/lib/db/database_service';
 import type { Note, Notebook, Quiz } from '@/lib/db/models';
@@ -160,34 +162,26 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
 
   if (isLoading) {
     return (
-      <div style={{ padding: '4rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-        Loading note content...
+      <div style={{ maxWidth: '820px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem', padding: '1rem 0' }}>
+        <Skeleton variant="text" width="160px" height="24px" />
+        <Skeleton variant="text" width="70%" height="40px" />
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          <Skeleton variant="text" width="120px" height="20px" />
+          <Skeleton variant="text" width="80px" height="20px" />
+        </div>
+        <Skeleton variant="card" height="340px" />
       </div>
     );
   }
 
   if (!note) {
     return (
-      <div style={{ padding: '4rem 1rem', textAlign: 'center' }}>
-        <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-          Note Not Found
-        </h2>
-        <p style={{ color: 'var(--color-text-secondary)', margin: '0.75rem 0 1.5rem 0' }}>
-          The requested note does not exist or may have been deleted.
-        </p>
-        <Link
-          href="/notes"
-          style={{
-            padding: '0.625rem 1.25rem',
-            borderRadius: 'var(--radius-md)',
-            backgroundColor: 'var(--color-primary)',
-            color: '#ffffff',
-            fontWeight: 600,
-          }}
-        >
-          Return to Notes
-        </Link>
-      </div>
+      <ErrorState
+        title="Note Not Found"
+        message="The requested study note does not exist or may have been deleted from local storage."
+        actionLabel="Return to Notes"
+        onRetry={() => router.push('/notes')}
+      />
     );
   }
 
