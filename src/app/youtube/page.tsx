@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import { YouTubeNotesViewer } from '@/components/youtube/YouTubeNotesViewer';
 import { TranscriptPaster } from '@/components/youtube/TranscriptPaster';
+import { OfflineNotice } from '@/components/common/OfflineNotice';
+
 
 /**
  * Main YouTube Study Hub page providing study notebook browsing and transcript note generation.
@@ -81,9 +83,14 @@ export default function YouTubePage() {
         <YouTubeNotesViewer />
       ) : (
         <div style={{ maxWidth: '720px' }}>
+          <OfflineNotice
+            featureName="YouTube Transcript AI Processing"
+            description="Generating study notes from transcripts requires an internet connection to reach Gemini AI. Cached YouTube notes in the Study Notebooks tab remain fully available offline."
+          />
           <TranscriptPaster />
         </div>
       )}
+
     </div>
   );
 }

@@ -12,16 +12,28 @@ export const metadata: Metadata = {
   title: "SynapseSync — AI Study Companion",
   description:
     "AI-powered study companion with smart notes, spaced repetition flashcards, and automated quiz generation.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "SynapseSync",
+  },
+  icons: {
+    apple: "/icons/icon-192x192.png",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#0a0a0f",
+  themeColor: "#6366f1",
 };
 
 import { MsalProviderWrapper } from "@/components/auth/MsalProviderWrapper";
+import { ConnectionStatus } from "@/components/common/ConnectionStatus";
+import { ServiceWorkerRegister } from "@/components/common/ServiceWorkerRegister";
 import { ReviewNavBadge } from "@/components/review/ReviewNavBadge";
+
 
 export default function RootLayout({
   children,
@@ -30,8 +42,17 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" data-theme="dark" className={inter.variable}>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#6366f1" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+      </head>
       <body className={inter.className}>
+        <ServiceWorkerRegister />
         <MsalProviderWrapper>
+
           <div className="app-container">
             <aside className="app-sidebar" aria-label="Sidebar navigation">
               <div
@@ -210,22 +231,9 @@ export default function RootLayout({
                     gap: "0.75rem",
                   }}
                 >
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "0.375rem",
-                      fontSize: "0.75rem",
-                      color: "var(--color-success)",
-                      background: "var(--color-success-bg)",
-                      padding: "0.25rem 0.625rem",
-                      borderRadius: "var(--radius-full)",
-                      fontWeight: 500,
-                    }}
-                  >
-                    ● System Online
-                  </span>
+                  <ConnectionStatus />
                 </div>
+
               </header>
 
               <div className="app-content">{children}</div>

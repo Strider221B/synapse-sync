@@ -10,6 +10,7 @@ import { DatabaseService } from '@/lib/db/database_service';
 import type { Notebook } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
 import { NotebookService } from '@/lib/db/services/notebook_service';
+import { OfflineNotice } from '@/components/common/OfflineNotice';
 
 interface DocxParseResponse {
   text: string;
@@ -238,6 +239,11 @@ export default function ImportNotesPage() {
       {/* Tab 1: OneDrive */}
       {activeTab === 'onedrive' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <OfflineNotice
+            featureName="OneDrive Document Import"
+            description="Connecting to Microsoft OneDrive and importing documents requires an active internet connection. You can still create manual notes and study cached materials offline."
+          />
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <h2 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>

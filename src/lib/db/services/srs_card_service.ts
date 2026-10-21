@@ -2,6 +2,8 @@ import { DB_INDEXES, DB_STORES } from '../constants';
 import type { DatabaseService } from '../database_service';
 import type { SRSCard } from '../models';
 
+import type { SyncQueueService } from './sync_queue_service';
+
 export interface SRSStats {
   totalCards: number;
   cardsDueToday: number;
@@ -19,11 +21,15 @@ export class SRSCardService {
   private static readonly _ERROR_CARD_NOT_FOUND = 'SRS Card not found';
   private static readonly _MASTERED_MIN_INTERVAL = 21;
   private static readonly _MASTERED_MIN_EASINESS = 2.5;
+  private static readonly _ENTITY_TYPE = 'srs_card';
+  private static readonly _OP_UPDATE = 'update';
 
   private readonly _databaseService: DatabaseService;
+  private readonly _syncQueueService?: SyncQueueService;
 
-  public constructor(databaseService: DatabaseService) {
+  public constructor(databaseService: DatabaseService, syncQueueService?: SyncQueueService) {
     this._databaseService = databaseService;
+    this._syncQueueService = syncQueueService;
   }
 
   /**
@@ -86,6 +92,7 @@ export class SRSCardService {
     };
 
     await db.put(DB_STORES.SRS_CARDS, updated);
+    await this._enqueueIfOffline(id, input as Record<string, unknown>);
     return updated;
   }
 
@@ -98,4 +105,25 @@ export class SRSCardService {
     }
     return typeof date === 'string' ? date : date.toISOString();
   }
+
+  /**
+   * Enqueues an SRS card update operation when offline.
+   */
+  protected async _enqueueIfOffline(id: string, payload: Record<string, unknown>): Promise<void> {
+    if (this._syncQueueService && this._isOffline()) {
+      await this._syncQueueService.enqueue(SRSCardService._ENTITY_TYPE, id, SRSCardService._OP_UPDATE, payload);
+    }
+  }
+
+  /**
+   * Returns whether the client environment is offline.
+   */
+  protected _isOffline(): boolean {
+    if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean') {
+      return false;
+    }
+    return !navigator.onLine;
+  }
 }
+
+

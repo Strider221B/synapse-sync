@@ -26,7 +26,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "api/**",
     "tools/**",
+    "public/**",
   ]),
+
 ]);
 
 export default eslintConfig;
