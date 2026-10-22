@@ -110,7 +110,7 @@ Before running the application, ensure your environment meets the following requ
 - **Python:** `3.13` (configured with the designated project environment: `~/python_envs/p313_llm`)
 - **uv:** Fast Python package installer (`uv pip`)
 - **Google Gemini API Key:** Free tier from [Google AI Studio](https://aistudio.google.com/)
-- **Google Client ID:** (Optional for YouTube-only usage, required for Google Drive sync) Registered OAuth 2.0 Client ID from [Google Cloud Console](https://console.cloud.google.com/)
+- **Google Client ID:** (Optional for YouTube-only usage, required for Google Drive sync) Registered OAuth 2.0 Client ID from [Google Cloud Console](https://console.cloud.google.com/) — see our [Google Drive Setup Guide](./documentation/setup/google_drive_setup.md)
 
 ---
 
@@ -247,6 +247,9 @@ python -m tools.youtube_cli.main process --url "https://www.youtube.com/playlist
 3. Browse Google Drive folders, select `.docx`, `.md`, or Google Docs files, and click **Import Selected**.
 4. Word documents are parsed via `/api/parse-docx`, Google Docs are exported as clean text, and notes are stored in IndexedDB.
 5. In addition to reading, you can write and synchronize notes directly back to Google Drive (create new markdown files via multipart upload or update existing file content).
+
+> [!TIP]
+> For step-by-step instructions on setting up your Google Cloud project, OAuth consent screen, and enabling the Drive API, see the [Google Drive Setup Guide](./documentation/setup/google_drive_setup.md).
 
 > [!TIP]
 > **Google Drive Folder Structure:** You do not need to place files in any special folder. You can store your documents anywhere in Google Drive (or inside organized subfolders like `Study/Course_Name/`). The in-app file browser navigates through your folders starting at root `My Drive` and lists all eligible documents.
@@ -390,6 +393,9 @@ Detailed specifications and architectural decisions can be found in the document
 - [07. Epic 7 — AI Study Assistant (Chat)](./documentation/plans/07_ai_chat.md)
 - [08. Epic 8 — PWA & Offline-First Implementation](./documentation/plans/08_pwa_offline.md)
 - [09. Epic 9 — Polish, Theming & UI Enhancements](./documentation/plans/09_polish_enhancements.md)
+
+### Guides & Setup
+- [Google Drive OAuth 2.0 & API Setup Guide](./documentation/setup/google_drive_setup.md)
 
 ### Standards
 - [Coding Standards & Conventions](./documentation/prompts/coding_standards.md)
