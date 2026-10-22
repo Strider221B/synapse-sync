@@ -51,7 +51,7 @@ export class AuthService {
         : typeof window !== 'undefined'
         ? window.localStorage
         : null;
-    this._fetchFn = customFetch ?? (typeof fetch !== 'undefined' ? fetch : (null as unknown as typeof fetch));
+    this._fetchFn = this._resolveFetch(customFetch);
     this._config = customConfig ?? googleAuthConfig;
     this._popupOpener = popupOpener;
   }
@@ -298,5 +298,22 @@ export class AuthService {
     } catch {
       // Ignore background revocation failure
     }
+  }
+
+  /**
+   * Resolves a bound fetch function safe for browser and Node execution.
+   */
+  private _resolveFetch(customFetch?: typeof fetch): typeof fetch {
+    if (customFetch) {
+      return (input: RequestInfo | URL, init?: RequestInit) =>
+        customFetch.call(typeof window !== 'undefined' ? window : globalThis, input, init);
+    }
+    if (typeof window !== 'undefined' && window.fetch) {
+      return window.fetch.bind(window);
+    }
+    if (typeof globalThis !== 'undefined' && globalThis.fetch) {
+      return globalThis.fetch.bind(globalThis);
+    }
+    return (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init);
   }
 }
