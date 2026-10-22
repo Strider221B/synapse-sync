@@ -40,13 +40,13 @@ graph TB
             FN4["🧠 /api/generate-quiz"]
             FN5["📝 /api/summarize"]
             FN6["💬 /api/chat"]
-            FN7["📺 /api/youtube-notes<br/>(receives from CLI)"]
+            FN7["📺 /api/youtube-notes<br/>(legacy shim)"]
         end
     end
 
     subgraph "🔌 External APIs"
         GEMINI["🤖 Google Gemini<br/>(Free Tier)"]
-        GDRIVE["📁 Google Drive API v3<br/>(Drive / Docs)"]
+        GDRIVE["📁 Google Drive API v3<br/>(⭐ Sole Source of Truth)"]
         YT["📺 YouTube<br/>(Transcripts)"]
     end
 
@@ -57,10 +57,10 @@ graph TB
 
     LAPTOP & PHONE <--> CDN
     LAPTOP & PHONE <--> FN1 & FN4 & FN5 & FN6
-    LAPTOP & PHONE <-->|"Google OAuth 2.0<br/>(Direct)"| GDRIVE
+    LAPTOP & PHONE <-->|"Google OAuth 2.0<br/>(Bidirectional Sync)"| GDRIVE
     CLI --> YT
     CLI --> GEMINI
-    CLI -->|"Push detailed notes"| FN7
+    CLI -->|"Upload directly to SynapseSync/"| GDRIVE
     FN4 & FN5 & FN6 --> GEMINI
     LAPTOP & PHONE --- IDB & SW
 ```
@@ -101,9 +101,9 @@ graph TB
 | Aspect     | Decision                                                                  |
 |:-----------|:--------------------------------------------------------------------------|
 | **Context**| User requires Python backend; YouTube transcript fetching from cloud IPs gets blocked by YouTube; Gemini needs unrestricted time to generate detailed notes |
-| **Decision**| **Pure Python backend:** All Vercel serverless functions run Python. **Local CLI tool:** A separate Python CLI tool runs on the developer's local machine for YouTube transcript fetching and detailed note generation. Results are pushed to a Vercel API endpoint (`/api/youtube-notes`) |
-| **Rationale**| Local machine uses residential IP — YouTube never blocks residential IPs. Local execution removes the 60-second Vercel timeout, allowing Gemini to generate exhaustively detailed notes. Single runtime (Python) simplifies deployment. |
-| **Tradeoff**| Requires running a CLI tool locally before notes are available in the PWA; two separate deployment contexts (Vercel + local) |
+| **Decision**| **Pure Python backend:** All Vercel serverless functions run Python. **Local CLI tool:** A separate Python CLI tool runs on the developer's local machine for YouTube transcript fetching and detailed note generation. Results are uploaded directly to the user's dedicated Google Drive folder (`SynapseSync/`). |
+| **Rationale**| Local machine uses residential IP — YouTube never blocks residential IPs. Local execution removes the 60-second Vercel timeout, allowing Gemini to generate exhaustively detailed notes. Direct upload to Google Drive keeps Google Drive as the sole source of truth and eliminates server-side storage. |
+| **Tradeoff**| Requires running a CLI tool locally with Google Drive credentials (`GOOGLE_DRIVE_ACCESS_TOKEN`); PWA syncs notes upon completion |
 
 ### ADR-05: Local Sequential Processing for YouTube
 
@@ -119,9 +119,9 @@ graph TB
 | Aspect     | Decision                                                                  |
 |:-----------|:--------------------------------------------------------------------------|
 | **Context**| YouTube blocks CORS requests from browsers AND aggressively blocks cloud/datacenter IPs; detailed note generation requires significant Gemini API time |
-| **Decision**| **Primary:** Local Python CLI tool fetches transcripts using `youtube-transcript-api` from the developer's residential IP, generates detailed notes via Gemini locally, and pushes the final results to the Vercel server. **Fallback:** Manual transcript paste UI in the PWA for individual videos |
-| **Rationale**| Residential IPs are never blocked by YouTube. Local execution eliminates both the CORS problem (no browser involved) and the cloud IP blocking problem. Unlimited processing time enables Gemini to generate truly detailed, comprehensive notes rather than rushed summaries. |
-| **Tradeoff**| Extra step for the user (run CLI tool); notes not instantly available until CLI push completes; manual paste is still available as PWA fallback |
+| **Decision**| **Primary:** Local Python CLI tool fetches transcripts using `youtube-transcript-api` from the developer's residential IP, generates detailed notes via Gemini locally, and uploads the final results directly to Google Drive. **Fallback:** Manual transcript paste UI in the PWA for individual videos (saved to local IndexedDB and synced to Google Drive) |
+| **Rationale**| Residential IPs are never blocked by YouTube. Local execution eliminates both the CORS problem (no browser involved) and the cloud IP blocking problem. Unlimited processing time enables Gemini to generate truly detailed, comprehensive notes rather than rushed summaries. Direct Google Drive upload ensures no server note storage is needed. |
+| **Tradeoff**| Extra step for the user (run CLI tool); notes sync down to PWA from Google Drive; manual paste is still available as PWA fallback |
 
 ### ADR-07: Gemini Structured Output for Quiz Generation
 
@@ -203,10 +203,10 @@ sequenceDiagram
     participant CLI as YouTube CLI Tool (Python)
     participant YT as YouTube
     participant Gemini as Google Gemini
-    participant API as /api/youtube-notes (Vercel)
+    participant Drive as Google Drive (SynapseSync/)
     participant PWA as SynapseSync PWA
 
-    Developer->>CLI: synapse-yt process <playlist_url>
+    Developer->>CLI: youtube-cli process --url <playlist_url>
     CLI->>YT: Resolve playlist
     YT->>CLI: { videos: [20 items] }
 
@@ -222,12 +222,13 @@ sequenceDiagram
         end
     end
 
-    CLI->>API: POST /api/youtube-notes<br/>{ notebook, notes[] }
-    API->>CLI: { notebookId, noteIds[] }
-    CLI->>Developer: "✅ Notebook pushed! 20 detailed notes created."
+    CLI->>Drive: Upload to Google Drive<br/>notebook_<id>.json -> SynapseSync/notebooks/<br/>note_<id>.json -> SynapseSync/notes/
+    Drive->>CLI: { notebookId, noteIds[], notesStored }
+    CLI->>Developer: "✅ Uploaded to Google Drive! 20 detailed notes created."
 
     Developer->>PWA: Open app
-    PWA->>API: Fetch notebook
+    PWA->>Drive: Sync notes & notebooks via GoogleDriveSyncService
+    Drive->>PWA: { notebook_*.json, note_*.json }
     PWA->>PWA: Display detailed notes
     Developer->>PWA: "Generate Quiz" on Lecture 1
 ```
@@ -280,12 +281,12 @@ stateDiagram-v2
 | 1 | YouTube blocks transcript fetching                 | **Very Low** (eliminated) | N/A | Local CLI uses residential IP; YouTube does not block residential IPs |
 | 2 | Gemini free tier rate limits hit during heavy use   | **Medium**  | Medium | Local CLI has built-in delay between requests; cache all generated notes |
 | 3 | Vercel function timeout (60s) on large documents    | **Medium**  | Medium | Truncate documents to ~8000 words; YouTube processing runs locally (no timeout) |
-| 4 | IndexedDB cleared by browser                        | **Low**     | High   | Warn users about browser storage policies; export feature (v2); notes also stored on server |
+| 4 | IndexedDB cleared by browser                        | **Low**     | High   | Warn users about browser storage policies; Google Drive is the sole source of truth and all notes/quizzes can be re-synced |
 | 5 | Google OAuth token expires or refresh fails         | **Low**     | Medium | Detect 401 responses; prompt re-login; track token expiry in session |
 | 6 | Large playlists (100+ videos) take very long locally | **Medium**  | Low   | Show CLI progress; allow resume from where it left off; process overnight |
 | 7 | Gemini generates incorrect quiz answers              | **Medium**  | Medium | Show explanations with answers; allow user to flag/report     |
 | 8 | PWA install experience varies across browsers        | **Medium**  | Low    | Test on Chrome, Safari, Firefox; provide manual install guide |
-| 9 | Local CLI fails to push notes to server              | **Low**     | Low    | Notes are cached locally; can retry push; clear error messages |
+| 9 | Local CLI fails to upload notes to Google Drive      | **Low**     | Low    | Notes are cached locally; can retry push with `--drive-folder` / `--drive-token`; clear error messages |
 
 ---
 

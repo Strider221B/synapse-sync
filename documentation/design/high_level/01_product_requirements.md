@@ -156,7 +156,7 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 | Cloud IP blocking     | **Eliminated** — local machine uses residential IP | No mitigation needed; local IPs are not blocked by YouTube |
 | Timeout               | **Eliminated** — no 60s serverless timeout    | Local CLI runs without time constraints       |
 | Gemini rate limits    | Free tier ~15-30 RPM                          | Local CLI queues requests with delay; retry + exponential backoff |
-| Server push           | Final notes must be pushed to Vercel API      | Dedicated `/api/youtube-notes` endpoint receives processed data |
+| Cloud upload          | Final notes uploaded directly to Google Drive | Uploads directly to dedicated `SynapseSync` folder (`notebooks/` and `notes/`) on Google Drive |
 
 ---
 
@@ -168,7 +168,7 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 | **Responsiveness** | Fully responsive: 320px (phone) to 2560px (ultrawide)                    |
 | **Accessibility** | WCAG 2.1 AA compliance; keyboard navigation; screen reader support        |
 | **Security**     | No server-side token storage; PKCE for OAuth; HTTPS only                   |
-| **Privacy**      | Notes never stored on our servers; only transient processing in functions   |
+| **Privacy**      | Notes never stored on application servers; Google Drive is the sole source of truth; only transient AI processing in serverless functions |
 | **Reliability**  | Graceful degradation when offline; clear error states for API failures      |
 
 ---

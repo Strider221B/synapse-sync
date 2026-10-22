@@ -26,6 +26,8 @@ export default function SettingsPage() {
   const [confirmClearOpen, setConfirmClearOpen] = useState<boolean>(false);
   const [isClearing, setIsClearing] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [isSyncingDrive, setIsSyncingDrive] = useState<boolean>(false);
 
   useEffect(() => {
     async function loadPreferences() {
@@ -34,9 +36,11 @@ export default function SettingsPage() {
         const prefs = new PreferencesService(dbService);
         const goal = await prefs.get<number>('dailyCardGoal');
         const diff = await prefs.get<string>('quizDifficulty');
+        const lastSync = await prefs.get<string>('lastSyncTimestamp');
 
         if (goal !== undefined) setDailyGoal(goal);
         if (diff !== undefined) setDifficulty(diff);
+        if (lastSync) setLastSyncTime(lastSync);
       } catch (err) {
         console.error('Failed to load user preferences:', err);
       }
@@ -66,6 +70,27 @@ export default function SettingsPage() {
       toast.success(`Default quiz difficulty updated to ${newDiff}`);
     } catch {
       toast.error('Failed to save difficulty preference');
+    }
+  };
+
+  const handleForceSyncDrive = async () => {
+    setIsSyncingDrive(true);
+    try {
+      const { SyncManager } = await import('@/lib/db/sync_manager');
+      const syncManager = SyncManager.getInstance();
+      const result = await syncManager.forceSync();
+      const nowIso = new Date().toISOString();
+      setLastSyncTime(nowIso);
+      if ('pushedNotes' in result) {
+        toast.success(`Synced ${result.pushedNotes} note(s) & ${result.pushedQuizzes} quiz(zes) to Google Drive`);
+      } else {
+        toast.success('Synchronization completed');
+      }
+    } catch (err) {
+      console.error('Settings sync failed:', err);
+      toast.error(err instanceof Error ? err.message : 'Google Drive sync failed');
+    } finally {
+      setIsSyncingDrive(false);
     }
   };
 
@@ -223,6 +248,40 @@ export default function SettingsPage() {
           description="Link your Google account to import documents and sync study notes from Google Drive."
         >
           <GoogleDriveConnectButton />
+        </SettingRow>
+
+        <SettingRow
+          label="Force Cloud Sync"
+          description={
+            lastSyncTime
+              ? `Manually push local notes & quizzes and retrieve cloud updates. Last synced: ${new Date(lastSyncTime).toLocaleString()}`
+              : 'Manually push local notes & quizzes and retrieve cloud updates. Never synced.'
+          }
+        >
+          <button
+            type="button"
+            onClick={handleForceSyncDrive}
+            disabled={isSyncingDrive}
+            className="btn-interactive"
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-surface-border)',
+              backgroundColor: 'var(--color-surface-raised)',
+              color: 'var(--color-text-primary)',
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              cursor: isSyncingDrive ? 'wait' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+            }}
+          >
+            <span style={{ display: 'inline-block', animation: isSyncingDrive ? 'spin 1s linear infinite' : 'none' }}>
+              🔄
+            </span>
+            {isSyncingDrive ? 'Syncing...' : 'Force Sync Now'}
+          </button>
         </SettingRow>
       </section>
 

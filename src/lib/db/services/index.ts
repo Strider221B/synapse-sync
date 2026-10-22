@@ -29,3 +29,6 @@ export type { KnownPreferenceKey } from './preferences_service';
 export { StatsService } from './stats_service';
 export type { DashboardStats } from './stats_service';
 
+export { GoogleDriveSyncService } from './google_drive_sync_service';
+export type { SyncResult, QuizDrivePayload } from './google_drive_sync_service';
+

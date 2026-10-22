@@ -19,6 +19,8 @@ class TestConfig:
             assert config.get_max_retries() == 3
             assert config.get_language() == "en"
             assert config.get_server_url() == "http://localhost:3000"
+            assert config.get_drive_folder() == "SynapseSync"
+            assert config.get_drive_token() is None
             assert config.get_gemini_api_key() is None
             assert config.get_youtube_notes_api_key() is None
 
@@ -28,9 +30,13 @@ class TestConfig:
             "GEMINI_API_KEY": "gemini-custom-key",
             "YOUTUBE_NOTES_API_KEY": "yt-notes-secret",
             "SYNAPSE_SERVER_URL": "https://synapse-sync.vercel.app",
+            "GOOGLE_DRIVE_ACCESS_TOKEN": "gdrive-token-123",
+            "GOOGLE_DRIVE_FOLDER_NAME": "MyStudyDrive",
         }
         with patch.dict("os.environ", mock_env, clear=True):
             config = Config()
             assert config.get_gemini_api_key() == "gemini-custom-key"
             assert config.get_youtube_notes_api_key() == "yt-notes-secret"
             assert config.get_server_url() == "https://synapse-sync.vercel.app"
+            assert config.get_drive_token() == "gdrive-token-123"
+            assert config.get_drive_folder() == "MyStudyDrive"

@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-SynapseSync uses **IndexedDB** as the primary client-side data store. There is no server-side database — all persistent state lives in the browser. This document defines every entity, its fields, relationships, and indexing strategy.
+SynapseSync uses **IndexedDB** as the primary client-side offline data store and **Google Drive** as the sole source of truth across devices. There is no server-side database or server-side note storage — all persistent state is owned by the user and lives in their dedicated Google Drive directory (`SynapseSync/`), while IndexedDB provides instant local access and offline capability. This document defines every entity, its fields, relationships, and indexing strategy.
 
 The IndexedDB wrapper library `idb` provides a Promise-based API over the native IndexedDB interface.
 

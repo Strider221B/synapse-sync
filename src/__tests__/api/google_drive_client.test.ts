@@ -162,4 +162,113 @@ describe('GoogleDriveApiClient', () => {
     assert.equal(item.id, 'existing-file-id');
     assert.equal(item.size, 256);
   });
+
+  it('finds file by name or returns null if not found', async () => {
+    let callCount = 0;
+    const mockFetch = async () => {
+      callCount += 1;
+      const files = callCount === 1 ? [{ id: 'f-found', name: 'target.json', mimeType: 'application/json' }] : [];
+      return new Response(JSON.stringify({ files }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+
+    const client = new GoogleDriveApiClient(mockAuth, mockFetch as typeof fetch);
+    const found = await client.findFileByName('target.json', 'folder-1');
+    assert.equal(found?.id, 'f-found');
+
+    const notFound = await client.findFileByName('missing.json', 'folder-1');
+    assert.equal(notFound, null);
+  });
+
+  it('creates folder using standard POST JSON request', async () => {
+    const mockFetch = async (url: string | URL | Request, init?: RequestInit) => {
+      assert.equal(init?.method, 'POST');
+      assert.ok(init?.body?.toString().includes('application/vnd.google-apps.folder'));
+      return new Response(
+        JSON.stringify({ id: 'folder-new-id', name: 'SynapseSync', mimeType: 'application/vnd.google-apps.folder' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    };
+
+    const client = new GoogleDriveApiClient(mockAuth, mockFetch as typeof fetch);
+    const folder = await client.createFolder('SynapseSync', 'root');
+    assert.equal(folder.id, 'folder-new-id');
+    assert.ok(folder.folder);
+  });
+
+  it('getOrCreateFolder returns existing folder or creates when missing', async () => {
+    let created = false;
+    const mockFetch = async (url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        created = true;
+        return new Response(
+          JSON.stringify({ id: 'f-created', name: 'NewFolder', mimeType: 'application/vnd.google-apps.folder' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(JSON.stringify({ files: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+
+    const client = new GoogleDriveApiClient(mockAuth, mockFetch as typeof fetch);
+    const folder = await client.getOrCreateFolder('NewFolder', 'root');
+    assert.equal(folder.id, 'f-created');
+    assert.equal(created, true);
+  });
+
+  it('lists all folder items without filtering document formats', async () => {
+    const rawFiles = [
+      { id: 'f1', name: 'data.json', mimeType: 'application/json' },
+      { id: 'f2', name: 'notes.md', mimeType: 'text/markdown' },
+    ];
+    const mockFetch = async () =>
+      new Response(JSON.stringify({ files: rawFiles }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+    const client = new GoogleDriveApiClient(mockAuth, mockFetch as typeof fetch);
+    const items = await client.listAllFolderItems('folder-123');
+    assert.equal(items.length, 2);
+    assert.equal(items[0].name, 'data.json');
+  });
+
+  it('saves file by updating if exists or creating if not found', async () => {
+    let patched = false;
+    const mockFetch = async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = url.toString();
+      if (init?.method === 'PATCH') {
+        patched = true;
+        return new Response(
+          JSON.stringify({ id: 'f-existing', name: 'data.json', mimeType: 'application/json' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (urlStr.includes('/files?')) {
+        return new Response(
+          JSON.stringify({ files: [{ id: 'f-existing', name: 'data.json', mimeType: 'application/json' }] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      throw new Error('Unexpected route');
+    };
+
+    const client = new GoogleDriveApiClient(mockAuth, mockFetch as typeof fetch);
+    const saved = await client.saveFile('data.json', '{"test": true}', 'application/json', 'folder-1');
+    assert.equal(saved.id, 'f-existing');
+    assert.equal(patched, true);
+  });
+
+  it('retrieves file text content and deletes file by id', async () => {
+    let deleted = false;
+    const mockFetch = async (url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        deleted = true;
+        return new Response(null, { status: 204 });
+      }
+      return new Response('Hello Text Content', { status: 200, headers: { 'Content-Type': 'text/plain' } });
+    };
+
+    const client = new GoogleDriveApiClient(mockAuth, mockFetch as typeof fetch);
+    const content = await client.getFileText('file-id-txt');
+    assert.equal(content, 'Hello Text Content');
+
+    await client.deleteFile('file-id-txt');
+    assert.equal(deleted, true);
+  });
 });

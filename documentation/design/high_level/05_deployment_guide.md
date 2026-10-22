@@ -101,7 +101,7 @@ Before deploying, register the app with the following services:
 synapse-sync/
 ├── api/                          # ← Vercel detects as Python serverless functions
 │   ├── parse_docx.py
-│   ├── youtube_notes.py          # Receives processed notes from local CLI
+│   ├── youtube_notes.py          # Legacy endpoint shim
 │   ├── generate_quiz.py
 │   ├── summarize.py
 │   ├── chat.py
@@ -113,6 +113,7 @@ synapse-sync/
 │       ├── transcript_fetcher.py
 │       ├── playlist_resolver.py
 │       ├── note_generator.py
+│       ├── google_drive_pusher.py # Uploads processed notes directly to Google Drive
 │       ├── server_pusher.py
 │       ├── transcript_cache.py
 │       ├── config.py

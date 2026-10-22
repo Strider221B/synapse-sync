@@ -128,6 +128,10 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
         response.metadata?.model || 'gemini-2.0-flash'
       );
 
+      import('@/lib/db/sync_manager').then(({ SyncManager }) => {
+        void SyncManager.getInstance().forceSync().catch(() => {});
+      });
+
       router.push(`/quiz/${newQuiz.quiz.id}`);
     } catch (err: unknown) {
       const errorMsg =

@@ -9,7 +9,7 @@
 
 ## Goal
 
-Enable users to generate **detailed, comprehensive study notes** from YouTube videos and playlists. Transcript fetching and note generation run **locally on the developer's machine** via a Python CLI tool (eliminating cloud IP blocking and timeout constraints). The final processed notes are pushed to the Vercel server for access via the PWA.
+Enable users to generate **detailed, comprehensive study notes** from YouTube videos and playlists. Transcript fetching and note generation run **locally on the developer's machine** via a Python CLI tool (eliminating cloud IP blocking and timeout constraints). The final processed notes are pushed directly to a **dedicated Google Drive folder** (under `SynapseSync/notebooks/` and `SynapseSync/notes/`). The app maintains no server-side note storage; Google Drive is the **sole source of truth**, and the PWA offline IndexedDB synchronizes directly from Google Drive.
 
 ---
 
@@ -91,55 +91,43 @@ Enable users to generate **detailed, comprehensive study notes** from YouTube vi
 
 ---
 
-## Story 4.3 — Server Push (Local CLI → Vercel)
+## Story 4.3 — Direct Google Drive Upload (Local CLI → Google Drive)
 
-**As a developer, I want the locally-generated notes to be pushed to the Vercel server so the PWA can access them.**
+**As a user, I want locally-generated notes uploaded directly to my dedicated Google Drive folder so that Google Drive is the sole source of truth and no server storage is required.**
 
 ### Tasks
 
-**Task 4.3.1 — Build the `ServerPusher` class**
-- Create `tools/youtube_cli/server_pusher.py`
+**Task 4.3.1 — Build the `GoogleDrivePusher` class**
+- Create `tools/youtube_cli/google_drive_pusher.py`
 - Implement a class that:
   - Accepts a notebook definition and list of processed notes
-  - Posts the data to `POST /api/youtube-notes` on the Vercel server
-  - Authenticates using the `YOUTUBE_NOTES_API_KEY` shared secret (sent as `Authorization: Bearer <key>`)
-  - Handles response: parses `{ notebookId, noteIds[], notesStored }` on success
-  - Handles errors: network failure, auth failure (401), validation error (400), server error (500)
-- Include retry logic for transient network errors (max 3 retries with backoff)
-
-**Task 4.3.2 — Build the `/api/youtube-notes` Vercel endpoint**
-- Create `api/youtube_notes.py`
-- Implement a handler class that:
-  - Accepts `POST` with JSON body: `{ notebook: { name, source, sourceUrl, description, tags }, notes: [{ title, content, contentFormat, sourceType, sourceUrl, videoId, wordCount }] }`
-  - Validates the API key from the `Authorization` header (`Bearer <key>`)
-  - Validates all required fields are present in notebook and each note
-  - Generates UUIDs for notebook and each note if not provided
-  - Persists the notebook and notes, returning: `{ notebookId, noteIds[], notesStored }`
-  - Accepts `GET` request (with optional `?notebookId=<id>`) to return stored YouTube notebooks and notes so the PWA frontend can fetch and synchronize them into IndexedDB
-- Include proper error responses:
-  - Missing auth on POST → `401` with code `UNAUTHORIZED`
-  - Missing notebook → `400` with code `MISSING_NOTEBOOK`
-  - Missing notes → `400` with code `MISSING_NOTES`
-  - Invalid note data → `400` with code `INVALID_NOTE`
-  - Storage error → `500` with code `STORAGE_FAILED`
+  - Authenticates against the Google Drive v3 API using `GOOGLE_DRIVE_ACCESS_TOKEN`
+  - Targets a dedicated folder (defaulting to `SynapseSync` or custom via `GOOGLE_DRIVE_FOLDER_NAME` / `--drive-folder`)
+  - Ensures subfolders `notebooks` and `notes` exist in Google Drive
+  - Saves `notebook_<id>.json` into the `notebooks` folder
+  - Saves each `note_<id>.json` into the `notes` folder
+  - Returns: `{ notebookId, noteIds[], notesStored }` on success
+- Format strictly matches the schema consumed by `GoogleDriveSyncService` in the PWA
+- Legacy server push adapter `ServerPusher` maintained for backward compatibility
 
 ---
 
 ## Story 4.4 — CLI Entry Point & Orchestration
 
-**As a developer, I want a single CLI command to process a YouTube video or playlist end-to-end (fetch → generate notes → push to server).**
+**As a developer, I want a single CLI command to process a YouTube video or playlist end-to-end (fetch → generate notes → push to Google Drive).**
 
 ### Tasks
 
 **Task 4.4.1 — Build the CLI entry point**
 - Create `tools/youtube_cli/main.py`
 - Implement a CLI class with the following commands:
-  - `process --url <youtube_url>` — Full pipeline: detect video/playlist → fetch transcripts → generate detailed notes → push to server
-  - `process --url <youtube_url> --local-only` — Same as above but skip the server push (save locally only)
-  - `push --notebook-dir <path> --server-url <url>` — Push a previously-processed notebook to the server
+  - `process --url <youtube_url>` — Full pipeline: detect video/playlist → fetch transcripts → generate detailed notes → upload to Google Drive
+  - `process --url <youtube_url> --local-only` — Same as above but skip the remote upload (save locally only)
+  - `process --url <youtube_url> --drive-folder <folder>` — Upload to a custom dedicated Google Drive folder
+  - `push --notebook-dir <path> [--drive-folder <folder>]` — Push a previously-processed local notebook directory to Google Drive
 - Auto-detect whether the URL is a single video or a playlist
 - For playlists: process videos one-at-a-time sequentially, showing progress via `rich` library
-- Use `argparse` or `click` for CLI argument parsing
+- Use `argparse` for CLI argument parsing
 
 **Task 4.4.2 — Build the CLI configuration**
 - Create `tools/youtube_cli/config.py`
@@ -147,10 +135,11 @@ Enable users to generate **detailed, comprehensive study notes** from YouTube vi
   - `GEMINI_MODEL_NAME = "gemini-2.0-flash"`
   - `GEMINI_REQUEST_DELAY_SECONDS = 4`
   - `MAX_RETRIES = 3`
+  - `DEFAULT_DRIVE_FOLDER = "SynapseSync"`
   - `TRANSCRIPT_CACHE_DIR = "~/.synapse-sync/transcript_cache"`
   - `LOCAL_NOTES_DIR = "~/.synapse-sync/processed_notes"`
   - `DEFAULT_LANGUAGE = "en"`
-- Read environment variables: `GEMINI_API_KEY`, `YOUTUBE_NOTES_API_KEY`, `SYNAPSE_SERVER_URL`
+- Read environment variables: `GEMINI_API_KEY`, `GOOGLE_DRIVE_ACCESS_TOKEN`, `GOOGLE_DRIVE_FOLDER_NAME`
 
 **Task 4.4.3 — Add progress display**
 - Use the `rich` library for CLI output:
@@ -167,10 +156,10 @@ Enable users to generate **detailed, comprehensive study notes** from YouTube vi
 
 ### Tasks
 
-**Task 4.5.1 — Update the YouTube page to display server-pushed notes**
+**Task 4.5.1 — Update the YouTube page to display Google Drive synchronized notes**
 - Update `src/app/youtube/page.tsx`
 - UI sections:
-  - List all YouTube notebooks (fetched from the server via `GET /api/youtube-notes` and cached in IndexedDB via `NotebookService` and `NoteService`)
+  - List all YouTube notebooks (cached in IndexedDB via `NotebookService` and `NoteService` and synced with Google Drive via `GoogleDriveSyncService`)
   - Show notebook details: name, source playlist URL, video count, created date
   - Navigate to individual note reader view for each video's detailed notes
   - Manual paste fallback section (for individual videos not processed locally)
@@ -181,13 +170,15 @@ Enable users to generate **detailed, comprehensive study notes** from YouTube vi
   - Notebook title and source playlist link
   - Number of notes / videos
   - List of individual video notes (title + word count)
+  - Direct synchronization with Google Drive via `SyncManager.forceSync()`
+  - Auto-refresh upon `synapse-sync-completed` event
   - Click to open in the standard NoteReader view
 
 **Task 4.5.3 — Preserve the manual transcript paste fallback**
 - Keep `src/components/youtube/TranscriptPaster.tsx`
 - Shows a text area where the user can manually paste a transcript for individual videos
 - "Submit" button sends the pasted text to `/api/summarize` (server-side Gemini processing)
-- This serves as a fallback for one-off videos not processed via the local CLI
+- Saved to local IndexedDB and automatically pushed to Google Drive during background/force sync
 
 ---
 
@@ -216,14 +207,14 @@ Enable users to generate **detailed, comprehensive study notes** from YouTube vi
 
 ## Definition of Done
 
-- [ ] Local CLI tool can process a single YouTube video URL → fetch transcript → generate detailed notes → push to server
-- [ ] Local CLI tool can process a playlist URL → create one notebook → one detailed note per video → push to server
+- [ ] Local CLI tool can process a single YouTube video URL → fetch transcript → generate detailed notes → upload to dedicated Google Drive folder
+- [ ] Local CLI tool can process a playlist URL → create one notebook → one detailed note per video → upload to dedicated Google Drive folder
 - [ ] CLI shows progress output during playlist processing (video X of Y, status per video)
 - [ ] Transcripts are cached locally — re-processing the same video doesn't re-fetch from YouTube
 - [ ] Gemini generates **detailed, comprehensive notes** (not summaries) — capturing every concept, definition, example, and explanation
-- [ ] `/api/youtube-notes` endpoint receives and stores notes from the local CLI
-- [ ] PWA displays YouTube notebooks and their detailed notes in the reader view
-- [ ] If manual paste fallback is used in the PWA, `/api/summarize` generates detailed notes (not summaries)
+- [ ] Google Drive serves as the sole source of truth for all study notes, notebooks, quizzes, and cards (no server-side note storage)
+- [ ] PWA displays YouTube notebooks and their detailed notes in the reader view, pulling directly from IndexedDB synced from Google Drive
+- [ ] If manual paste fallback is used in the PWA, `/api/summarize` generates detailed notes (not summaries) and persists to local IndexedDB for Google Drive sync
 - [ ] All error states have user-friendly messages (CLI and PWA)
 - [ ] Notes are saved with `sourceType: 'youtube_transcript'` and include the video URL
 - [ ] All Python code follows coding standards: OOP, ≤20-line methods, ≤500-line files, type hints, docstrings

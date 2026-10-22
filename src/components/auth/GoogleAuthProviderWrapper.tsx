@@ -43,8 +43,29 @@ export function GoogleAuthProviderWrapper({ children }: GoogleAuthProviderWrappe
     let active = true;
     authService.initialize().then(() => {
       if (!active) return;
-      setIsAuthenticated(authService.isAuthenticated());
+      const isAuthed = authService.isAuthenticated();
+      setIsAuthenticated(isAuthed);
       setUser(authService.getUserInfo());
+
+      import('@/lib/db/database_service').then(({ DatabaseService }) => {
+        import('@/lib/api/google_drive_client').then(({ GoogleDriveApiClient }) => {
+          import('@/lib/db/services/google_drive_sync_service').then(({ GoogleDriveSyncService }) => {
+            import('@/lib/db/sync_manager').then(({ SyncManager }) => {
+              const dbService = new DatabaseService();
+              const gdriveClient = new GoogleDriveApiClient(authService);
+              const syncService = new GoogleDriveSyncService(dbService, gdriveClient, authService);
+              const syncManager = SyncManager.getInstance();
+              syncManager.setSyncService(syncService);
+
+              if (isAuthed) {
+                void syncManager.forceSync().catch((err) => {
+                  console.warn('Initial Google Drive sync skipped or failed:', err);
+                });
+              }
+            });
+          });
+        });
+      });
     });
     return () => {
       active = false;
@@ -55,12 +76,20 @@ export function GoogleAuthProviderWrapper({ children }: GoogleAuthProviderWrappe
     const userInfo = await authService.login();
     setIsAuthenticated(true);
     setUser(userInfo);
+
+    const { SyncManager } = await import('@/lib/db/sync_manager');
+    void SyncManager.getInstance().forceSync().catch((err) => {
+      console.warn('Post-login sync failed:', err);
+    });
   };
 
   const handleLogout = async () => {
     await authService.logout();
     setIsAuthenticated(false);
     setUser(null);
+
+    const { SyncManager } = await import('@/lib/db/sync_manager');
+    SyncManager.getInstance().setSyncService(null);
   };
 
   const handleGetAccessToken = async (): Promise<string> => {

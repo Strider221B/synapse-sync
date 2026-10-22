@@ -43,8 +43,14 @@ export default function NotesPage() {
     }
 
     void Promise.resolve().then(loadData);
+    const handleSyncComplete = () => {
+      void loadData();
+    };
+    window.addEventListener('synapse-sync-completed', handleSyncComplete);
+
     return () => {
       active = false;
+      window.removeEventListener('synapse-sync-completed', handleSyncComplete);
     };
   }, []);
 

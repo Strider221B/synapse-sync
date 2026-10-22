@@ -91,6 +91,10 @@ export default function ImportNotesPage() {
         importedCount += 1;
       }
 
+      import('@/lib/db/sync_manager').then(({ SyncManager }) => {
+        void SyncManager.getInstance().forceSync().catch(() => {});
+      });
+
       setStatusMessage(`Successfully imported ${importedCount} document(s)!`);
       setTimeout(() => {
         router.push('/notes');
@@ -119,6 +123,10 @@ export default function ImportNotesPage() {
           content: manualContent.trim(),
           contentFormat: 'markdown',
           sourceType: 'manual',
+        });
+
+        import('@/lib/db/sync_manager').then(({ SyncManager }) => {
+          void SyncManager.getInstance().forceSync().catch(() => {});
         });
 
         router.push(`/notes/${newNote.id}`);

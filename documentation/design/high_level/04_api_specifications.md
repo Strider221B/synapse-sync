@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-All API endpoints are **Vercel Python Serverless Functions** deployed under the `/api/` directory. Each function is a self-contained, stateless handler that spins up fresh on every invocation. YouTube transcript fetching and detailed note generation run **locally** on the developer's machine via a Python CLI tool; the processed notes are pushed to the `/api/youtube-notes` endpoint.
+All API endpoints are **Vercel Python Serverless Functions** deployed under the `/api/` directory. Each function is a self-contained, stateless handler that spins up fresh on every invocation. The server maintains **no persistent note or user data storage**; Google Drive is the sole source of truth. YouTube transcript fetching and detailed note generation run **locally** on the developer's machine via a Python CLI tool; the processed notes are uploaded directly to the user's dedicated Google Drive folder (`SynapseSync/`). The `/api/youtube-notes` endpoint is retained as a legacy endpoint.
 
 ### Base URL
 - **Production:** `https://synapse-sync.vercel.app/api`
@@ -121,12 +121,15 @@ def handler(request):
 
 ---
 
-### 2.2 POST `/api/youtube-notes`
+### 2.2 POST `/api/youtube-notes` (Legacy Compatibility Endpoint)
 
-Receives pre-processed YouTube notes from the local CLI tool. The local Python CLI handles transcript fetching (via `youtube-transcript-api`) and detailed note generation (via Gemini) on the developer's machine, then pushes the results here.
+Receives pre-processed YouTube notes from the local CLI tool when `--server-url` is explicitly specified. In the standard architecture, the CLI uploads directly to the user's dedicated Google Drive folder via `GoogleDrivePusher` (`SynapseSync/notebooks/` and `SynapseSync/notes/`), ensuring Google Drive is the sole source of truth and eliminating server-side storage.
+
+> [!NOTE]
+> **Preferred Flow:** Run the local CLI with `GOOGLE_DRIVE_ACCESS_TOKEN` to upload directly to Google Drive. The PWA syncs notes directly from Google Drive into IndexedDB. This endpoint is maintained for testing and backward compatibility.
 
 > [!IMPORTANT]
-> **This endpoint does NOT fetch transcripts or call Gemini.** All AI processing happens locally on the developer's machine. This endpoint only receives and stores the already-processed notebook and notes.
+> **This endpoint does NOT fetch transcripts or call Gemini.** All AI processing happens locally on the developer's machine.
 
 #### Request
 

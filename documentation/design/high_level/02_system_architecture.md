@@ -30,17 +30,17 @@ graph TB
         FN_QUIZ["/api/generate-quiz<br/>Quiz Generator"]
         FN_SUMMARIZE["/api/summarize<br/>Note Summarizer"]
         FN_CHAT["/api/chat<br/>AI Study Assistant"]
-        FN_YT_NOTES["/api/youtube-notes<br/>Receives Processed Notes<br/>(from local CLI)"]
+        FN_YT_NOTES["/api/youtube-notes<br/>(Legacy Shim)"]
     end
 
     subgraph "External Services"
-        GDRIVE["Google Drive<br/>(Drive API v3)"]
+        GDRIVE["Google Drive<br/>(Drive API v3)<br/>⭐ Sole Source of Truth"]
         GEMINI["Google Gemini API<br/>(Free Tier)"]
         YOUTUBE["YouTube<br/>(Transcript Source)"]
     end
 
     subgraph "Client-Side Storage"
-        IDB["IndexedDB<br/>(Notes, Quizzes, SRS State)"]
+        IDB["IndexedDB<br/>(Local Offline Store:<br/>Notes, Quizzes, SRS State)"]
         SW["Service Worker<br/>(App Shell Cache)"]
         LS["localStorage<br/>(Auth Tokens, Preferences)"]
     end
@@ -57,14 +57,14 @@ graph TB
 
     CLI --> YOUTUBE
     CLI --> GEMINI
-    CLI -->|"Push processed notes"| FN_YT_NOTES
+    CLI -->|"Upload directly to SynapseSync/ folder"| GDRIVE
 
     FN_QUIZ --> GEMINI
     FN_SUMMARIZE --> GEMINI
     FN_CHAT --> GEMINI
 
-    LAPTOP --> GDRIVE
-    PHONE --> GDRIVE
+    LAPTOP <-->|"Bidirectional Sync (Notes, Quizzes, SRS)"| GDRIVE
+    PHONE <-->|"Bidirectional Sync (Notes, Quizzes, SRS)"| GDRIVE
 
     LAPTOP --- IDB
     LAPTOP --- SW
@@ -80,9 +80,9 @@ graph TB
 
 | Principle                    | Rationale                                                                |
 |:-----------------------------|:-------------------------------------------------------------------------|
-| **Offline-First**            | User travels frequently; IndexedDB is the source of truth               |
+| **Offline-First & Cloud Source of Truth** | IndexedDB serves as fast offline local DB; Google Drive is the sole cloud source of truth across devices (no server note storage) |
 | **Client-Heavy / Server-Thin** | Vercel free tier has strict limits; minimize server work                |
-| **Stateless Backend**        | Serverless functions have no persistent memory between invocations       |
+| **Stateless Backend**        | Serverless functions have no persistent memory or note storage between invocations |
 | **Micro-Request Pattern**    | Every API call must complete within 60 seconds; one unit of work per call|
 | **Progressive Enhancement**  | Core features work offline; AI features enhance when online              |
 
@@ -190,8 +190,8 @@ graph TD
         direction TB
         FETCH["Fetch transcript<br/>(youtube-transcript-api)"]
         GENERATE["Generate detailed notes<br/>(Gemini API — local call)"]
-        PUSH["Push to server<br/>(POST /api/youtube-notes)"]
-        FETCH --> GENERATE --> PUSH
+        UPLOAD["Upload to Google Drive<br/>(Google Drive API v3)"]
+        FETCH --> GENERATE --> UPLOAD
     end
 ```
 
@@ -200,7 +200,7 @@ graph TD
 | Endpoint              | Runtime   | Method | Input                                            | Output                          | Gemini? | Max Time |
 |:----------------------|:----------|:-------|:-------------------------------------------------|:--------------------------------|:--------|:---------|
 | `/api/parse-docx`     | Python    | POST   | `.docx` file (multipart)                         | `{ text: string }`             | No      | ~5s      |
-| `/api/youtube-notes`  | Python    | POST   | `{ notebook, notes[] }` (from local CLI)         | `{ notebookId, noteIds[] }`    | No      | ~10s     |
+| `/api/youtube-notes`  | Python    | POST   | `{ notebook, notes[] }` (legacy compatibility)   | `{ notebookId, noteIds[] }`    | No      | ~10s     |
 | `/api/generate-quiz`  | Python    | POST   | `{ text: string }`                               | `{ mcqs: [], flashcards: [] }` | Yes     | ~20s     |
 | `/api/summarize`      | Python    | POST   | `{ text: string }`                               | `{ notes: string }`            | Yes     | ~15s     |
 | `/api/chat`           | Python    | POST   | `{ context, question, history }`                 | `{ answer: string }`           | Yes     | ~10s     |
@@ -212,7 +212,7 @@ graph TD
 | Fetch transcript        | `youtube-transcript-api` (Python) | YouTube video URL              | Raw transcript text                   | No      | None (local) |
 | Resolve playlist        | `youtube-transcript-api` / HTTP | YouTube playlist URL            | List of `{ videoId, title, url }`     | No      | None (local) |
 | Generate detailed notes | `google-generativeai` (Python)  | Raw transcript text             | Detailed markdown notes               | Yes     | None (local) |
-| Push to server          | `requests` / `httpx` (Python)   | Notebook + notes payload        | Server confirmation                   | No      | None (local) |
+| Upload to Google Drive  | `GoogleDrivePusher` / Drive API v3 | Notebook + notes payload        | Uploads to `SynapseSync/notebooks` & `SynapseSync/notes` | No | None (local) |
 
 > [!NOTE]
 > **Manual paste fallback:** The PWA still provides a text area for users to manually paste a transcript for individual videos not processed via the local CLI. The pasted text is sent to `/api/summarize` for server-side AI processing.
@@ -321,11 +321,11 @@ sequenceDiagram
     participant CLI as YouTube CLI Tool (Python)
     participant YT as YouTube
     participant Gemini as Google Gemini API
-    participant API as /api/youtube-notes (Vercel)
+    participant Drive as Google Drive (SynapseSync/)
     participant PWA as SynapseSync PWA
     participant IDB as IndexedDB
 
-    Dev->>CLI: Run: synapse-yt process <playlist_url>
+    Dev->>CLI: Run: youtube-cli process --url <playlist_url>
     CLI->>YT: Resolve playlist → get video list
     YT->>CLI: { videos: [{videoId, title}, ...] }
 
@@ -344,15 +344,14 @@ sequenceDiagram
         CLI->>Dev: Progress: "Video 3/20 processed"
     end
 
-    CLI->>API: POST /api/youtube-notes<br/>{ notebook, notes[] }
-    API->>API: Validate and store
-    API->>CLI: { notebookId, noteIds[] }
-    CLI->>Dev: "✅ Notebook pushed to server. 20 detailed notes created."
+    CLI->>Drive: Upload to Google Drive<br/>notebook_<id>.json -> SynapseSync/notebooks/<br/>note_<id>.json -> SynapseSync/notes/
+    Drive->>CLI: { notebookId, noteIds[], notesStored }
+    CLI->>Dev: "✅ Uploaded to Google Drive. 20 detailed notes created."
 
     Note over PWA,IDB: Later... user opens PWA
-    PWA->>API: GET /api/youtube-notes/{notebookId}
-    API->>PWA: { notebook, notes[] }
-    PWA->>IDB: Cache notebook + notes locally
+    PWA->>Drive: GoogleDriveSyncService: pullNotebooks() + pullNotes()
+    Drive->>PWA: { notebook_*.json, note_*.json }
+    PWA->>IDB: Cache notebook + notes in IndexedDB
     PWA->>PWA: Display detailed notes in reader view
 ```
 
@@ -397,7 +396,7 @@ synapse-sync/
 │   ├── generate_quiz.py              # Gemini quiz generation
 │   ├── summarize.py                  # Gemini note summarization (for manual paste fallback)
 │   ├── chat.py                       # Gemini study assistant
-│   ├── youtube_notes.py              # Receives processed YouTube notes from local CLI
+│   ├── youtube_notes.py              # Legacy endpoint shim
 │   └── requirements.txt              # Python dependencies
 │
 ├── tools/                            # Local CLI Tools (run on developer machine)
@@ -407,7 +406,8 @@ synapse-sync/
 │       ├── transcript_fetcher.py     # Fetches transcripts via youtube-transcript-api
 │       ├── playlist_resolver.py      # Resolves playlist URLs to video lists
 │       ├── note_generator.py         # Generates detailed notes via Gemini
-│       ├── server_pusher.py          # Pushes processed notes to Vercel API
+│       ├── google_drive_pusher.py    # Uploads processed notes & notebooks to Google Drive
+│       ├── server_pusher.py          # Legacy server pusher adapter
 │       ├── transcript_cache.py       # Local file-based transcript cache
 │       ├── config.py                 # CLI configuration constants
 │       └── requirements.txt          # Python dependencies for CLI tool
@@ -425,7 +425,7 @@ synapse-sync/
 │   │   ├── review/
 │   │   │   └── page.tsx              # SRS daily review queue
 │   │   ├── youtube/
-│   │   │   └── page.tsx              # YouTube notes viewer (displays notes pushed from CLI)
+│   │   │   └── page.tsx              # YouTube study hub (synced with Google Drive)
 │   │   ├── chat/
 │   │   │   └── page.tsx              # AI study assistant
 │   │   └── settings/

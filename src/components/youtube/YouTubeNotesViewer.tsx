@@ -2,19 +2,14 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ApiClient } from '@/lib/api/client';
 import { DatabaseService } from '@/lib/db/database_service';
 import type { Note, Notebook } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
 import { NotebookService } from '@/lib/db/services/notebook_service';
-
-interface ServerSyncPayload {
-  notebooks: Notebook[];
-  notes: Note[];
-}
+import { SyncManager } from '@/lib/db/sync_manager';
 
 /**
- * Displays YouTube notebooks, videos count, and individual lecture notes with server synchronization.
+ * Displays YouTube notebooks, videos count, and individual lecture notes with Google Drive synchronization.
  */
 export function YouTubeNotesViewer() {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -42,83 +37,27 @@ export function YouTubeNotesViewer() {
   }, []);
 
   useEffect(() => {
-    let active = true;
-    const dbService = new DatabaseService();
-    const nbService = new NotebookService(dbService);
-    const noteService = new NoteService(dbService);
+    void Promise.resolve().then(loadLocalData);
 
-    async function loadData() {
-      const allNotebooks = await nbService.getAll();
-      const ytNotebooks = allNotebooks.filter((nb) => nb.source === 'youtube_playlist');
-      const groupedNotes: Record<string, Note[]> = {};
-      for (const nb of ytNotebooks) {
-        const notes = await noteService.getByNotebook(nb.id);
-        groupedNotes[nb.id] = notes;
-      }
-      if (active) {
-        setNotebooks(ytNotebooks);
-        setNotesByNotebook(groupedNotes);
-        setIsLoading(false);
-      }
-    }
-
-    void Promise.resolve().then(loadData);
-    return () => {
-      active = false;
+    const handleSyncEvent = () => {
+      void loadLocalData();
     };
-  }, []);
 
-  const handleSyncWithServer = async () => {
+    window.addEventListener('synapse-sync-completed', handleSyncEvent);
+    return () => {
+      window.removeEventListener('synapse-sync-completed', handleSyncEvent);
+    };
+  }, [loadLocalData]);
+
+  const handleSyncWithDrive = async () => {
     setIsSyncing(true);
-    setSyncStatus('Checking server for newly processed notes...');
-
-    const apiClient = new ApiClient();
-    const dbService = new DatabaseService();
-    const nbService = new NotebookService(dbService);
-    const noteService = new NoteService(dbService);
+    setSyncStatus('Syncing notebooks and notes with Google Drive...');
 
     try {
-      const data = await apiClient.get<ServerSyncPayload>('/api/youtube-notes');
-      let newNotesCount = 0;
-
-      if (data.notebooks) {
-        for (const serverNb of data.notebooks) {
-          const existing = await nbService.getById(serverNb.id);
-          if (!existing) {
-            await nbService.create({
-              name: serverNb.name,
-              source: 'youtube_playlist',
-              sourceUrl: serverNb.sourceUrl,
-              description: serverNb.description,
-              tags: serverNb.tags || ['youtube'],
-            });
-          }
-        }
-      }
-
-      if (data.notes) {
-        for (const serverNote of data.notes) {
-          const existing = await noteService.getById(serverNote.id);
-          if (!existing) {
-            await noteService.create({
-              notebookId: serverNote.notebookId,
-              title: serverNote.title,
-              content: serverNote.content,
-              contentFormat: serverNote.contentFormat || 'markdown',
-              sourceType: 'youtube_transcript',
-              sourceUrl: serverNote.sourceUrl,
-            });
-            newNotesCount += 1;
-          }
-        }
-      }
-
+      const syncManager = SyncManager.getInstance();
+      await syncManager.forceSync();
       await loadLocalData();
-      setSyncStatus(
-        newNotesCount > 0
-          ? `Synced ${newNotesCount} new note(s) from server!`
-          : 'Everything is up to date.'
-      );
+      setSyncStatus('Synced latest notebooks and notes from Google Drive!');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Sync failed';
       setSyncStatus(`Sync error: ${msg}`);
@@ -165,7 +104,7 @@ export function YouTubeNotesViewer() {
         </div>
 
         <button
-          onClick={handleSyncWithServer}
+          onClick={handleSyncWithDrive}
           disabled={isSyncing}
           style={{
             display: 'flex',
@@ -182,7 +121,7 @@ export function YouTubeNotesViewer() {
             transition: 'all var(--transition-fast)',
           }}
         >
-          {isSyncing ? '⏳ Syncing...' : '🔄 Sync from Server'}
+          {isSyncing ? '⏳ Syncing...' : '🔄 Sync from Google Drive'}
         </button>
       </div>
 
@@ -233,7 +172,7 @@ export function YouTubeNotesViewer() {
             }}
           >
             Run the local CLI tool to process entire YouTube video series or playlists and push detailed notes
-            to this device:
+            directly to your dedicated Google Drive folder:
           </p>
           <div
             style={{
@@ -248,7 +187,7 @@ export function YouTubeNotesViewer() {
               color: 'var(--color-primary-light)',
             }}
           >
-            python tools/youtube_cli/main.py process --url &lt;youtube_playlist_url&gt;
+            GOOGLE_DRIVE_ACCESS_TOKEN=&lt;token&gt; python tools/youtube_cli/main.py process --url &lt;youtube_playlist_url&gt;
           </div>
         </div>
       ) : (

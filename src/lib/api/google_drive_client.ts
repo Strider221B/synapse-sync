@@ -49,6 +49,10 @@ export class GoogleDriveApiClient {
   private static readonly _MD_EXTENSION = '.md';
   private static readonly _EXPORT_PLAIN_TEXT = 'text/plain';
   private static readonly _ROOT_FOLDER_ID = 'root';
+  private static readonly _JSON_MIME = 'application/json';
+  private static readonly _METHOD_DELETE = 'DELETE';
+  private static readonly _METHOD_POST = 'POST';
+  private static readonly _METHOD_PATCH = 'PATCH';
 
   private readonly _authService: AuthService;
   private readonly _fetchFn: typeof fetch;
@@ -152,6 +156,124 @@ export class GoogleDriveApiClient {
     await this._validateResponseStatus(response);
     const file = (await response.json()) as GoogleDriveRawFile;
     return this._mapRawFileToDriveItem(file);
+  }
+
+  /**
+   * Searches for a file or folder by exact name within a parent folder.
+   */
+  public async findFileByName(
+    name: string,
+    parentFolderId: string = GoogleDriveApiClient._ROOT_FOLDER_ID,
+    mimeType?: string
+  ): Promise<DriveItem | null> {
+    const escaped = name.replace(/'/g, "\\'");
+    let q = `'${encodeURIComponent(parentFolderId)}' in parents and name = '${escaped}' and trashed = false`;
+    if (mimeType) {
+      q += ` and mimeType = '${mimeType}'`;
+    }
+    const params = new URLSearchParams({ q, fields: 'files(id, name, mimeType, size, modifiedTime, webViewLink)' });
+    const url = `${GoogleDriveApiClient._DRIVE_BASE_URL}/files?${params.toString()}`;
+    const token = await this._authService.getAccessToken();
+    const response = await this._fetchFn(url, {
+      headers: { [GoogleDriveApiClient._HEADER_AUTHORIZATION]: `${GoogleDriveApiClient._BEARER_PREFIX}${token}` },
+    });
+    await this._validateResponseStatus(response);
+    const data = (await response.json()) as GoogleDriveListResponse;
+    const files = data.files ?? [];
+    return files.length > 0 ? this._mapRawFileToDriveItem(files[0]) : null;
+  }
+
+  /**
+   * Creates a new folder inside a parent folder in Google Drive.
+   */
+  public async createFolder(
+    name: string,
+    parentFolderId: string = GoogleDriveApiClient._ROOT_FOLDER_ID
+  ): Promise<DriveItem> {
+    const token = await this._authService.getAccessToken();
+    const metadata = { name, mimeType: GoogleDriveApiClient._FOLDER_MIME, parents: [parentFolderId] };
+    const url = `${GoogleDriveApiClient._DRIVE_BASE_URL}/files?fields=id,name,mimeType,size,modifiedTime,webViewLink`;
+    const response = await this._fetchFn(url, {
+      method: GoogleDriveApiClient._METHOD_POST,
+      headers: {
+        [GoogleDriveApiClient._HEADER_AUTHORIZATION]: `${GoogleDriveApiClient._BEARER_PREFIX}${token}`,
+        [GoogleDriveApiClient._HEADER_CONTENT_TYPE]: GoogleDriveApiClient._JSON_MIME,
+      },
+      body: JSON.stringify(metadata),
+    });
+    await this._validateResponseStatus(response);
+    const file = (await response.json()) as GoogleDriveRawFile;
+    return this._mapRawFileToDriveItem(file);
+  }
+
+  /**
+   * Retrieves an existing folder by name or creates it if it does not yet exist.
+   */
+  public async getOrCreateFolder(
+    name: string,
+    parentFolderId: string = GoogleDriveApiClient._ROOT_FOLDER_ID
+  ): Promise<DriveItem> {
+    const existing = await this.findFileByName(name, parentFolderId, GoogleDriveApiClient._FOLDER_MIME);
+    if (existing) {
+      return existing;
+    }
+    return this.createFolder(name, parentFolderId);
+  }
+
+  /**
+   * Lists all files inside a folder without filtering by study document types.
+   */
+  public async listAllFolderItems(folderId: string): Promise<DriveItem[]> {
+    const q = `'${encodeURIComponent(folderId)}' in parents and trashed = false`;
+    const fields = 'files(id, name, mimeType, size, modifiedTime, webViewLink)';
+    const params = new URLSearchParams({ q, fields, orderBy: 'name' });
+    const url = `${GoogleDriveApiClient._DRIVE_BASE_URL}/files?${params.toString()}`;
+    const token = await this._authService.getAccessToken();
+    const response = await this._fetchFn(url, {
+      headers: { [GoogleDriveApiClient._HEADER_AUTHORIZATION]: `${GoogleDriveApiClient._BEARER_PREFIX}${token}` },
+    });
+    await this._validateResponseStatus(response);
+    const data = (await response.json()) as GoogleDriveListResponse;
+    const files = data.files ?? [];
+    return files.map((file) => this._mapRawFileToDriveItem(file));
+  }
+
+  /**
+   * Creates or updates a file depending on whether a file by that name already exists.
+   */
+  public async saveFile(
+    name: string,
+    content: string | Blob,
+    mimeType: string = GoogleDriveApiClient._MARKDOWN_MIME,
+    parentFolderId: string = GoogleDriveApiClient._ROOT_FOLDER_ID
+  ): Promise<DriveItem> {
+    const existing = await this.findFileByName(name, parentFolderId);
+    if (existing) {
+      return this.updateFileContent(existing.id, content, mimeType);
+    }
+    return this.createFile(name, content, mimeType, parentFolderId);
+  }
+
+  /**
+   * Downloads a file and returns its body content decoded as a UTF-8 string.
+   */
+  public async getFileText(fileId: string): Promise<string> {
+    const blob = await this.downloadFileContent(fileId);
+    return blob.text();
+  }
+
+  /**
+   * Permanently deletes a file from Google Drive by its file ID.
+   */
+  public async deleteFile(fileId: string): Promise<void> {
+    const token = await this._authService.getAccessToken();
+    const encodedId = encodeURIComponent(fileId);
+    const url = `${GoogleDriveApiClient._DRIVE_BASE_URL}/files/${encodedId}`;
+    const response = await this._fetchFn(url, {
+      method: GoogleDriveApiClient._METHOD_DELETE,
+      headers: { [GoogleDriveApiClient._HEADER_AUTHORIZATION]: `${GoogleDriveApiClient._BEARER_PREFIX}${token}` },
+    });
+    await this._validateResponseStatus(response);
   }
 
   /**
