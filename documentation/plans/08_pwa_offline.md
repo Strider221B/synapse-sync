@@ -116,28 +116,27 @@ Make SynapseSync installable on mobile home screens, cache the app shell for ins
 
 ### Tasks
 
-**Task 8.4.1 — Build the sync queue manager**
-- Create `src/lib/db/sync_manager.ts`
-- This class:
-  - Listens for the `online` event on `window`
-  - When connectivity returns: reads all pending entries from `SyncQueueService.getPending()`
-  - Processes entries in FIFO order:
-    - For each entry: attempt to replay the operation (call the appropriate API or OneDrive endpoint)
-    - On success: mark as completed via `SyncQueueService.markCompleted(id)`
-    - On failure: mark as failed with error message, increment retry count
-    - If retry count exceeds max (3), skip and log the failure
-  - Shows a notification when sync is complete: "Synced N changes"
+**Task 8.4.1 — Build the sync queue manager & Google Drive synchronization**
+- Implemented `src/lib/db/sync_manager.ts` and `src/lib/db/services/google_drive_sync_service.ts`:
+  - Listens for the `online` and `visibilitychange` events on `window`/`document`
+  - Replays pending operations from `SyncQueueService.getPending()` in FIFO order
+  - Pushes newly generated study notes, quizzes (with MCQs, flashcards, and SRS progress), and notebooks to Google Drive (`SynapseSync/` folder)
+  - Periodically synchronizes in the background every 5 minutes while online
+  - Supports Force Sync on demand via Header badge and Settings page
+  - Dispatches `synapse-sync-completed` to trigger live UI updates on active note and quiz screens
+  - On success: marks queue items completed via `SyncQueueService.markCompleted(id)`
+  - On failure: marks as failed with error message, incrementing retry count up to 3 retries
 
 **Task 8.4.2 — Integrate sync queue into data write operations**
-- Modify the relevant service classes (or add middleware) to:
-  - When the app is online: perform the operation normally
-  - When the app is offline: write to IndexedDB locally AND add an entry to the sync queue
-  - Operations to queue: SRS card updates, note edits (if implemented), quiz results
+- NoteService, QuizService, and SRSCardService integrate with the sync queue:
+  - When offline: mutations are safely queued in IndexedDB `sync_queue`
+  - When online: mutations trigger automatic synchronization with Google Drive
+  - Operations queued and synced: notes (`create`, `update`, `delete`), quizzes (with MCQs & flashcards), and SRS review cards
 
-**Task 8.4.3 — Implement Background Sync API (best-effort)**
-- Register a `sync` event handler in the Service Worker
-- When the browser fires a `sync` event (after regaining connectivity), trigger the sync queue replay
-- Note: Background Sync API support varies across browsers (well-supported on Chrome/Android, limited on iOS Safari). The `online` event listener from Task 8.4.1 serves as the fallback.
+**Task 8.4.3 — Implement Background Sync API & Periodic Replay**
+- Registered `sync` event handler in the Service Worker (`sync-queue`)
+- Client controller invokes `SyncManager.getInstance().processQueue()` and `forceSync()`
+- Periodic background timer triggers every 5 minutes when connectivity is present
 
 ---
 

@@ -15,10 +15,10 @@ export function ConnectionStatus() {
   });
 
   const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   useEffect(() => {
     const handleOnline = async () => {
-
       setIsOnline(true);
       try {
         const syncManager = SyncManager.getInstance();
@@ -37,12 +37,25 @@ export function ConnectionStatus() {
     };
 
     const handleSyncComplete = (event: Event) => {
-      const customEvent = event as CustomEvent<{ count: number }>;
-      const count = customEvent.detail?.count ?? 0;
-      if (count > 0) {
-        setSyncToastMessage(`Synced ${count} change${count === 1 ? '' : 's'}`);
-        setTimeout(() => setSyncToastMessage(null), 4000);
+      const customEvent = event as CustomEvent<{
+        count?: number;
+        pushedNotes?: number;
+        pulledNotes?: number;
+        pushedQuizzes?: number;
+        pulledQuizzes?: number;
+      }>;
+      const detail = customEvent.detail;
+      const count = detail?.count ?? 0;
+      const notes = (detail?.pushedNotes ?? 0) + (detail?.pulledNotes ?? 0);
+      const quizzes = (detail?.pushedQuizzes ?? 0) + (detail?.pulledQuizzes ?? 0);
+      const total = count > 0 ? count : notes + quizzes;
+
+      if (total > 0) {
+        setSyncToastMessage(`Synced ${total} change${total === 1 ? '' : 's'}`);
+      } else {
+        setSyncToastMessage('Up to date');
       }
+      setTimeout(() => setSyncToastMessage(null), 4000);
     };
 
     window.addEventListener('online', handleOnline);
@@ -55,6 +68,21 @@ export function ConnectionStatus() {
       window.removeEventListener('synapse-sync-completed', handleSyncComplete);
     };
   }, []);
+
+  const handleForceSync = async () => {
+    if (isSyncing || !isOnline) return;
+    setIsSyncing(true);
+    try {
+      const syncManager = SyncManager.getInstance();
+      await syncManager.forceSync();
+    } catch (err) {
+      console.error('Force sync error:', err);
+      setSyncToastMessage('Sync failed');
+      setTimeout(() => setSyncToastMessage(null), 4000);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   return (
     <div
@@ -86,32 +114,66 @@ export function ConnectionStatus() {
       )}
 
       {isOnline ? (
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.375rem',
-            fontSize: '0.75rem',
-            color: 'var(--color-success)',
-            background: 'var(--color-success-bg)',
-            border: '1px solid rgba(16, 185, 129, 0.2)',
-            padding: '0.25rem 0.625rem',
-            borderRadius: 'var(--radius-full)',
-            fontWeight: 500,
-          }}
-        >
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
           <span
             style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              backgroundColor: 'var(--color-success)',
-              display: 'inline-block',
-              boxShadow: '0 0 6px var(--color-success)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.375rem',
+              fontSize: '0.75rem',
+              color: 'var(--color-success)',
+              background: 'var(--color-success-bg)',
+              border: '1px solid rgba(16, 185, 129, 0.2)',
+              padding: '0.25rem 0.625rem',
+              borderRadius: 'var(--radius-full)',
+              fontWeight: 500,
             }}
-          />
-          Online
-        </span>
+          >
+            <span
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                backgroundColor: 'var(--color-success)',
+                display: 'inline-block',
+                boxShadow: '0 0 6px var(--color-success)',
+              }}
+            />
+            Online
+          </span>
+
+          <button
+            type="button"
+            onClick={handleForceSync}
+            disabled={isSyncing}
+            title="Force sync notes and quizzes with Google Drive"
+            aria-label="Force sync notes and quizzes with Google Drive"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.25rem',
+              padding: '0.2rem 0.55rem',
+              borderRadius: 'var(--radius-full)',
+              backgroundColor: 'var(--color-surface)',
+              border: '1px solid var(--color-surface-border)',
+              color: 'var(--color-text-secondary)',
+              fontSize: '0.75rem',
+              fontWeight: 500,
+              cursor: isSyncing ? 'wait' : 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                animation: isSyncing ? 'spin 1s linear infinite' : 'none',
+              }}
+            >
+              🔄
+            </span>
+            <span>{isSyncing ? 'Syncing...' : 'Sync'}</span>
+          </button>
+        </div>
       ) : (
         <span
           style={{

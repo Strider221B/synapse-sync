@@ -213,4 +213,61 @@ describe('SyncManager', () => {
     const supported = await manager.registerBackgroundSync();
     assert.equal(supported, false);
   });
+
+  it('forceSync delegates to GoogleDriveSyncService when connected', async () => {
+    const dbService = new DatabaseService(`${TEST_DB_NAME}-force-sync`);
+    const queueService = new SyncQueueService(dbService);
+    const manager = new SyncManager(queueService);
+
+    let syncAllCalled = false;
+    const mockSyncService = {
+      isConnected: () => true,
+      syncAll: async () => {
+        syncAllCalled = true;
+        return {
+          success: true,
+          pushedNotes: 1,
+          pulledNotes: 2,
+          pushedQuizzes: 0,
+          pulledQuizzes: 0,
+          pushedNotebooks: 0,
+          pulledNotebooks: 0,
+          timestamp: new Date().toISOString(),
+        };
+      },
+    };
+
+    manager.setSyncService(mockSyncService as unknown as import('../../lib/db/services/google_drive_sync_service').GoogleDriveSyncService);
+    assert.equal(manager.getSyncService(), mockSyncService);
+
+    const result = await manager.forceSync();
+    assert.equal(syncAllCalled, true);
+    assert.equal('pushedNotes' in result && result.pushedNotes, 1);
+  });
+
+  it('forceSync falls back to processQueue when sync service is not connected', async () => {
+    const dbService = new DatabaseService(`${TEST_DB_NAME}-force-fallback`);
+    const queueService = new SyncQueueService(dbService);
+    const manager = new SyncManager(queueService);
+
+    const mockSyncService = {
+      isConnected: () => false,
+      syncAll: async () => {
+        throw new Error('Should not be called');
+      },
+    };
+
+    manager.setSyncService(mockSyncService as unknown as import('../../lib/db/services/google_drive_sync_service').GoogleDriveSyncService);
+    const result = await manager.forceSync();
+    assert.equal('totalProcessed' in result, true);
+  });
+
+  it('manages periodic sync timer lifecycle without throwing', () => {
+    const dbService = new DatabaseService(`${TEST_DB_NAME}-periodic`);
+    const queueService = new SyncQueueService(dbService);
+    const manager = new SyncManager(queueService);
+
+    assert.doesNotThrow(() => manager.startPeriodicSync(1000));
+    assert.doesNotThrow(() => manager.stopPeriodicSync());
+  });
 });

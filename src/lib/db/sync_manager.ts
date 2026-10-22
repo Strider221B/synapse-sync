@@ -1,7 +1,7 @@
 import { DatabaseService } from './database_service';
 import type { SyncEntry } from './models';
+import type { GoogleDriveSyncService, SyncResult } from './services/google_drive_sync_service';
 import { SyncQueueService } from './services/sync_queue_service';
-
 
 export interface SyncReplayResult {
   totalProcessed: number;
@@ -17,7 +17,9 @@ export type SyncReplayHandler = (entry: SyncEntry) => Promise<void>;
  */
 export class SyncManager {
   private static readonly _DEFAULT_MAX_RETRIES = 3;
+  private static readonly _DEFAULT_PERIODIC_INTERVAL_MS = 300000;
   private static readonly _EVENT_ONLINE = 'online';
+  private static readonly _EVENT_VISIBILITY_CHANGE = 'visibilitychange';
   private static readonly _SYNC_EVENT_NAME = 'synapse-sync-completed';
   private static readonly _SYNC_TAG = 'sync-queue';
   private static _instance: SyncManager | null = null;
@@ -25,8 +27,11 @@ export class SyncManager {
   private readonly _syncQueueService: SyncQueueService;
   private readonly _replayHandler?: SyncReplayHandler;
   private readonly _maxRetries: number;
+  private _syncService: GoogleDriveSyncService | null = null;
   private _isProcessing: boolean = false;
   private _onlineListener: (() => void) | null = null;
+  private _visibilityListener: (() => void) | null = null;
+  private _periodicTimer: ReturnType<typeof setInterval> | null = null;
 
   public static getInstance(syncQueueService?: SyncQueueService): SyncManager {
     if (!SyncManager._instance) {
@@ -54,10 +59,56 @@ export class SyncManager {
   }
 
   /**
+   * Sets the Google Drive sync service used for bidirectional sync cycles.
+   */
+  public setSyncService(syncService: GoogleDriveSyncService | null): void {
+    this._syncService = syncService;
+  }
+
+  /**
+   * Retrieves the configured Google Drive sync service instance.
+   */
+  public getSyncService(): GoogleDriveSyncService | null {
+    return this._syncService;
+  }
+
+  /**
    * Returns whether a synchronization replay cycle is currently executing.
    */
   public isProcessing(): boolean {
     return this._isProcessing;
+  }
+
+  /**
+   * Triggers an immediate force synchronization pushing local changes and pulling remote updates.
+   */
+  public async forceSync(): Promise<SyncResult | SyncReplayResult> {
+    if (this._syncService && this._syncService.isConnected()) {
+      return this._syncService.syncAll();
+    }
+    return this.processQueue();
+  }
+
+  /**
+   * Starts recurring periodic background sync.
+   */
+  public startPeriodicSync(intervalMs: number = SyncManager._DEFAULT_PERIODIC_INTERVAL_MS): void {
+    if (typeof window === 'undefined' || this._periodicTimer) {
+      return;
+    }
+    this._periodicTimer = setInterval(() => {
+      void this._onPeriodicSync();
+    }, intervalMs);
+  }
+
+  /**
+   * Stops recurring periodic background sync.
+   */
+  public stopPeriodicSync(): void {
+    if (this._periodicTimer) {
+      clearInterval(this._periodicTimer);
+      this._periodicTimer = null;
+    }
   }
 
   /**
@@ -95,26 +146,38 @@ export class SyncManager {
   }
 
   /**
-   * Registers a window online event listener to trigger synchronization automatically.
+   * Registers window listeners and begins periodic synchronization cycles.
    */
   public startListening(): void {
-    if (typeof window === 'undefined' || this._onlineListener) {
+    if (typeof window === 'undefined') {
       return;
     }
-    this._onlineListener = () => {
-      this.__onOnlineEvent();
-    };
-    window.addEventListener(SyncManager._EVENT_ONLINE, this._onlineListener);
+    if (!this._onlineListener) {
+      this._onlineListener = () => this.__onOnlineEvent();
+      window.addEventListener(SyncManager._EVENT_ONLINE, this._onlineListener);
+    }
+    if (!this._visibilityListener) {
+      this._visibilityListener = () => this.__onVisibilityChange();
+      document.addEventListener(SyncManager._EVENT_VISIBILITY_CHANGE, this._visibilityListener);
+    }
+    this.startPeriodicSync();
   }
 
   /**
-   * Unregisters the window online event listener.
+   * Unregisters event listeners and terminates periodic timers.
    */
   public stopListening(): void {
-    if (typeof window !== 'undefined' && this._onlineListener) {
-      window.removeEventListener(SyncManager._EVENT_ONLINE, this._onlineListener);
-      this._onlineListener = null;
+    if (typeof window !== 'undefined') {
+      if (this._onlineListener) {
+        window.removeEventListener(SyncManager._EVENT_ONLINE, this._onlineListener);
+        this._onlineListener = null;
+      }
+      if (this._visibilityListener) {
+        document.removeEventListener(SyncManager._EVENT_VISIBILITY_CHANGE, this._visibilityListener);
+        this._visibilityListener = null;
+      }
     }
+    this.stopPeriodicSync();
   }
 
   /**
@@ -135,7 +198,6 @@ export class SyncManager {
     }
     return false;
   }
-
 
   /**
    * Dispatches a custom notification event indicating changes have synced.
@@ -159,7 +221,6 @@ export class SyncManager {
     return navigator.onLine;
   }
 
-
   /**
    * Replays a single queued synchronization mutation.
    */
@@ -168,8 +229,25 @@ export class SyncManager {
       await this._replayHandler(entry);
       return;
     }
-    // Default replay logic for entities
+    if (this._syncService && this._syncService.isConnected()) {
+      await this._syncService.replaySyncEntry(entry);
+      return;
+    }
     await this.__defaultReplay(entry);
+  }
+
+  /**
+   * Internal handler fired by the periodic background timer.
+   */
+  protected async _onPeriodicSync(): Promise<void> {
+    if (!this._isOnline() || this._isProcessing) {
+      return;
+    }
+    if (this._syncService && this._syncService.isConnected()) {
+      await this._syncService.syncAll();
+    } else {
+      await this.processQueue();
+    }
   }
 
   private async __processSingleEntry(entry: SyncEntry): Promise<boolean> {
@@ -185,15 +263,19 @@ export class SyncManager {
   }
 
   private async __defaultReplay(entry: SyncEntry): Promise<void> {
-    // If the entry has an API endpoint or payload to push, verify connectivity
     if (entry.entityType === 'srs_card' || entry.entityType === 'note') {
-      // Local mutation is already in IndexedDB; sync entry serves as sync journal
       return Promise.resolve();
     }
     return Promise.resolve();
   }
 
   private __onOnlineEvent(): void {
-    void this.processQueue();
+    void this._onPeriodicSync();
+  }
+
+  private __onVisibilityChange(): void {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      void this._onPeriodicSync();
+    }
   }
 }

@@ -63,8 +63,14 @@ function QuizListContent() {
     }
 
     loadData();
+    const handleSyncComplete = () => {
+      void loadData();
+    };
+    window.addEventListener('synapse-sync-completed', handleSyncComplete);
+
     return () => {
       active = false;
+      window.removeEventListener('synapse-sync-completed', handleSyncComplete);
     };
   }, [filterNoteId]);
 
