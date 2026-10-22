@@ -4,7 +4,7 @@
 export interface Notebook {
   id: string;
   name: string;
-  source: 'onedrive' | 'youtube_playlist' | 'manual';
+  source: 'google_drive' | 'youtube_playlist' | 'manual';
   sourceUrl?: string;
   description?: string;
   tags: string[];

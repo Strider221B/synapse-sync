@@ -240,7 +240,7 @@ export default function NotesPage() {
               <p style={{ maxWidth: '420px', fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
                 {searchQuery
                   ? 'Try searching with different keywords or clear your search query.'
-                  : 'Import notes from Microsoft OneDrive or create a new markdown note manually.'}
+                  : 'Import notes from Google Drive or create a new markdown note manually.'}
               </p>
               <Link
                 href="/notes/import"

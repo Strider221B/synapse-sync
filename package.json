@@ -6,13 +6,10 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
-
     "lint": "eslint",
     "test": "tsx --test"
   },
   "dependencies": {
-    "@azure/msal-browser": "^5.25.1",
-    "@azure/msal-react": "^5.7.2",
     "@serwist/next": "^9.5.13",
     "idb": "^8.0.4",
     "next": "16.4.2",

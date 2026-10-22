@@ -10,7 +10,7 @@ import { NotebookService } from '../../lib/db/services/notebook_service';
 describe('NotebookService', () => {
   const TEST_DB_NAME = 'synapse-notebook-service-test';
   const SOURCE_MANUAL = 'manual';
-  const SOURCE_ONEDRIVE = 'onedrive';
+  const SOURCE_GOOGLE_DRIVE = 'google_drive';
   const NOTEBOOK_NAME_A = 'Biology 101';
   const NOTEBOOK_NAME_B = 'Physics 201';
   const NON_EXISTENT_ID = 'non-existent-notebook-id';
@@ -52,7 +52,7 @@ describe('NotebookService', () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     const second = await service.create({
       name: NOTEBOOK_NAME_B,
-      source: SOURCE_ONEDRIVE,
+      source: SOURCE_GOOGLE_DRIVE,
       tags: [],
     });
 
@@ -69,7 +69,7 @@ describe('NotebookService', () => {
     const service = new NotebookService(dbService);
 
     await service.create({ name: NOTEBOOK_NAME_A, source: SOURCE_MANUAL, tags: [] });
-    await service.create({ name: NOTEBOOK_NAME_B, source: SOURCE_ONEDRIVE, tags: [] });
+    await service.create({ name: NOTEBOOK_NAME_B, source: SOURCE_GOOGLE_DRIVE, tags: [] });
 
     const manualList = await service.getBySource(SOURCE_MANUAL);
     assert.equal(manualList.length, 1);

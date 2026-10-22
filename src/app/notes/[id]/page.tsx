@@ -356,8 +356,8 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
               fontWeight: 500,
             }}
           >
-            {note.sourceType.startsWith('onedrive')
-              ? '☁️ OneDrive'
+            {note.sourceType.startsWith('gdrive')
+              ? '📁 Google Drive'
               : note.sourceType === 'youtube_transcript'
               ? '🎬 YouTube'
               : '✍️ Manual'}

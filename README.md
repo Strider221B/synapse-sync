@@ -1,6 +1,6 @@
 # SynapseSync
 
-> **An AI-powered, offline-first study companion that transforms OneDrive documents and YouTube lecture playlists into exhaustively detailed Markdown notes, adaptive quizzes, and SM-2 spaced repetition flashcards.**
+> **An AI-powered, offline-first study companion that transforms Google Drive documents and YouTube lecture playlists into exhaustively detailed Markdown notes, adaptive quizzes, and SM-2 spaced repetition flashcards.**
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
@@ -24,7 +24,7 @@
   - [2. Start the Local Web App & API](#2-start-the-local-web-app--api)
   - [3. Run the Local YouTube Pipeline CLI](#3-run-the-local-youtube-pipeline-cli)
 - [Core Workflows](#core-workflows)
-  - [OneDrive Document Ingestion](#onedrive-document-ingestion)
+  - [Google Drive Document Ingestion](#google-drive-document-ingestion)
   - [YouTube Transcript Ingestion (Local-First)](#youtube-transcript-ingestion-local-first)
   - [Quiz & Flashcard Generation](#quiz--flashcard-generation)
   - [Spaced Repetition System (SM-2)](#spaced-repetition-system-sm-2)
@@ -49,7 +49,7 @@ SynapseSync solves the study friction experienced by self-directed learners, stu
 
 ## Key Features
 
-- 📁 **OneDrive Integration:** Authenticate via Microsoft OAuth (PKCE) and import `.docx` and `.md` files directly from your personal or academic OneDrive storage.
+- 📁 **Google Drive Integration:** Authenticate via Google OAuth 2.0 and import `.docx`, `.md`, and Google Docs files directly from your personal or academic Google Drive storage.
 - 🎬 **Local YouTube Lecture Processing:** Ingest entire multi-video playlists via a Python CLI tool. Generates complete, structured Markdown notes for every lecture.
 - 🤖 **Structured AI Quizzing:** One-click generation of 5 multiple-choice questions (with explanations) and 5 flashcards per note, using Gemini structured outputs.
 - 🧠 **SuperMemo SM-2 Spaced Repetition:** Scientifically schedules daily card reviews based on your recall quality (ratings 0–5), with an interactive review queue and streak tracking.
@@ -84,13 +84,13 @@ graph TB
     subgraph "Client PWA (Browser / Mobile)"
         UI["Next.js App Router (PWA)"]
         IDB[("IndexedDB (Offline Storage)")]
-        MSAL["MSAL.js (OneDrive PKCE)"]
+        GAUTH["Google OAuth 2.0 (Drive API)"]
     end
 
     CLI -->|Pushes Processed Notes| API_YT
     UI <-->|Fetch Pushed Notes| API_YT
     UI <-->|Local Read/Write| IDB
-    UI -->|Import Files| MSAL
+    UI -->|Import Files| GAUTH
     UI -->|Parse Word Docs| API_PARSE
     UI -->|Generate Quizzes| API_QUIZ
     UI -->|Ask Questions| API_CHAT
@@ -110,7 +110,7 @@ Before running the application, ensure your environment meets the following requ
 - **Python:** `3.13` (configured with the designated project environment: `~/python_envs/p313_llm`)
 - **uv:** Fast Python package installer (`uv pip`)
 - **Google Gemini API Key:** Free tier from [Google AI Studio](https://aistudio.google.com/)
-- **Microsoft Entra (Azure AD) Client ID:** (Optional for YouTube-only usage, required for OneDrive sync) Registered Single-Page Application (SPA) client ID from [Microsoft Entra Admin Center](https://entra.microsoft.com/)
+- **Google Client ID:** (Optional for YouTube-only usage, required for Google Drive sync) Registered OAuth 2.0 Client ID from [Google Cloud Console](https://console.cloud.google.com/)
 
 ---
 
@@ -171,9 +171,9 @@ YOUTUBE_NOTES_API_KEY=local-dev-secret-key-12345
 # Base URL for API calls
 NEXT_PUBLIC_API_URL=http://localhost:3000
 
-# Microsoft Azure App Registration (Optional for local testing without OneDrive)
-NEXT_PUBLIC_MSAL_CLIENT_ID=<YOUR_AZURE_CLIENT_ID>
-NEXT_PUBLIC_MSAL_REDIRECT_URI=http://localhost:3000
+# Google OAuth 2.0 (Optional for local testing without Google Drive)
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=<YOUR_GOOGLE_CLIENT_ID>
+NEXT_PUBLIC_GOOGLE_REDIRECT_URI=http://localhost:3000
 ```
 
 > [!NOTE]
@@ -241,14 +241,14 @@ python -m tools.youtube_cli.main process --url "https://www.youtube.com/playlist
 
 ## Core Workflows
 
-### OneDrive Document Ingestion
-1. Click **Connect OneDrive** in the app header or notes view.
-2. Sign in via Microsoft OAuth popup (PKCE).
-3. Browse OneDrive folders, select `.docx` or `.md` files, and click **Import Selected**.
-4. Word documents are parsed via `/api/parse-docx` and stored in IndexedDB.
+### Google Drive Document Ingestion
+1. Click **Connect Google Drive** in the app header or notes view.
+2. Sign in via Google OAuth 2.0 popup.
+3. Browse Google Drive folders, select `.docx`, `.md`, or Google Docs files, and click **Import Selected**.
+4. Word documents are parsed via `/api/parse-docx`, Google Docs are exported as clean text, and notes are stored in IndexedDB.
 
 > [!TIP]
-> **OneDrive Folder Structure:** You do not need to place files in any special folder. You can store your documents anywhere in OneDrive (or inside organized subfolders like `Study/Course_Name/`). The in-app file browser navigates through your folders starting at root `My Drive` and lists all `.docx` and `.md` files.
+> **Google Drive Folder Structure:** You do not need to place files in any special folder. You can store your documents anywhere in Google Drive (or inside organized subfolders like `Study/Course_Name/`). The in-app file browser navigates through your folders starting at root `My Drive` and lists all eligible documents.
 
 ### YouTube Transcript Ingestion (Local-First)
 - Ingest playlists via the local Python CLI (`python -m tools.youtube_cli.main process --url ...`).
@@ -314,11 +314,11 @@ synapse-sync/
 │   │   ├── review/                   # SM-2 daily review queue
 │   │   ├── youtube/                  # YouTube notes viewer & fallback
 │   │   ├── chat/                     # Note-scoped AI chat
-│   │   └── settings/                 # App settings & OneDrive auth
+│   │   └── settings/                 # App settings & Google Drive auth
 │   │
 │   ├── components/                   # Modular UI Components
 │   │   ├── layout/                   # Sidebar, BottomNav, Header
-│   │   ├── notes/                    # NoteCard, NoteReader, OneDrivePicker
+│   │   ├── notes/                    # NoteCard, NoteReader, GoogleDrivePicker
 │   │   ├── quiz/                     # MCQCard, FlashCard, QuizResults
 │   │   ├── review/                   # ReviewCard, QualityRating, ReviewStats
 │   │   └── common/                   # ThemeToggle, ErrorBoundary, Skeleton
@@ -326,7 +326,7 @@ synapse-sync/
 │   ├── lib/                          # Application Core Services
 │   │   ├── db/                       # IndexedDB schemas & CRUD service classes
 │   │   ├── srs/                      # Pure SM-2 calculation engine
-│   │   ├── auth/                     # MSAL.js PKCE authentication
+│   │   ├── auth/                     # Google OAuth 2.0 authentication
 │   │   └── api/                      # Resilient HTTP client with retry logic
 │   │
 │   └── styles/
@@ -360,7 +360,7 @@ synapse-sync/
 | **PWA & Caching** | Serwist 9.5.13 ([`@serwist/next@9.5.13`](https://serwist.pages.dev/)), Web App Manifest, Cache-First & Network-First strategies |
 | **Backend Runtime** | Python 3.13 Serverless Functions (Vercel) |
 | **AI Engine** | [Google Gemini 2.0 Flash](https://aistudio.google.com/) via `google-generativeai==0.8.6` with Structured Output |
-| **Cloud Authentication**| [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js) (`@azure/msal-browser@5.25.1`, `@azure/msal-react@5.7.2`) with PKCE |
+| **Cloud Authentication**| Google OAuth 2.0 with Google Drive API v3 |
 | **Local CLI Pipeline** | Python 3.13 (`uv pip`), `youtube-transcript-api==1.2.4`, `rich==15.0.0`, `requests==2.34.2` |
 | **Code Quality** | ESLint, TypeScript (`tsc`), Ruff 0.16.9, Pytest 9.1.1 |
 
@@ -382,7 +382,7 @@ Detailed specifications and architectural decisions can be found in the document
 - [00. Plan Overview & Dependency Graph](./documentation/plans/00_plan_overview.md)
 - [01. Epic 1 — Project Foundation & Scaffolding](./documentation/plans/01_project_foundation.md)
 - [02. Epic 2 — Client-Side Data Layer (IndexedDB)](./documentation/plans/02_data_layer.md)
-- [03. Epic 3 — OneDrive Integration & Note Management](./documentation/plans/03_onedrive_notes.md)
+- [03. Epic 3 — Google Drive Integration & Note Management](./documentation/plans/03_onedrive_notes.md)
 - [04. Epic 4 — YouTube Transcript Ingestion (Local-First)](./documentation/plans/04_youtube_ingestion.md)
 - [05. Epic 5 — AI-Powered Quiz & Flashcard Generation](./documentation/plans/05_quiz_generation.md)
 - [06. Epic 6 — Spaced Repetition System (SM-2)](./documentation/plans/06_spaced_repetition.md)

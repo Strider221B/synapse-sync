@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { OneDriveConnectButton } from '@/components/auth/OneDriveConnectButton';
+import { GoogleDriveConnectButton } from '@/components/auth/GoogleDriveConnectButton';
 import { ThemeToggle } from '@/components/common/ThemeToggle';
 import { SettingRow } from '@/components/settings/SettingRow';
 import { NumberInput } from '@/components/settings/NumberInput';
@@ -219,10 +219,10 @@ export default function SettingsPage() {
         </h2>
 
         <SettingRow
-          label="OneDrive Integration"
-          description="Link your Microsoft 365 account to import OneNote syllabi and sync study notes."
+          label="Google Drive Integration"
+          description="Link your Google account to import documents and sync study notes from Google Drive."
         >
-          <OneDriveConnectButton />
+          <GoogleDriveConnectButton />
         </SettingRow>
       </section>
 

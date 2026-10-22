@@ -11,10 +11,12 @@ interface NoteCardProps {
 
 function getSourceIcon(sourceType: Note['sourceType']): { icon: string; label: string; color: string } {
   switch (sourceType) {
-    case 'onedrive_docx':
-      return { icon: '📄', label: 'OneDrive Docx', color: '#0078d4' };
-    case 'onedrive_md':
-      return { icon: '☁️', label: 'OneDrive MD', color: '#0078d4' };
+    case 'gdrive_docx':
+      return { icon: '📄', label: 'Drive Docx', color: '#0f9d58' };
+    case 'gdrive_md':
+      return { icon: '📝', label: 'Drive MD', color: '#4285f4' };
+    case 'gdrive_doc':
+      return { icon: '📑', label: 'Google Doc', color: '#4285f4' };
     case 'youtube_transcript':
       return { icon: '🎬', label: 'YouTube', color: '#ef4444' };
     default:
