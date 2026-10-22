@@ -16,10 +16,13 @@ class Config:
     _DEFAULT_NOTES_DIR: ClassVar[str] = "~/.synapse-sync/processed_notes"
     _DEFAULT_LANGUAGE: ClassVar[str] = "en"
     _DEFAULT_SERVER_URL: ClassVar[str] = "http://localhost:3000"
+    _DEFAULT_DRIVE_FOLDER: ClassVar[str] = "SynapseSync"
 
     _ENV_GEMINI_KEY: ClassVar[str] = "GEMINI_API_KEY"
     _ENV_API_KEY: ClassVar[str] = "YOUTUBE_NOTES_API_KEY"
     _ENV_SERVER_URL: ClassVar[str] = "SYNAPSE_SERVER_URL"
+    _ENV_DRIVE_TOKEN: ClassVar[str] = "GOOGLE_DRIVE_ACCESS_TOKEN"
+    _ENV_DRIVE_FOLDER: ClassVar[str] = "GOOGLE_DRIVE_FOLDER_NAME"
 
     def __init__(self) -> None:
         """Initialize configuration properties from environment variables with fallbacks."""
@@ -29,6 +32,14 @@ class Config:
         self._cache_dir = self._DEFAULT_CACHE_DIR
         self._notes_dir = self._DEFAULT_NOTES_DIR
         self._language = self._DEFAULT_LANGUAGE
+
+    def get_drive_token(self) -> str | None:
+        """Return the Google Drive OAuth access token from environment."""
+        return os.getenv(self._ENV_DRIVE_TOKEN)
+
+    def get_drive_folder(self) -> str:
+        """Return target Google Drive folder name with fallback to SynapseSync."""
+        return os.getenv(self._ENV_DRIVE_FOLDER) or self._DEFAULT_DRIVE_FOLDER
 
     def get_gemini_api_key(self) -> str | None:
         """Return the configured Gemini API key from environment."""

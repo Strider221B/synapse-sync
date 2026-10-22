@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import ClassVar
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from rich.console import Console
 
@@ -163,3 +163,28 @@ class TestYouTubeCli:
         result = cli._fetch_or_cache_transcript(self._VIDEO_URL, "jGwO_UgTS7I")
         assert result["transcript"] == "Cached transcript text"
         mock_fetch.fetch.assert_not_called()
+
+    def test_process_with_drive_folder_and_token_options(self, tmp_path: Path) -> None:
+        """Verify process pipeline forwards drive-folder and drive-token CLI parameters."""
+        cli, _, _, _, _ = self._create_mock_cli(tmp_path)
+        mock_pusher = MagicMock()
+        mock_pusher.push.return_value = {"notesStored": 1}
+
+        target_pusher = "tools.youtube_cli.main.GoogleDrivePusher"
+        with patch(target_pusher, return_value=mock_pusher) as mock_cls:
+            exit_code = cli.run([
+                "process",
+                "--url",
+                self._VIDEO_URL,
+                "--drive-folder",
+                "CustomDriveFolder",
+                "--drive-token",
+                "custom_token_123",
+            ])
+            assert exit_code == 0
+            mock_cls.assert_called_once_with(
+                access_token="custom_token_123",
+                drive_folder="CustomDriveFolder",
+            )
+            mock_pusher.push.assert_called_once()
+

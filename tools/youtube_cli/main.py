@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.table import Table
 
 from tools.youtube_cli.config import Config
+from tools.youtube_cli.google_drive_pusher import GoogleDrivePusher
 from tools.youtube_cli.note_generator import NoteGenerator
 from tools.youtube_cli.playlist_resolver import PlaylistResolver
 from tools.youtube_cli.server_pusher import ServerPusher
@@ -28,6 +29,8 @@ class YouTubeCli:
     _CMD_PUSH: ClassVar[str] = "push"
     _OPT_URL: ClassVar[str] = "--url"
     _OPT_LOCAL_ONLY: ClassVar[str] = "--local-only"
+    _OPT_DRIVE_FOLDER: ClassVar[str] = "--drive-folder"
+    _OPT_DRIVE_TOKEN: ClassVar[str] = "--drive-token"
     _OPT_SERVER_URL: ClassVar[str] = "--server-url"
     _OPT_NOTEBOOK_DIR: ClassVar[str] = "--notebook-dir"
     _SOURCE_TYPE: ClassVar[str] = "youtube_transcript"
@@ -40,7 +43,7 @@ class YouTubeCli:
         fetcher: TranscriptFetcher | None = None,
         resolver: PlaylistResolver | None = None,
         generator: NoteGenerator | None = None,
-        pusher: ServerPusher | None = None,
+        pusher: GoogleDrivePusher | ServerPusher | None = None,
         cache: TranscriptCache | None = None,
         url_utils: UrlUtils | None = None,
     ) -> None:
@@ -57,7 +60,12 @@ class YouTubeCli:
         )
         self._generator = generator if generator is not None else NoteGenerator()
         self._pusher = (
-            pusher if pusher is not None else ServerPusher(server_url=self._config.get_server_url())
+            pusher
+            if pusher is not None
+            else GoogleDrivePusher(
+                access_token=self._config.get_drive_token(),
+                drive_folder=self._config.get_drive_folder(),
+            )
         )
 
     def run(self, argv: list[str] | None = None) -> int:
@@ -66,29 +74,55 @@ class YouTubeCli:
         args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
         if args.command == self._CMD_PROCESS:
-            return self.process(args.url, args.local_only, args.server_url)
+            return self.process(
+                args.url,
+                args.local_only,
+                args.server_url,
+                args.drive_folder,
+                args.drive_token,
+            )
         if args.command == self._CMD_PUSH:
-            return self.push_directory(args.notebook_dir, args.server_url)
+            return self.push_directory(
+                args.notebook_dir,
+                args.server_url,
+                args.drive_folder,
+                args.drive_token,
+            )
 
         parser.print_help()
         return 1
 
-    def process(self, url: str, local_only: bool = False, server_url: str | None = None) -> int:
+    def process(
+        self,
+        url: str,
+        local_only: bool = False,
+        server_url: str | None = None,
+        drive_folder: str | None = None,
+        drive_token: str | None = None,
+    ) -> int:
         """Process a single YouTube video or full playlist end-to-end."""
         if not url:
             self._console.print("[bold red]Error: --url is required[/bold red]")
             return 1
 
         if self._url_utils.is_playlist_url(url):
-            return self._process_playlist(url, local_only, server_url)
+            return self._process_playlist(url, local_only, server_url, drive_folder, drive_token)
         if self._url_utils.is_video_url(url):
-            return self._process_single_video(url, local_only, server_url)
+            return self._process_single_video(
+                url, local_only, server_url, drive_folder, drive_token
+            )
 
         self._console.print(f"[bold red]Error: Unrecognized YouTube URL format: {url}[/bold red]")
         return 1
 
-    def push_directory(self, notebook_dir: str, server_url: str | None = None) -> int:
-        """Push a locally saved notebook directory to the Vercel backend server."""
+    def push_directory(
+        self,
+        notebook_dir: str,
+        server_url: str | None = None,
+        drive_folder: str | None = None,
+        drive_token: str | None = None,
+    ) -> int:
+        """Push a locally saved notebook directory to Google Drive or backend server."""
         nb_path = Path(notebook_dir).expanduser().resolve()
         nb_file = nb_path / "notebook.json"
         if not nb_file.is_file():
@@ -97,9 +131,9 @@ class YouTubeCli:
 
         try:
             notebook, notes = self._load_local_notebook(nb_path)
-            pusher = ServerPusher(server_url=server_url) if server_url else self._pusher
-            self._console.print(f"[cyan]Pushing {len(notes)} note(s) to server...[/cyan]")
-            res = pusher.push(notebook, notes)
+            dest = f"server ({server_url})" if server_url else "Google Drive"
+            self._console.print(f"[cyan]Uploading {len(notes)} note(s) to {dest}...[/cyan]")
+            res = self._execute_push(notebook, notes, server_url, drive_folder, drive_token)
             stored_count = res.get("notesStored", len(notes))
             self._console.print(
                 f"[bold green]Push successful! Stored {stored_count} notes.[/bold green]"
@@ -115,26 +149,51 @@ class YouTubeCli:
             prog="youtube-cli", description="SynapseSync YouTube CLI"
         )
         subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+        self._add_process_subparser(subparsers)
+        self._add_push_subparser(subparsers)
+        return parser
 
+    def _add_process_subparser(self, subparsers: Any) -> None:
+        """Configure arguments for the process command."""
         proc_parser = subparsers.add_parser(self._CMD_PROCESS, help="Process video or playlist")
         proc_parser.add_argument(self._OPT_URL, required=True, help="YouTube video or playlist URL")
         proc_parser.add_argument(
             self._OPT_LOCAL_ONLY, action="store_true", help="Save locally only"
         )
         proc_parser.add_argument(
-            self._OPT_SERVER_URL, default=None, help="Target backend server URL"
+            self._OPT_DRIVE_FOLDER, default=None, help="Dedicated Google Drive folder name"
+        )
+        proc_parser.add_argument(
+            self._OPT_DRIVE_TOKEN, default=None, help="Google Drive OAuth access token"
+        )
+        proc_parser.add_argument(
+            self._OPT_SERVER_URL, default=None, help="Target backend server URL (legacy)"
         )
 
-        push_parser = subparsers.add_parser(self._CMD_PUSH, help="Push local notebook to server")
+    def _add_push_subparser(self, subparsers: Any) -> None:
+        """Configure arguments for the push command."""
+        push_parser = subparsers.add_parser(self._CMD_PUSH, help="Push local notebook directory")
         push_parser.add_argument(
             self._OPT_NOTEBOOK_DIR, required=True, help="Path to notebook directory"
         )
         push_parser.add_argument(
-            self._OPT_SERVER_URL, default=None, help="Target backend server URL"
+            self._OPT_DRIVE_FOLDER, default=None, help="Dedicated Google Drive folder name"
         )
-        return parser
+        push_parser.add_argument(
+            self._OPT_DRIVE_TOKEN, default=None, help="Google Drive OAuth access token"
+        )
+        push_parser.add_argument(
+            self._OPT_SERVER_URL, default=None, help="Target backend server URL (legacy)"
+        )
 
-    def _process_single_video(self, url: str, local_only: bool, server_url: str | None) -> int:
+    def _process_single_video(
+        self,
+        url: str,
+        local_only: bool,
+        server_url: str | None,
+        drive_folder: str | None,
+        drive_token: str | None,
+    ) -> int:
         """Process an individual video URL."""
         video_id = self._url_utils.extract_video_id(url)
         self._console.print(f"[bold cyan]Processing video:[/bold cyan] {video_id}")
@@ -151,7 +210,7 @@ class YouTubeCli:
             notes = [processed_note]
 
             self._save_local_notebook(notebook, notes)
-            self._maybe_push_to_server(notebook, notes, local_only, server_url)
+            self._maybe_push(notebook, notes, local_only, server_url, drive_folder, drive_token)
             elapsed = time.time() - start_time
             self._print_summary_table(1, 1, 0, processed_note["wordCount"], elapsed)
             return 0
@@ -159,7 +218,14 @@ class YouTubeCli:
             self._console.print(f"[bold red]Failed processing video: {err}[/bold red]")
             return 1
 
-    def _process_playlist(self, url: str, local_only: bool, server_url: str | None) -> int:
+    def _process_playlist(
+        self,
+        url: str,
+        local_only: bool,
+        server_url: str | None,
+        drive_folder: str | None,
+        drive_token: str | None,
+    ) -> int:
         """Process an entire YouTube playlist sequentially."""
         self._console.print(f"[bold cyan]Resolving playlist:[/bold cyan] {url}")
         try:
@@ -174,7 +240,7 @@ class YouTubeCli:
 
         if notes:
             self._save_local_notebook(notebook, notes)
-            self._maybe_push_to_server(notebook, notes, local_only, server_url)
+            self._maybe_push(notebook, notes, local_only, server_url, drive_folder, drive_token)
 
         return 0 if fail_cnt == 0 else 1
 
@@ -274,27 +340,50 @@ class YouTubeCli:
         notes_data: list[dict[str, Any]] = json.loads(notes_file.read_text(encoding="utf-8"))
         return nb_data, notes_data
 
-    def _maybe_push_to_server(
+    def _execute_push(
+        self,
+        notebook: dict[str, Any],
+        notes: list[dict[str, Any]],
+        server_url: str | None = None,
+        drive_folder: str | None = None,
+        drive_token: str | None = None,
+    ) -> dict[str, Any]:
+        """Send notebook and notes to Google Drive (default) or backend server if URL specified."""
+        if server_url:
+            pusher: Any = ServerPusher(server_url=server_url)
+        elif drive_folder or drive_token:
+            pusher = GoogleDrivePusher(
+                access_token=drive_token or self._config.get_drive_token(),
+                drive_folder=drive_folder or self._config.get_drive_folder(),
+            )
+        else:
+            pusher = self._pusher
+
+        result: dict[str, Any] = pusher.push(notebook, notes)
+        return result
+
+    def _maybe_push(
         self,
         notebook: dict[str, Any],
         notes: list[dict[str, Any]],
         local_only: bool,
-        server_url: str | None,
+        server_url: str | None = None,
+        drive_folder: str | None = None,
+        drive_token: str | None = None,
     ) -> None:
-        """Push notes to Vercel backend unless local_only flag is enabled."""
+        """Push notes to Google Drive or server unless local_only flag is enabled."""
         if local_only:
-            self._console.print("[dim]Local-only mode: Skipping push to server.[/dim]")
+            self._console.print("[dim]Local-only mode: Skipping remote push.[/dim]")
             return
-        pusher = ServerPusher(server_url=server_url) if server_url else self._pusher
         try:
-            res = pusher.push(notebook, notes)
+            res = self._execute_push(notebook, notes, server_url, drive_folder, drive_token)
             stored_count = res.get("notesStored", len(notes))
-            self._console.print(
-                f"[bold green]Pushed to server: {stored_count} notes stored.[/bold green]"
-            )
+            target_desc = f"server ({server_url})" if server_url else "Google Drive"
+            msg = f"[bold green]Saved to {target_desc}: {stored_count} notes stored.[/bold green]"
+            self._console.print(msg)
         except Exception as err:
             self._console.print(
-                f"[bold yellow]Warning: Failed to push to server: {err}[/bold yellow]"
+                f"[bold yellow]Warning: Failed to upload to remote destination: {err}[/bold yellow]"
             )
 
     def _print_summary_table(
