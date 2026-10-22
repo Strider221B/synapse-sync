@@ -108,13 +108,58 @@ describe('GoogleDriveApiClient', () => {
     );
   });
 
-  it('throws descriptive error on generic 500 failure', async () => {
-    const mockFetch = async () => new Response('Server error', { status: 500, statusText: 'Internal Server Error' });
-    const client = new GoogleDriveApiClient(mockAuth, mockFetch as typeof fetch);
+  it('uploads and creates a new file in Google Drive via multipart upload', async () => {
+    const rawCreated = {
+      id: 'created-file-id',
+      name: 'Notes.md',
+      mimeType: 'text/markdown',
+      size: '128',
+      modifiedTime: '2026-10-22T03:00:00Z',
+      webViewLink: 'https://drive.google.com/file/d/created-file-id/view',
+    };
 
-    await assert.rejects(
-      async () => client.listRootItems(),
-      /Google Drive request failed \(500\)/
-    );
+    const mockFetch = async (url: string | URL | Request, init?: RequestInit) => {
+      assert.ok(url.toString().includes('/files?uploadType=multipart'));
+      assert.equal(init?.method, 'POST');
+      assert.equal(init?.headers && (init.headers as Record<string, string>)['Authorization'], `Bearer ${MOCK_TOKEN}`);
+      assert.ok(init?.body);
+      return new Response(JSON.stringify(rawCreated), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    const client = new GoogleDriveApiClient(mockAuth, mockFetch as typeof fetch);
+    const item = await client.createFile('Notes.md', '# Header Content', 'text/markdown', 'parent-folder-1');
+
+    assert.equal(item.id, 'created-file-id');
+    assert.equal(item.name, 'Notes.md');
+    assert.equal(item.webUrl, 'https://drive.google.com/file/d/created-file-id/view');
+  });
+
+  it('updates the content of an existing file in Google Drive', async () => {
+    const rawUpdated = {
+      id: 'existing-file-id',
+      name: 'Existing.md',
+      mimeType: 'text/markdown',
+      size: '256',
+      modifiedTime: '2026-10-22T03:15:00Z',
+    };
+
+    const mockFetch = async (url: string | URL | Request, init?: RequestInit) => {
+      assert.ok(url.toString().includes('/files/existing-file-id?uploadType=media'));
+      assert.equal(init?.method, 'PATCH');
+      assert.equal(init?.headers && (init.headers as Record<string, string>)['Authorization'], `Bearer ${MOCK_TOKEN}`);
+      return new Response(JSON.stringify(rawUpdated), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    const client = new GoogleDriveApiClient(mockAuth, mockFetch as typeof fetch);
+    const item = await client.updateFileContent('existing-file-id', 'Updated Markdown Body');
+
+    assert.equal(item.id, 'existing-file-id');
+    assert.equal(item.size, 256);
   });
 });

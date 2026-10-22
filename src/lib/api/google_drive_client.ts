@@ -33,8 +33,11 @@ interface GoogleDriveListResponse {
  */
 export class GoogleDriveApiClient {
   private static readonly _DRIVE_BASE_URL = 'https://www.googleapis.com/drive/v3';
+  private static readonly _DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3';
   private static readonly _HEADER_AUTHORIZATION = 'Authorization';
+  private static readonly _HEADER_CONTENT_TYPE = 'Content-Type';
   private static readonly _BEARER_PREFIX = 'Bearer ';
+  private static readonly _MULTIPART_BOUNDARY = '-------synapse_sync_boundary';
   private static readonly _STATUS_UNAUTHORIZED = 401;
   private static readonly _STATUS_RATE_LIMITED = 429;
   private static readonly _FOLDER_MIME = 'application/vnd.google-apps.folder';
@@ -96,6 +99,62 @@ export class GoogleDriveApiClient {
   }
 
   /**
+   * Uploads and creates a new file in Google Drive.
+   */
+  public async createFile(
+    name: string,
+    content: string | Blob,
+    mimeType: string = GoogleDriveApiClient._MARKDOWN_MIME,
+    parentFolderId?: string
+  ): Promise<DriveItem> {
+    const token = await this._authService.getAccessToken();
+    const metadata: Record<string, unknown> = { name, mimeType };
+    if (parentFolderId) metadata.parents = [parentFolderId];
+
+    const body = await this._buildMultipartBody(metadata, content, mimeType);
+    const url = `${GoogleDriveApiClient._DRIVE_UPLOAD_URL}/files?uploadType=multipart&fields=id,name,mimeType,size,modifiedTime,webViewLink`;
+    const response = await this._fetchFn(url, {
+      method: 'POST',
+      headers: {
+        [GoogleDriveApiClient._HEADER_AUTHORIZATION]: `${GoogleDriveApiClient._BEARER_PREFIX}${token}`,
+        [GoogleDriveApiClient._HEADER_CONTENT_TYPE]: body.type,
+      },
+      body,
+    });
+
+    this._validateResponseStatus(response);
+    const file = (await response.json()) as GoogleDriveRawFile;
+    return this._mapRawFileToDriveItem(file);
+  }
+
+  /**
+   * Updates the content of an existing file in Google Drive.
+   */
+  public async updateFileContent(
+    itemId: string,
+    content: string | Blob,
+    mimeType: string = GoogleDriveApiClient._MARKDOWN_MIME
+  ): Promise<DriveItem> {
+    const token = await this._authService.getAccessToken();
+    const encodedId = encodeURIComponent(itemId);
+    const url = `${GoogleDriveApiClient._DRIVE_UPLOAD_URL}/files/${encodedId}?uploadType=media&fields=id,name,mimeType,size,modifiedTime,webViewLink`;
+    const body = typeof content === 'string' ? new Blob([content], { type: mimeType }) : content;
+
+    const response = await this._fetchFn(url, {
+      method: 'PATCH',
+      headers: {
+        [GoogleDriveApiClient._HEADER_AUTHORIZATION]: `${GoogleDriveApiClient._BEARER_PREFIX}${token}`,
+        [GoogleDriveApiClient._HEADER_CONTENT_TYPE]: mimeType,
+      },
+      body,
+    });
+
+    this._validateResponseStatus(response);
+    const file = (await response.json()) as GoogleDriveRawFile;
+    return this._mapRawFileToDriveItem(file);
+  }
+
+  /**
    * Fetches and maps files from the Google Drive files list endpoint.
    */
   protected async _fetchItems(url: string): Promise<DriveItem[]> {
@@ -110,6 +169,27 @@ export class GoogleDriveApiClient {
     const data = (await response.json()) as GoogleDriveListResponse;
     const files = data.files ?? [];
     return this._filterEligibleItems(files.map((file) => this._mapRawFileToDriveItem(file)));
+  }
+
+  /**
+   * Constructs a multipart/related request body for Google Drive file uploads.
+   */
+  protected async _buildMultipartBody(
+    metadata: Record<string, unknown>,
+    content: string | Blob,
+    mimeType: string
+  ): Promise<Blob> {
+    const delimiter = `\r\n--${GoogleDriveApiClient._MULTIPART_BOUNDARY}\r\n`;
+    const closeDelimiter = `\r\n--${GoogleDriveApiClient._MULTIPART_BOUNDARY}--`;
+    const metaHeader = 'Content-Type: application/json; charset=UTF-8\r\n\r\n';
+    const mediaHeader = `Content-Type: ${mimeType}\r\n\r\n`;
+
+    const metaPart = `${delimiter}${metaHeader}${JSON.stringify(metadata)}${delimiter}${mediaHeader}`;
+    const mediaBlob = typeof content === 'string' ? new Blob([content], { type: mimeType }) : content;
+
+    return new Blob([metaPart, mediaBlob, closeDelimiter], {
+      type: `multipart/related; boundary=${GoogleDriveApiClient._MULTIPART_BOUNDARY}`,
+    });
   }
 
   /**
