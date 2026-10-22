@@ -10,7 +10,7 @@
 
 **SynapseSync** is a cross-platform, offline-first study companion that transforms passive notes into active learning material. It bridges the gap between laptop study sessions and mobile review by:
 
-1. **Connecting to OneDrive** to import `.docx` and `.md` study notes
+1. **Connecting to Google Drive** to import `.docx`, `.md`, and Google Docs study notes
 2. **Ingesting YouTube lecture playlists** via transcript extraction
 3. **Generating AI-powered quizzes and flashcards** using Google Gemini
 4. **Implementing spaced repetition (SM-2)** to optimize memory retention
@@ -46,7 +46,7 @@ graph TB
 
     subgraph "🔌 External APIs"
         GEMINI["🤖 Google Gemini<br/>(Free Tier)"]
-        GRAPH["📁 MS Graph API<br/>(OneDrive)"]
+        GDRIVE["📁 Google Drive API v3<br/>(Drive / Docs)"]
         YT["📺 YouTube<br/>(Transcripts)"]
     end
 
@@ -57,7 +57,7 @@ graph TB
 
     LAPTOP & PHONE <--> CDN
     LAPTOP & PHONE <--> FN1 & FN4 & FN5 & FN6
-    LAPTOP & PHONE <-->|"OAuth PKCE<br/>(Direct)"| GRAPH
+    LAPTOP & PHONE <-->|"Google OAuth 2.0<br/>(Direct)"| GDRIVE
     CLI --> YT
     CLI --> GEMINI
     CLI -->|"Push detailed notes"| FN7
@@ -87,14 +87,14 @@ graph TB
 | **Rationale**| Enables full offline functionality; ~50 MB+ capacity per origin; structured queries via indexes; zero cost |
 | **Tradeoff**| Data is device-specific; user must re-import on a new device; risk of data loss if browser storage is cleared |
 
-### ADR-03: Direct OneDrive API Calls from Browser
+### ADR-03: Direct Google Drive API Calls from Browser
 
 | Aspect     | Decision                                                                  |
 |:-----------|:--------------------------------------------------------------------------|
-| **Context**| Need to access user's OneDrive files; must use OAuth                     |
-| **Decision**| Browser calls MS Graph API directly using MSAL.js + PKCE. Tokens never touch the backend. |
-| **Rationale**| SPA registration requires no client secret; simpler architecture; reduces backend complexity; more secure (tokens don't traverse an intermediary) |
-| **Tradeoff**| Must handle token refresh logic in the frontend; requires CORS-compatible API calls |
+| **Context**| Need to browse, read, and write user's Google Drive files; must use OAuth 2.0 |
+| **Decision**| Browser calls Google Drive API v3 directly using Google OAuth 2.0. Tokens never touch the backend. |
+| **Rationale**| Client-side token flow requires no client secret; simpler architecture; reduces backend complexity; zero proxy latency; tokens remain strictly client-side. |
+| **Tradeoff**| Must handle token refresh and expiration in the frontend; requires CORS-compatible Google API endpoints |
 
 ### ADR-04: Pure Python Backend + Local CLI Tool
 
@@ -151,18 +151,18 @@ graph TB
 sequenceDiagram
     actor Student
     participant PWA as SynapseSync PWA
-    participant OneDrive as MS Graph API
+    participant Drive as Google Drive API v3
     participant API as Python Serverless
     participant Gemini as Google Gemini
     participant IDB as IndexedDB
 
     Note over Student,IDB: Phase 1 — Import Notes
-    Student->>PWA: Connect OneDrive
-    PWA->>OneDrive: OAuth PKCE Login
-    OneDrive->>PWA: Access Token
+    Student->>PWA: Connect Google Drive
+    PWA->>Drive: Google OAuth 2.0 Login
+    Drive->>PWA: Access Token
     Student->>PWA: Select "ML_notes.docx"
-    PWA->>OneDrive: Download file content
-    OneDrive->>PWA: Binary .docx
+    PWA->>Drive: Download file content
+    Drive->>PWA: Binary .docx / Exported text
     PWA->>API: POST /api/parse-docx
     API->>PWA: Extracted text
     PWA->>IDB: Store note
@@ -281,7 +281,7 @@ stateDiagram-v2
 | 2 | Gemini free tier rate limits hit during heavy use   | **Medium**  | Medium | Local CLI has built-in delay between requests; cache all generated notes |
 | 3 | Vercel function timeout (60s) on large documents    | **Medium**  | Medium | Truncate documents to ~8000 words; YouTube processing runs locally (no timeout) |
 | 4 | IndexedDB cleared by browser                        | **Low**     | High   | Warn users about browser storage policies; export feature (v2); notes also stored on server |
-| 5 | MSAL.js token refresh fails silently               | **Low**     | Medium | Detect 401 responses; prompt re-login; cache token expiry     |
+| 5 | Google OAuth token expires or refresh fails         | **Low**     | Medium | Detect 401 responses; prompt re-login; track token expiry in session |
 | 6 | Large playlists (100+ videos) take very long locally | **Medium**  | Low   | Show CLI progress; allow resume from where it left off; process overnight |
 | 7 | Gemini generates incorrect quiz answers              | **Medium**  | Medium | Show explanations with answers; allow user to flag/report     |
 | 8 | PWA install experience varies across browsers        | **Medium**  | Low    | Test on Chrome, Safari, Firefox; provide manual install guide |
@@ -340,3 +340,12 @@ stateDiagram-v2
 | YouTube Data API          | Official; reliable            | Requires API key; quota limits; no transcript endpoint | Not viable |
 | Managed API service       | Most reliable; maintained     | Costs money                    | Future upgrade |
 | Manual paste              | 100% reliable; no API needed  | Requires user effort           | ✅ **Selected** (PWA fallback) |
+
+### Cloud Note Storage
+
+| Option                       | Pros                                                    | Cons                                      | Verdict      |
+|:-----------------------------|:--------------------------------------------------------|:------------------------------------------|:-------------|
+| **Google Drive API v3**      | Broad student adoption; native Google Docs export; full read/write support; robust OAuth 2.0 | Token refresh lifecycle handling | ✅ **Selected** |
+| Microsoft OneDrive (MS Graph)| Enterprise/education presence                           | Deprecated in favor of Google ecosystem   | ❌ Replaced  |
+| Dropbox                      | Simple file API                                         | Smaller student footprint; paid tiers     | Not viable   |
+| Notion API                   | Rich block structure                                    | Complex API; proprietary formatting       | Future v2    |

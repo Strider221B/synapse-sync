@@ -34,7 +34,7 @@ graph TB
     end
 
     subgraph "External Services"
-        ONEDRIVE["Microsoft OneDrive<br/>(Graph API)"]
+        GDRIVE["Google Drive<br/>(Drive API v3)"]
         GEMINI["Google Gemini API<br/>(Free Tier)"]
         YOUTUBE["YouTube<br/>(Transcript Source)"]
     end
@@ -63,8 +63,8 @@ graph TB
     FN_SUMMARIZE --> GEMINI
     FN_CHAT --> GEMINI
 
-    LAPTOP --> ONEDRIVE
-    PHONE --> ONEDRIVE
+    LAPTOP --> GDRIVE
+    PHONE --> GDRIVE
 
     LAPTOP --- IDB
     LAPTOP --- SW
@@ -106,14 +106,14 @@ graph LR
             SRS["SRS Engine (SM-2)"]
             YT["YouTube Ingestion"]
             CHAT["AI Chat"]
-            ONDRIVE["OneDrive Connector"]
+            GDRIVE_CONN["Google Drive Connector"]
         end
 
         subgraph "Core Services"
             IDB_SVC["IndexedDB Service"]
             SYNC_SVC["Sync Queue Service"]
             API_SVC["API Client Service"]
-            AUTH_SVC["Auth Service (MSAL.js)"]
+            AUTH_SVC["Auth Service (Google OAuth)"]
         end
 
         subgraph "PWA Layer"
@@ -128,7 +128,7 @@ graph LR
     PAGES --> SRS
     PAGES --> YT
     PAGES --> CHAT
-    PAGES --> ONDRIVE
+    PAGES --> GDRIVE_CONN
 
     NOTES --> IDB_SVC
     QUIZ --> IDB_SVC
@@ -139,7 +139,7 @@ graph LR
     YT --> API_SVC
     CHAT --> API_SVC
     
-    ONDRIVE --> AUTH_SVC
+    GDRIVE_CONN --> AUTH_SVC
     SYNC_SVC --> BG_SYNC
     IDB_SVC --> SYNC_SVC
 ```
@@ -148,8 +148,8 @@ graph LR
 
 | Responsibility               | Implementation                                                          |
 |:-----------------------------|:------------------------------------------------------------------------|
-| Authentication               | MSAL.js handles OAuth PKCE flow; tokens in `localStorage`              |
-| OneDrive file browsing       | Direct calls to Microsoft Graph API from browser (delegated auth)       |
+| Authentication               | Google OAuth 2.0 flow; tokens in `localStorage`                        |
+| Google Drive file browsing   | Direct calls to Google Drive API v3 from browser (delegated auth)       |
 | Note rendering               | Parse Markdown/extracted text; render with `react-markdown`             |
 | Quiz taking & scoring        | Entirely client-side; results stored in IndexedDB                       |
 | SM-2 algorithm execution     | Pure client-side computation — no server roundtrip needed               |
@@ -232,7 +232,7 @@ graph TB
         USER_ACTION["User Action<br/>(quiz, review)"] --> LOCAL_WRITE["Write to IndexedDB"]
         LOCAL_WRITE --> QUEUE["Add to Sync Queue"]
         QUEUE -->|On Reconnect| BG_SYNC_REPLAY["Background Sync<br/>Replay Queue"]
-        BG_SYNC_REPLAY --> API_SYNC["Call API / OneDrive"]
+        BG_SYNC_REPLAY --> API_SYNC["Call API / Google Drive"]
     end
 
     subgraph "IndexedDB Schema"
@@ -258,51 +258,57 @@ graph TB
 sequenceDiagram
     participant User
     participant PWA as SynapseSync PWA
-    participant MSAL as MSAL.js
-    participant Entra as Microsoft Entra ID
-    participant Graph as Microsoft Graph API
+    participant Auth as AuthService
+    participant Google as Google OAuth 2.0
+    participant Drive as Google Drive API v3
 
-    User->>PWA: Click "Connect OneDrive"
-    PWA->>MSAL: initiate login (PKCE)
-    MSAL->>Entra: Authorization Code Request<br/>(with code_challenge)
-    Entra->>User: Microsoft Login Page
-    User->>Entra: Enter credentials
-    Entra->>MSAL: Authorization Code
-    MSAL->>Entra: Exchange Code for Tokens<br/>(with code_verifier)
-    Entra->>MSAL: Access Token + Refresh Token
-    MSAL->>PWA: Store tokens in localStorage
+    User->>PWA: Click "Connect Google Drive"
+    PWA->>Auth: login()
+    Auth->>Google: Open OAuth 2.0 Popup<br/>(client_id, scopes, response_type=token)
+    Google->>User: Google Sign-in / Consent Screen
+    User->>Google: Authorize SynapseSync
+    Google->>Auth: Return Access Token in URL hash
+    Auth->>Google: GET /oauth2/v3/userinfo (Bearer token)
+    Google->>Auth: User profile (name, email)
+    Auth->>PWA: Store token & profile in localStorage
 
     Note over PWA: All subsequent API calls use<br/>the access token directly
 
-    PWA->>Graph: GET /me/drive/root/children<br/>Authorization: Bearer {token}
-    Graph->>PWA: File listing JSON
-
-    Note over PWA: Token refresh happens<br/>automatically via MSAL.js
+    PWA->>Drive: GET /drive/v3/files?q='root'+in+parents<br/>Authorization: Bearer {token}
+    Drive->>PWA: File & folder listing JSON
 ```
 
 > [!IMPORTANT]
-> **No tokens are ever sent to or stored on the Vercel backend.** The browser communicates directly with Microsoft Graph API using delegated permissions. The Python serverless functions never need OneDrive access — the browser downloads file content and sends it to `/api/parse-docx`.
+> **No tokens are ever sent to or stored on the Vercel backend.** The browser communicates directly with Google Drive API using delegated permissions. The Python serverless functions never need Google Drive access — the browser downloads file content and sends it to `/api/parse-docx`.
 
 ---
 
 ## 5. Data Flow Diagrams
 
-### 5.1 OneDrive → Notes Flow
+### 5.1 Google Drive → Notes Flow
 
 ```mermaid
 sequenceDiagram
     participant User
     participant PWA
-    participant Graph as MS Graph API
+    participant Drive as Google Drive API v3
     participant API as /api/parse-docx
     participant IDB as IndexedDB
 
-    User->>PWA: Select .docx file from OneDrive picker
-    PWA->>Graph: GET /me/drive/items/{id}/content
-    Graph->>PWA: Binary .docx file
-    PWA->>API: POST /api/parse-docx (file upload)
-    API->>API: zipfile + xml.etree extraction
-    API->>PWA: { text: "extracted content..." }
+    User->>PWA: Select document from Google Drive picker
+    alt .docx File
+        PWA->>Drive: GET /drive/v3/files/{id}?alt=media
+        Drive->>PWA: Binary .docx file
+        PWA->>API: POST /api/parse-docx (file upload)
+        API->>API: zipfile + xml.etree extraction
+        API->>PWA: { text: "extracted content..." }
+    else Google Doc
+        PWA->>Drive: GET /drive/v3/files/{id}/export?mimeType=text/plain
+        Drive->>PWA: Plain text export
+    else .md File
+        PWA->>Drive: GET /drive/v3/files/{id}?alt=media
+        Drive->>PWA: Raw Markdown text
+    end
     PWA->>IDB: Store note (text, metadata)
     PWA->>User: Display note in reader view
 ```
@@ -423,7 +429,7 @@ synapse-sync/
 │   │   ├── chat/
 │   │   │   └── page.tsx              # AI study assistant
 │   │   └── settings/
-│   │       └── page.tsx              # Settings & OneDrive connection
+│   │       └── page.tsx              # Settings & Google Drive connection
 │   │
 │   ├── components/                   # Reusable UI Components
 │   │   ├── layout/
@@ -433,7 +439,7 @@ synapse-sync/
 │   │   ├── notes/
 │   │   │   ├── NoteCard.tsx
 │   │   │   ├── NoteReader.tsx
-│   │   │   └── OneDrivePicker.tsx
+│   │   │   └── GoogleDrivePicker.tsx
 │   │   ├── quiz/
 │   │   │   ├── MCQCard.tsx
 │   │   │   ├── FlashCard.tsx
@@ -457,7 +463,8 @@ synapse-sync/
 │   │   ├── srs/
 │   │   │   └── sm2.ts               # SM-2 algorithm implementation
 │   │   ├── auth/
-│   │   │   └── msal.ts              # MSAL.js configuration
+│   │   │   ├── google_auth_config.ts # Google OAuth 2.0 configuration
+│   │   │   └── auth_service.ts       # Auth state & token manager
 │   │   ├── api/
 │   │   │   └── client.ts            # API client with retry logic
 │   │   └── utils/
@@ -501,7 +508,7 @@ synapse-sync/
 | **Styling**          | Vanilla CSS (custom properties) | Maximum control; no build-time dependency              |
 | **PWA Tooling**      | Serwist 9.5.13 (`@serwist/next`) | Service Worker management; precaching                    |
 | **Offline Storage**  | IndexedDB via `idb` 8.0.4   | Structured client-side storage; large capacity             |
-| **Auth Library**     | MSAL.js (`@azure/msal-browser` 5.25.1, `@azure/msal-react` 5.7.2) | Official Microsoft OAuth library; handles PKCE |
+| **Auth Library**     | Google OAuth 2.0 with Google Drive API v3 | Client-side OAuth 2.0 token flow; direct Drive v3 REST calls |
 | **Backend Runtime (AI/Parsing)** | Python 3.13 on Vercel | User requirement; Gemini SDK + docx parsing              |
 | **Local CLI Tool (YouTube)** | Python 3.13 (local machine, `uv pip`) | Transcript fetch + detailed note generation; residential IP avoids blocking |
 | **Doc Parsing**      | Python stdlib (`zipfile` + `xml`) | Zero dependencies; fast; reliable                    |

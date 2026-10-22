@@ -66,25 +66,32 @@ Before deploying, register the app with the following services:
 > [!CAUTION]
 > If you enable billing on the Google Cloud project, you will be moved to a pay-as-you-go model and lose free tier access.
 
-#### Microsoft Entra (Azure AD) App Registration
+#### Google Cloud Console OAuth 2.0 Client Registration
 
-1. Go to [Microsoft Entra Admin Center](https://entra.microsoft.com/)
-2. Navigate to **Identity** → **Applications** → **App Registrations** → **New Registration**
-3. Configure:
-   - **Name:** `SynapseSync`
-   - **Supported account types:** "Accounts in any organizational directory and personal Microsoft accounts"
-   - **Redirect URI:** Select **Single-page application (SPA)** and enter:
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Select your project (e.g. `SynapseSync`)
+3. Navigate to **APIs & Services** → **Library** and enable the **Google Drive API**
+4. Configure the **OAuth consent screen** (**APIs & Services** → **OAuth consent screen**):
+   - User Type: **External** (or Internal for Google Workspace)
+   - App Name: `SynapseSync`
+   - Scopes:
+     - `https://www.googleapis.com/auth/drive` (Full access to view, read, and write Drive files)
+     - `https://www.googleapis.com/auth/userinfo.profile` (View user profile)
+     - `https://www.googleapis.com/auth/userinfo.email` (View user email)
+   - Add your test user email under **Test users** (while in Testing mode)
+5. Navigate to **APIs & Services** → **Credentials** → **Create Credentials** → **OAuth client ID**:
+   - Application type: **Web application**
+   - Name: `SynapseSync Web Client`
+   - **Authorized JavaScript origins**:
      - `https://synapse-sync.vercel.app` (production)
      - `http://localhost:3000` (development)
-4. After registration, copy the **Application (client) ID**
-5. Navigate to **API Permissions** → **Add a permission** → **Microsoft Graph** → **Delegated permissions**:
-   - `Files.Read`
-   - `Files.ReadWrite`
-   - `User.Read`
-6. Click **Grant admin consent** (if you are the admin)
+   - **Authorized redirect URIs**:
+     - `https://synapse-sync.vercel.app` (production)
+     - `http://localhost:3000` (development)
+6. Copy the generated **Client ID** (e.g., `xxxx.apps.googleusercontent.com`)
 
 > [!IMPORTANT]
-> SPA registrations do **NOT** use client secrets. The PKCE flow handles security entirely through code verifier/challenge pairs.
+> Client-side browser authentication uses token authorization (implicit / token response without exposing client secrets in the browser bundle). Never expose a client secret in client-side code.
 
 ---
 
@@ -143,21 +150,21 @@ vercel link
 
 # 4. Set environment variables
 vercel env add GEMINI_API_KEY production
-vercel env add NEXT_PUBLIC_MSAL_CLIENT_ID production
-vercel env add NEXT_PUBLIC_MSAL_REDIRECT_URI production
+vercel env add NEXT_PUBLIC_GOOGLE_CLIENT_ID production
+vercel env add NEXT_PUBLIC_GOOGLE_REDIRECT_URI production
 vercel env add NEXT_PUBLIC_API_URL production
 vercel env add YOUTUBE_NOTES_API_KEY production
 ```
 
 ### 3.2 Environment Variables
 
-| Variable                         | Value (Production)                           | Value (Development)                |
-|:---------------------------------|:---------------------------------------------|:-----------------------------------|
-| `GEMINI_API_KEY`                | `AIza...` (from Google AI Studio)            | Same                               |
-| `NEXT_PUBLIC_MSAL_CLIENT_ID`   | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`       | Same                               |
-| `NEXT_PUBLIC_MSAL_REDIRECT_URI`| `https://synapse-sync.vercel.app`            | `http://localhost:3000`            |
-| `NEXT_PUBLIC_API_URL`          | `https://synapse-sync.vercel.app`            | `http://localhost:3000`            |
-| `YOUTUBE_NOTES_API_KEY`        | `<shared-secret>`                            | Same                               |
+| Variable                          | Value (Production)                           | Value (Development)                |
+|:----------------------------------|:---------------------------------------------|:-----------------------------------|
+| `GEMINI_API_KEY`                 | `AIza...` (from Google AI Studio)            | Same                               |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID`    | `xxxx.apps.googleusercontent.com`            | Same                               |
+| `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` | `https://synapse-sync.vercel.app`            | `http://localhost:3000`            |
+| `NEXT_PUBLIC_API_URL`           | `https://synapse-sync.vercel.app`            | `http://localhost:3000`            |
+| `YOUTUBE_NOTES_API_KEY`         | `<shared-secret>`                            | Same                               |
 
 ### 3.3 Vercel Configuration File
 
@@ -272,8 +279,8 @@ vercel dev
 ```bash
 # .env.local
 GEMINI_API_KEY=your_gemini_api_key_here
-NEXT_PUBLIC_MSAL_CLIENT_ID=your_azure_client_id_here
-NEXT_PUBLIC_MSAL_REDIRECT_URI=http://localhost:3000
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id_here
+NEXT_PUBLIC_GOOGLE_REDIRECT_URI=http://localhost:3000
 NEXT_PUBLIC_API_URL=http://localhost:3000
 YOUTUBE_NOTES_API_KEY=your_shared_secret_here
 ```
@@ -450,7 +457,7 @@ Vercel automatically deploys:
 | **Vercel CPU Time**         | ~30 minutes            | 4 hours            | 12.5%       |
 | **Gemini API Requests**     | ~1,000                 | ~1,500/day         | Well within |
 | **Gemini Tokens**           | ~500K/month            | ~250K-1M/min       | Well within |
-| **OneDrive API Calls**      | ~500                   | Throttle-based     | Well within |
+| **Google Drive API Calls**  | ~500                   | Throttle-based     | Well within |
 | **Vercel Bandwidth**        | ~500 MB                | 100 GB             | 0.5%        |
 
 > [!TIP]
@@ -467,7 +474,7 @@ Vercel automatically deploys:
 | `504 Gateway Timeout`                | Function exceeds 60s           | Reduce payload size; split into micro-requests   |
 | `429 Too Many Requests` from Gemini  | Rate limit exceeded            | Increase delay between requests; check quotas    |
 | YouTube transcript returns empty     | Video has no captions          | Use manual paste fallback in PWA                  |
-| OneDrive login fails                 | Redirect URI mismatch          | Verify redirect URI in Entra matches exactly      |
+| Google Drive login fails             | Origin / Redirect mismatch     | Verify authorized JS origin and redirect URI in Google Cloud Console match |
 | PWA not installing                   | Missing manifest fields        | Verify all required PWA manifest fields present   |
 | IndexedDB quota exceeded             | Too much cached data           | Implement data pruning for old notes/chats       |
 | CORS errors on API calls             | Missing CORS headers           | Check `vercel.json` headers configuration         |
@@ -496,7 +503,7 @@ console.log('DB version:', db.version);
 ## 10. Security Checklist
 
 - [ ] `GEMINI_API_KEY` is set as a Vercel environment variable (NOT prefixed with `NEXT_PUBLIC_`)
-- [ ] MSAL.js uses PKCE flow (no client secret)
+- [ ] Google OAuth 2.0 uses public client authorization (token-based / no client secret in frontend)
 - [ ] `vercel.json` includes security headers (`X-Content-Type-Options`, `X-Frame-Options`)
 - [ ] CORS is restricted to known origins in production
 - [ ] CSP headers prevent inline script injection

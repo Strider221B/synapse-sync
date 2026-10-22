@@ -49,7 +49,7 @@ SynapseSync solves the study friction experienced by self-directed learners, stu
 
 ## Key Features
 
-- 📁 **Google Drive Integration:** Authenticate via Google OAuth 2.0 and import `.docx`, `.md`, and Google Docs files directly from your personal or academic Google Drive storage.
+- 📁 **Google Drive Integration:** Authenticate via Google OAuth 2.0 with full read and write capabilities (`https://www.googleapis.com/auth/drive`). Browse nested folders, import `.docx`, `.md`, and Google Docs files into local IndexedDB, and create or update notes directly in Google Drive.
 - 🎬 **Local YouTube Lecture Processing:** Ingest entire multi-video playlists via a Python CLI tool. Generates complete, structured Markdown notes for every lecture.
 - 🤖 **Structured AI Quizzing:** One-click generation of 5 multiple-choice questions (with explanations) and 5 flashcards per note, using Gemini structured outputs.
 - 🧠 **SuperMemo SM-2 Spaced Repetition:** Scientifically schedules daily card reviews based on your recall quality (ratings 0–5), with an interactive review queue and streak tracking.
@@ -241,11 +241,12 @@ python -m tools.youtube_cli.main process --url "https://www.youtube.com/playlist
 
 ## Core Workflows
 
-### Google Drive Document Ingestion
+### Google Drive Document Ingestion & Export
 1. Click **Connect Google Drive** in the app header or notes view.
 2. Sign in via Google OAuth 2.0 popup.
 3. Browse Google Drive folders, select `.docx`, `.md`, or Google Docs files, and click **Import Selected**.
 4. Word documents are parsed via `/api/parse-docx`, Google Docs are exported as clean text, and notes are stored in IndexedDB.
+5. In addition to reading, you can write and synchronize notes directly back to Google Drive (create new markdown files via multipart upload or update existing file content).
 
 > [!TIP]
 > **Google Drive Folder Structure:** You do not need to place files in any special folder. You can store your documents anywhere in Google Drive (or inside organized subfolders like `Study/Course_Name/`). The in-app file browser navigates through your folders starting at root `My Drive` and lists all eligible documents.

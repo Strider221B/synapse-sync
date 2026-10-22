@@ -8,7 +8,7 @@
 
 ## 1. Product Vision
 
-SynapseSync is an **AI-powered, offline-first study companion** that unifies note management, quiz generation, and spaced-repetition learning into a single cross-platform Progressive Web App. It bridges the gap between laptop study sessions and mobile-on-the-go review by connecting to OneDrive for document access and leveraging Google Gemini for intelligent content processing.
+SynapseSync is an **AI-powered, offline-first study companion** that unifies note management, quiz generation, and spaced-repetition learning into a single cross-platform Progressive Web App. It bridges the gap between laptop study sessions and mobile-on-the-go review by connecting to Google Drive for document access and leveraging Google Gemini for intelligent content processing.
 
 ---
 
@@ -18,25 +18,25 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 |:-----------------|:-----------------------------------------------------------------------|
 | **Primary User** | Self-directed learner (student, professional, lifelong learner)        |
 | **Devices**      | Laptop (primary study) + Smartphone (review while traveling)           |
-| **Content**      | Word documents (.docx) stored on OneDrive, YouTube lecture playlists   |
+| **Content**      | Word documents (.docx), Markdown (.md), and Google Docs stored on Google Drive, YouTube lecture playlists |
 | **Pain Points**  | Cumbersome mobile access to notes; no active recall tools; no offline support |
 
 ---
 
 ## 3. Core Features
 
-### 3.1 OneDrive Integration & Note Management
+### 3.1 Google Drive Integration & Note Management
 
 | ID    | Requirement                                                                                     | Priority |
 |:------|:------------------------------------------------------------------------------------------------|:---------|
-| NM-01 | OAuth 2.0 (PKCE) login with Microsoft via MSAL.js — no client secret required                  | P0       |
-| NM-02 | Browse OneDrive files/folders and select `.docx` or `.md` files to import                       | P0       |
+| NM-01 | OAuth 2.0 login with Google — no client secret required                                         | P0       |
+| NM-02 | Browse Google Drive files/folders and select `.docx`, `.md`, or Google Docs files to import    | P0       |
 | NM-03 | Extract text from `.docx` using Python `zipfile` + `xml.etree` (zero external deps)            | P0       |
-| NM-04 | Support Markdown (`.md`) files as a first-class alternative to `.docx`                         | P0       |
+| NM-04 | Support Markdown (`.md`) files and exported Google Docs as first-class study materials          | P0       |
 | NM-05 | Display imported notes in a clean, mobile-friendly reader view                                  | P0       |
 | NM-06 | Organize notes into **Notebooks** (folders) with tags                                           | P1       |
 | NM-07 | Full-text search across all cached notes                                                        | P1       |
-| NM-08 | Edit / annotate notes inline and sync changes back to OneDrive                                  | P2       |
+| NM-08 | Edit / annotate notes inline and sync changes back to Google Drive                             | P2       |
 
 ### 3.2 YouTube Transcript Ingestion (Local-First Pipeline)
 
@@ -137,15 +137,15 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 | Data usage policy     | Inputs may be used by Google | No sensitive/PII data; only study content                   |
 | Structured output     | ✅ Supported (JSON schema)   | Use `response_mime_type: "application/json"` + schema       |
 
-### 5.3 OneDrive: Microsoft Graph API
+### 5.3 Google Drive: Google Drive API v3
 
-| Constraint         | Detail                                        |
-|:-------------------|:----------------------------------------------|
-| Authentication     | OAuth 2.0 Authorization Code + PKCE via MSAL.js |
-| Token storage      | Browser `localStorage` (public client — no secret) |
-| Scopes needed      | `Files.Read`, `Files.ReadWrite`, `User.Read`  |
-| Throttling         | 429 responses with `retry-after` header       |
-| Cost               | Free (included with Microsoft account)        |
+| Constraint         | Detail                                                                           |
+|:-------------------|:---------------------------------------------------------------------------------|
+| Authentication     | OAuth 2.0 Authorization Code / Token Flow                                        |
+| Token storage      | Browser `localStorage` (public client — no client secret)                        |
+| Scopes needed      | `drive`, `userinfo.profile`, `userinfo.email`                                    |
+| Throttling         | 429 responses with exponential backoff retry                                     |
+| Cost               | Free (included with Google account)                                              |
 
 ### 5.4 YouTube Transcripts (Local-First Processing)
 
@@ -176,7 +176,7 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 ## 7. User Stories
 
 ### Epic: Note Management
-- **US-01**: As a student, I want to connect my OneDrive account so I can access my study notes from any device.
+- **US-01**: As a student, I want to connect my Google Drive account so I can access my study notes from any device.
 - **US-02**: As a student, I want to import a Word document and read it in a clean, distraction-free format on my phone.
 - **US-03**: As a student, I want to organize my notes into notebooks so I can study one subject at a time.
 
@@ -216,7 +216,7 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 
 - Real-time collaborative editing
 - Native mobile apps (iOS / Android)
-- Server-side database (all state in IndexedDB + OneDrive)
+- Server-side database (all state in IndexedDB + Google Drive)
 - Paid tier features or monetization
 - Support for file formats beyond `.docx` and `.md`
 - Integration with LMS platforms (Canvas, Blackboard)
