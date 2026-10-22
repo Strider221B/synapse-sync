@@ -7,9 +7,9 @@ export interface Note {
   title: string;
   content: string;
   contentFormat: 'markdown' | 'plaintext';
-  sourceType: 'onedrive_docx' | 'onedrive_md' | 'youtube_transcript' | 'manual';
+  sourceType: 'gdrive_docx' | 'gdrive_md' | 'gdrive_doc' | 'youtube_transcript' | 'manual';
   sourceUrl?: string;
-  oneDriveItemId?: string;
+  googleDriveFileId?: string;
   wordCount: number;
   createdAt: string;
   updatedAt: string;

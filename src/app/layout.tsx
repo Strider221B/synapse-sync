@@ -29,7 +29,7 @@ export const viewport: Viewport = {
   themeColor: "#6366f1",
 };
 
-import { MsalProviderWrapper } from "@/components/auth/MsalProviderWrapper";
+import { GoogleAuthProviderWrapper } from "@/components/auth/GoogleAuthProviderWrapper";
 import { ServiceWorkerRegister } from "@/components/common/ServiceWorkerRegister";
 import { AppLayout } from "@/components/layout/AppLayout";
 
@@ -54,9 +54,9 @@ export default function RootLayout({
       </head>
       <body className={inter.className}>
         <ServiceWorkerRegister />
-        <MsalProviderWrapper>
+        <GoogleAuthProviderWrapper>
           <AppLayout>{children}</AppLayout>
-        </MsalProviderWrapper>
+        </GoogleAuthProviderWrapper>
       </body>
     </html>
   );

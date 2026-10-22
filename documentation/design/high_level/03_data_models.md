@@ -48,7 +48,7 @@ erDiagram
         string contentFormat
         string sourceType
         string sourceUrl
-        string oneDriveItemId
+        string googleDriveFileId
         number wordCount
         datetime createdAt
         datetime updatedAt
@@ -136,9 +136,9 @@ interface Notebook {
   name: string;
   
   /** Origin of the notebook */
-  source: 'onedrive' | 'youtube_playlist' | 'manual';
+  source: 'google_drive' | 'youtube_playlist' | 'manual';
   
-  /** Original URL (playlist URL or OneDrive folder path) */
+  /** Original URL (playlist URL or Google Drive folder path) */
   sourceUrl?: string;
   
   /** Short description */
@@ -166,7 +166,7 @@ interface Notebook {
 
 ### 3.2 Note
 
-A single study note — either imported from OneDrive, generated from a YouTube transcript, or manually created.
+A single study note — either imported from Google Drive, generated from a YouTube transcript, or manually created.
 
 ```typescript
 interface Note {
@@ -186,13 +186,13 @@ interface Note {
   contentFormat: 'markdown' | 'plaintext';
   
   /** How this note was created */
-  sourceType: 'onedrive_docx' | 'onedrive_md' | 'youtube_transcript' | 'manual';
+  sourceType: 'gdrive_docx' | 'gdrive_md' | 'gdrive_doc' | 'youtube_transcript' | 'manual';
   
-  /** Original source URL (YouTube video URL, OneDrive file URL) */
+  /** Original source URL (YouTube video URL, Google Drive file URL) */
   sourceUrl?: string;
   
-  /** OneDrive item ID for sync-back */
-  oneDriveItemId?: string;
+  /** Google Drive file ID for sync-back */
+  googleDriveFileId?: string;
   
   /** Computed word count for display */
   wordCount: number;
@@ -463,7 +463,7 @@ interface UserPreference {
 | `theme`                | `string`  | `'system'` | `'light'`, `'dark'`, or `'system'`  |
 | `dailyCardGoal`        | `number`  | `20`       | Target flashcards per day            |
 | `quizDifficulty`       | `string`  | `'medium'` | `'easy'`, `'medium'`, `'hard'`      |
-| `oneDriveConnected`    | `boolean` | `false`    | Whether OneDrive is linked           |
+| `googleDriveConnected` | `boolean` | `false`    | Whether Google Drive is linked       |
 | `lastSyncTimestamp`    | `string`  | `null`     | ISO 8601 of last successful sync    |
 | `pomodoroWorkMinutes`  | `number`  | `25`       | Pomodoro work interval duration      |
 | `pomodoroBreakMinutes` | `number`  | `5`        | Pomodoro break interval duration     |

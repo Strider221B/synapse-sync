@@ -1,133 +1,154 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type {
-  AccountInfo,
-  AuthenticationResult,
-  IPublicClientApplication,
-} from '@azure/msal-browser';
-import { InteractionRequiredAuthError } from '@azure/msal-browser';
 import { AuthService } from '../../lib/auth/auth_service';
+import {
+  STORAGE_KEY_EXPIRY,
+  STORAGE_KEY_TOKEN,
+  STORAGE_KEY_USER,
+} from '../../lib/auth/google_auth_config';
 
-describe('AuthService', () => {
-  const createMockAccount = (name = 'Test User', username = 'test@example.com'): AccountInfo => ({
-    homeAccountId: 'home-123',
-    environment: 'login.windows.net',
-    tenantId: 'tenant-123',
-    username,
-    name,
-    localAccountId: 'local-123',
-  });
+class MockStorage implements Storage {
+  private _store: Record<string, string> = {};
 
-  const createMockClient = (overrides: Partial<IPublicClientApplication> = {}): IPublicClientApplication => {
-    let currentAccount: AccountInfo | null = null;
-    const client: Partial<IPublicClientApplication> = {
-      initialize: async () => {},
-      loginPopup: async () =>
-        ({
-          accessToken: 'mock-token-123',
-          account: createMockAccount(),
-        }) as AuthenticationResult,
-      logoutPopup: async () => {},
-      acquireTokenSilent: async () =>
-        ({
-          accessToken: 'silent-token-123',
-        }) as AuthenticationResult,
-      acquireTokenPopup: async () =>
-        ({
-          accessToken: 'popup-token-123',
-        }) as AuthenticationResult,
-      getActiveAccount: () => currentAccount,
-      setActiveAccount: (account: AccountInfo | null) => {
-        currentAccount = account;
-      },
-      getAllAccounts: () => (currentAccount ? [currentAccount] : []),
-      ...overrides,
+  public get length(): number {
+    return Object.keys(this._store).length;
+  }
+
+  public clear(): void {
+    this._store = {};
+  }
+
+  public getItem(key: string): string | null {
+    return this._store[key] ?? null;
+  }
+
+  public key(index: number): string | null {
+    return Object.keys(this._store)[index] ?? null;
+  }
+
+  public removeItem(key: string): void {
+    delete this._store[key];
+  }
+
+  public setItem(key: string, value: string): void {
+    this._store[key] = value;
+  }
+}
+
+describe('AuthService (Google Drive)', () => {
+  const MOCK_TOKEN = 'mock-google-token-456';
+  const MOCK_PROFILE = { name: 'Ada Lovelace', email: 'ada@example.com' };
+
+  const createMockFetch = (profile = MOCK_PROFILE) => {
+    return async (url: string | URL | Request) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('userinfo')) {
+        return new Response(JSON.stringify(profile), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (urlStr.includes('revoke')) {
+        return new Response('', { status: 200 });
+      }
+      return new Response('Not Found', { status: 404 });
     };
-    return client as IPublicClientApplication;
   };
 
-  it('initializes client and syncs active account when available', async () => {
-    const existing = createMockAccount();
-    let syncedAccount: AccountInfo | null = null;
-    const mock = createMockClient({
-      getAllAccounts: () => [existing],
-      setActiveAccount: (acc) => {
-        syncedAccount = acc;
-      },
-    });
+  it('initializes without error and loads stored user', async () => {
+    const storage = new MockStorage();
+    storage.setItem(STORAGE_KEY_TOKEN, MOCK_TOKEN);
+    storage.setItem(STORAGE_KEY_USER, JSON.stringify({ displayName: 'Grace Hopper', email: 'grace@navy.mil' }));
+    storage.setItem(STORAGE_KEY_EXPIRY, String(Date.now() + 3600000));
 
-    const service = new AuthService(mock);
+    const service = new AuthService(storage, createMockFetch() as typeof fetch);
     await service.initialize();
 
-    assert.equal(service.getClient(), mock);
-    assert.deepEqual(syncedAccount, existing);
+    assert.equal(service.isAuthenticated(), true);
+    assert.deepEqual(service.getUserInfo(), { displayName: 'Grace Hopper', email: 'grace@navy.mil' });
   });
 
-  it('throws error when calling methods before initialization', async () => {
-    const mock = createMockClient();
-    const service = new AuthService(mock);
+  it('performs login via popupOpener and stores profile and token', async () => {
+    const storage = new MockStorage();
+    const mockPopupOpener = async (authUrl: string) => {
+      assert.ok(authUrl.includes('accounts.google.com/o/oauth2/v2/auth'));
+      return MOCK_TOKEN;
+    };
 
-    await assert.rejects(async () => service.login(), /AuthService has not been initialized/);
-    await assert.rejects(async () => service.logout(), /AuthService has not been initialized/);
-    await assert.rejects(async () => service.getAccessToken(), /AuthService has not been initialized/);
-  });
-
-  it('performs login and updates active account', async () => {
-    const mock = createMockClient();
-    const service = new AuthService(mock);
+    const service = new AuthService(storage, createMockFetch() as typeof fetch, undefined, mockPopupOpener);
     await service.initialize();
 
-    const result = await service.login();
-    assert.equal(result.accessToken, 'mock-token-123');
+    const user = await service.login();
+    assert.equal(user.displayName, 'Ada Lovelace');
+    assert.equal(user.email, 'ada@example.com');
     assert.equal(service.isAuthenticated(), true);
 
-    const userInfo = service.getUserInfo();
-    assert.ok(userInfo);
-    assert.equal(userInfo.displayName, 'Test User');
-    assert.equal(userInfo.email, 'test@example.com');
+    const token = await service.getAccessToken();
+    assert.equal(token, MOCK_TOKEN);
+    assert.equal(storage.getItem(STORAGE_KEY_TOKEN), MOCK_TOKEN);
   });
 
-  it('performs logout and clears active account state', async () => {
-    const mock = createMockClient();
-    const service = new AuthService(mock);
-    await service.initialize();
-    await service.login();
+  it('allows logging in with a direct token', async () => {
+    const storage = new MockStorage();
+    const service = new AuthService(storage, createMockFetch() as typeof fetch);
+
+    const user = await service.loginWithToken('direct-token-789', 1800);
+    assert.equal(user.displayName, 'Ada Lovelace');
+    assert.equal(await service.getAccessToken(), 'direct-token-789');
+  });
+
+  it('performs logout and clears stored credentials', async () => {
+    const storage = new MockStorage();
+    let revokeCalled = false;
+    const mockFetch = async (url: string | URL | Request) => {
+      if (url.toString().includes('revoke')) {
+        revokeCalled = true;
+        return new Response('', { status: 200 });
+      }
+      return createMockFetch()(url);
+    };
+
+    const service = new AuthService(storage, mockFetch as typeof fetch);
+    await service.loginWithToken(MOCK_TOKEN);
+    assert.equal(service.isAuthenticated(), true);
 
     await service.logout();
-    mock.setActiveAccount(null);
     assert.equal(service.isAuthenticated(), false);
     assert.equal(service.getUserInfo(), null);
+    assert.equal(storage.getItem(STORAGE_KEY_TOKEN), null);
+    assert.equal(revokeCalled, true);
   });
 
-  it('acquires token silently when account exists', async () => {
-    const mock = createMockClient();
-    const service = new AuthService(mock);
-    await service.initialize();
-    await service.login();
-
-    const token = await service.getAccessToken();
-    assert.equal(token, 'silent-token-123');
-  });
-
-  it('falls back to popup token acquisition when silent fails with interaction required', async () => {
-    const mock = createMockClient({
-      acquireTokenSilent: async () => {
-        throw new InteractionRequiredAuthError('interaction_required', 'corr-123');
-      },
-    });
-    const service = new AuthService(mock);
-    await service.initialize();
-    await service.login();
-
-    const token = await service.getAccessToken();
-    assert.equal(token, 'popup-token-123');
-  });
-
-  it('throws when getAccessToken is called with no active account', async () => {
-    const mock = createMockClient();
-    const service = new AuthService(mock);
-    await service.initialize();
+  it('throws error when getAccessToken is called without an account', async () => {
+    const storage = new MockStorage();
+    const service = new AuthService(storage, createMockFetch() as typeof fetch);
 
     await assert.rejects(async () => service.getAccessToken(), /No active account found/);
+  });
+
+  it('throws session expired error and logs out when token has expired', async () => {
+    const storage = new MockStorage();
+    storage.setItem(STORAGE_KEY_TOKEN, 'expired-token');
+    storage.setItem(STORAGE_KEY_EXPIRY, String(Date.now() - 5000));
+
+    const service = new AuthService(storage, createMockFetch() as typeof fetch);
+    assert.equal(service.isAuthenticated(), false);
+
+    await assert.rejects(
+      async () => service.getAccessToken(),
+      /Google authentication session expired/
+    );
+    assert.equal(storage.getItem(STORAGE_KEY_TOKEN), null);
+  });
+
+  it('handles user profile fetch error on login', async () => {
+    const storage = new MockStorage();
+    const errorFetch = async () => new Response('Unauthorized', { status: 401 });
+    const service = new AuthService(storage, errorFetch as typeof fetch);
+
+    await assert.rejects(
+      async () => service.loginWithToken('invalid-token'),
+      /Failed to fetch Google user profile/
+    );
   });
 });

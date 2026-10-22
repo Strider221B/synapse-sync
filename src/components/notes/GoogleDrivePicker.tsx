@@ -1,32 +1,38 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useMsal } from '@azure/msal-react';
-import { AuthService } from '@/lib/auth/auth_service';
-import { type DriveItem, OneDriveApiClient } from '@/lib/api/onedrive_client';
+import { useGoogleAuth } from '@/components/auth/GoogleAuthProviderWrapper';
+import { type DriveItem, GoogleDriveApiClient } from '@/lib/api/google_drive_client';
 
 export interface SelectedFilePayload {
   item: DriveItem;
   blob: Blob;
 }
 
-interface OneDrivePickerProps {
+interface GoogleDrivePickerProps {
   onImportFiles: (files: SelectedFilePayload[]) => Promise<void>;
   disabled?: boolean;
 }
 
 interface BreadcrumbItem {
-  id: string | null;
+  id: string;
   name: string;
 }
 
+function getItemIcon(item: DriveItem): string {
+  if (item.folder) return '📁';
+  if (item.mimeType === 'application/vnd.google-apps.document') return '📑';
+  if (item.name.toLowerCase().endsWith('.docx')) return '📄';
+  return '📝';
+}
+
 /**
- * Interactive OneDrive file browser component for selecting and importing documents.
+ * Interactive Google Drive file browser component for selecting and importing documents.
  */
-export function OneDrivePicker({ onImportFiles, disabled = false }: OneDrivePickerProps) {
-  const { instance } = useMsal();
+export function GoogleDrivePicker({ onImportFiles, disabled = false }: GoogleDrivePickerProps) {
+  const { authService } = useGoogleAuth();
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([
-    { id: null, name: 'My Drive' },
+    { id: 'root', name: 'My Drive' },
   ]);
   const [items, setItems] = useState<DriveItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -44,15 +50,12 @@ export function OneDrivePicker({ onImportFiles, disabled = false }: OneDrivePick
       setIsLoading(true);
       setError(null);
       try {
-        const authService = new AuthService(instance);
-        const client = new OneDriveApiClient(authService);
-        const results = folderId
-          ? await client.listFolderItems(folderId)
-          : await client.listRootItems();
+        const client = new GoogleDriveApiClient(authService);
+        const results = await client.listFolderItems(folderId);
         if (active) setItems(results);
       } catch (err) {
         if (active) {
-          setError(err instanceof Error ? err.message : 'Failed to fetch items from OneDrive');
+          setError(err instanceof Error ? err.message : 'Failed to fetch items from Google Drive');
         }
       } finally {
         if (active) setIsLoading(false);
@@ -63,7 +66,7 @@ export function OneDrivePicker({ onImportFiles, disabled = false }: OneDrivePick
     return () => {
       active = false;
     };
-  }, [currentFolder.id, instance]);
+  }, [currentFolder.id, authService]);
 
   const handleFolderClick = (folder: DriveItem) => {
     setBreadcrumbs((prev) => [...prev, { id: folder.id, name: folder.name }]);
@@ -92,13 +95,12 @@ export function OneDrivePicker({ onImportFiles, disabled = false }: OneDrivePick
     setIsImporting(true);
     setError(null);
     try {
-      const authService = new AuthService(instance);
-      const client = new OneDriveApiClient(authService);
+      const client = new GoogleDriveApiClient(authService);
       const selectedItems = items.filter((item) => selectedIds.has(item.id));
       const downloads: SelectedFilePayload[] = [];
 
       for (const item of selectedItems) {
-        const blob = await client.downloadFileContent(item.id);
+        const blob = await client.downloadFileContent(item.id, item.mimeType);
         downloads.push({ item, blob });
       }
 
@@ -126,7 +128,7 @@ export function OneDrivePicker({ onImportFiles, disabled = false }: OneDrivePick
     >
       {/* Breadcrumb Navigation */}
       <nav
-        aria-label="OneDrive Breadcrumb"
+        aria-label="Google Drive Breadcrumb"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -141,7 +143,7 @@ export function OneDrivePicker({ onImportFiles, disabled = false }: OneDrivePick
         {breadcrumbs.map((crumb, idx) => {
           const isLast = idx === breadcrumbs.length - 1;
           return (
-            <React.Fragment key={crumb.id ?? 'root'}>
+            <React.Fragment key={crumb.id}>
               {idx > 0 && <span style={{ color: 'var(--color-text-muted)' }}>/</span>}
               <button
                 type="button"
@@ -180,11 +182,11 @@ export function OneDrivePicker({ onImportFiles, disabled = false }: OneDrivePick
       <div style={{ minHeight: '220px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
         {isLoading ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'var(--color-text-muted)' }}>
-            Loading OneDrive items...
+            Loading Google Drive items...
           </div>
         ) : items.length === 0 ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'var(--color-text-muted)' }}>
-            No folders, .docx, or .md files found in this folder.
+            No folders, .docx, .md, or Google Docs found in this folder.
           </div>
         ) : (
           items.map((item) => {
@@ -216,13 +218,11 @@ export function OneDrivePicker({ onImportFiles, disabled = false }: OneDrivePick
                     style={{ accentColor: 'var(--color-primary)' }}
                   />
                 )}
-                <span style={{ fontSize: '1.2rem' }}>
-                  {isFolder ? '📁' : item.name.endsWith('.docx') ? '📄' : '📝'}
-                </span>
+                <span style={{ fontSize: '1.2rem' }}>{getItemIcon(item)}</span>
                 <span style={{ flex: 1, fontSize: '0.875rem', color: 'var(--color-text-primary)' }}>
                   {item.name}
                 </span>
-                {item.size && (
+                {item.size !== undefined && item.size > 0 && (
                   <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
                     {Math.round(item.size / 1024)} KB
                   </span>

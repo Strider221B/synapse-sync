@@ -1,168 +1,302 @@
 import {
-  type AccountInfo,
-  type AuthenticationResult,
-  type Configuration,
-  type IPublicClientApplication,
-  InteractionRequiredAuthError,
-  PublicClientApplication,
-} from '@azure/msal-browser';
-import { MSAL_SCOPES, msalConfig } from './msal_config';
+  GOOGLE_AUTH_ENDPOINT,
+  GOOGLE_REVOKE_ENDPOINT,
+  GOOGLE_USERINFO_ENDPOINT,
+  type GoogleAuthConfig,
+  googleAuthConfig,
+  STORAGE_KEY_EXPIRY,
+  STORAGE_KEY_TOKEN,
+  STORAGE_KEY_USER,
+} from './google_auth_config';
 
 export interface UserInfo {
   displayName: string;
   email: string;
 }
 
+export type PopupOpener = (authUrl: string) => Promise<string>;
+
 /**
- * Service managing Microsoft authentication lifecycle with MSAL.js and PKCE.
+ * Service managing Google OAuth 2.0 authentication lifecycle and tokens.
  */
 export class AuthService {
-  private static readonly _ERROR_NOT_INITIALIZED = 'AuthService has not been initialized';
   private static readonly _ERROR_NO_ACCOUNT = 'No active account found. User must log in';
-  private static readonly _EMPTY_STRING = '';
+  private static readonly _ERROR_SESSION_EXPIRED =
+    'Google authentication session expired. Please sign in again.';
+  private static readonly _ERROR_POPUP_BLOCKED = 'Authentication popup was blocked or closed';
+  private static readonly _HEADER_AUTHORIZATION = 'Authorization';
+  private static readonly _BEARER_PREFIX = 'Bearer ';
+  private static readonly _POPUP_WIDTH = 500;
+  private static readonly _POPUP_HEIGHT = 600;
+  private static readonly _DEFAULT_EXPIRY_SECONDS = 3600;
+  private static readonly _MS_PER_SECOND = 1000;
+  private static readonly _EXPIRY_BUFFER_MS = 60000;
 
-  private _client: IPublicClientApplication | null = null;
+  private readonly _storage: Storage | null;
+  private readonly _fetchFn: typeof fetch;
+  private readonly _config: GoogleAuthConfig;
+  private readonly _popupOpener?: PopupOpener;
+  private _cachedUser: UserInfo | null = null;
   private _isInitialized = false;
-  private readonly _config: Configuration;
 
-  public constructor(customClient?: IPublicClientApplication, customConfig?: Configuration) {
-    this._config = customConfig ?? msalConfig;
-    if (customClient) {
-      this._client = customClient;
-    }
+  public constructor(
+    customStorage?: Storage | null,
+    customFetch?: typeof fetch,
+    customConfig?: GoogleAuthConfig,
+    popupOpener?: PopupOpener
+  ) {
+    this._storage =
+      customStorage !== undefined
+        ? customStorage
+        : typeof window !== 'undefined'
+        ? window.localStorage
+        : null;
+    this._fetchFn = customFetch ?? (typeof fetch !== 'undefined' ? fetch : (null as unknown as typeof fetch));
+    this._config = customConfig ?? googleAuthConfig;
+    this._popupOpener = popupOpener;
   }
 
   /**
-   * Initializes the MSAL PublicClientApplication if not already initialized.
+   * Initializes the authentication service and hydrates cached user info.
    */
   public async initialize(): Promise<void> {
     if (this._isInitialized) {
       return;
     }
-    if (!this._client) {
-      this._client = new PublicClientApplication(this._config);
-    }
-    await this._client.initialize();
+    this._cachedUser = this._loadStoredUser();
     this._isInitialized = true;
-    this._syncActiveAccount();
   }
 
   /**
-   * Triggers the MSAL login popup flow using PKCE and sets the active account.
+   * Triggers the Google OAuth popup flow, acquires token, and loads user profile.
    */
-  public async login(): Promise<AuthenticationResult> {
-    const client = this._ensureInitialized();
-    const result = await client.loginPopup({
-      scopes: [...MSAL_SCOPES],
-    });
-    if (result.account) {
-      client.setActiveAccount(result.account);
-    }
-    return result;
+  public async login(): Promise<UserInfo> {
+    const authUrl = this._buildAuthUrl();
+    const token = this._popupOpener
+      ? await this._popupOpener(authUrl)
+      : await this._openDefaultPopup(authUrl);
+
+    return this._finalizeLogin(token, AuthService._DEFAULT_EXPIRY_SECONDS);
   }
 
   /**
-   * Logs out the user by terminating the active session.
+   * Logs in using a pre-acquired access token and expiration window.
+   */
+  public async loginWithToken(
+    accessToken: string,
+    expiresInSeconds: number = AuthService._DEFAULT_EXPIRY_SECONDS
+  ): Promise<UserInfo> {
+    return this._finalizeLogin(accessToken, expiresInSeconds);
+  }
+
+  /**
+   * Logs out the user by terminating the session and clearing stored credentials.
    */
   public async logout(): Promise<void> {
-    const client = this._ensureInitialized();
-    const account = client.getActiveAccount() ?? undefined;
-    await client.logoutPopup({ account });
+    const token = this._getRawStoredToken();
+    if (token) {
+      this._revokeTokenQuietly(token);
+    }
+    this._clearStorage();
+    this._cachedUser = null;
   }
 
   /**
-   * Acquires an access token silently, falling back to popup if interaction is required.
+   * Returns a valid access token, throwing if expired or unauthenticated.
    */
   public async getAccessToken(): Promise<string> {
-    const client = this._ensureInitialized();
-    const account = client.getActiveAccount();
-    if (!account) {
+    const token = this._getRawStoredToken();
+    if (!token) {
       throw new Error(AuthService._ERROR_NO_ACCOUNT);
     }
-    return this._acquireTokenWithFallback(client, account);
+    if (this._isTokenExpired()) {
+      await this.logout();
+      throw new Error(AuthService._ERROR_SESSION_EXPIRED);
+    }
+    return token;
   }
 
   /**
-   * Checks whether a user account is currently authenticated.
+   * Checks whether a user account is currently authenticated with a valid token.
    */
   public isAuthenticated(): boolean {
-    if (!this._client) {
+    const token = this._getRawStoredToken();
+    if (!token) {
       return false;
     }
-    return this._client.getActiveAccount() !== null;
+    return !this._isTokenExpired();
   }
 
   /**
-   * Returns basic profile information for the active user.
+   * Returns profile information for the authenticated user.
    */
   public getUserInfo(): UserInfo | null {
-    if (!this._client) {
+    if (!this.isAuthenticated()) {
       return null;
     }
-    const account = this._client.getActiveAccount();
-    if (!account) {
-      return null;
+    if (!this._cachedUser) {
+      this._cachedUser = this._loadStoredUser();
     }
+    return this._cachedUser;
+  }
+
+  /**
+   * Builds the Google OAuth2 authorization endpoint URL with query parameters.
+   */
+  protected _buildAuthUrl(): string {
+    const params = new URLSearchParams({
+      client_id: this._config.clientId,
+      redirect_uri: this._config.redirectUri,
+      response_type: 'token',
+      scope: this._config.scopes.join(' '),
+      include_granted_scopes: 'true',
+      prompt: 'select_account',
+    });
+    return `${GOOGLE_AUTH_ENDPOINT}?${params.toString()}`;
+  }
+
+  /**
+   * Opens the default browser popup window and polls for the redirected token.
+   */
+  protected async _openDefaultPopup(authUrl: string): Promise<string> {
+    if (typeof window === 'undefined') {
+      throw new Error(AuthService._ERROR_POPUP_BLOCKED);
+    }
+    const left = window.screenX + (window.outerWidth - AuthService._POPUP_WIDTH) / 2;
+    const top = window.screenY + (window.outerHeight - AuthService._POPUP_HEIGHT) / 2;
+    const popup = window.open(
+      authUrl,
+      'google_auth_popup',
+      `width=${AuthService._POPUP_WIDTH},height=${AuthService._POPUP_HEIGHT},top=${top},left=${left}`
+    );
+    if (!popup) {
+      throw new Error(AuthService._ERROR_POPUP_BLOCKED);
+    }
+    return this._pollPopupForToken(popup);
+  }
+
+  /**
+   * Polls popup window URL hash until token parameter is present.
+   */
+  protected _pollPopupForToken(popup: Window): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const interval = setInterval(() => {
+        try {
+          if (popup.closed) {
+            clearInterval(interval);
+            reject(new Error(AuthService._ERROR_POPUP_BLOCKED));
+            return;
+          }
+          if (popup.location.href.includes('access_token=')) {
+            const hash = popup.location.hash.substring(1);
+            const params = new URLSearchParams(hash);
+            const token = params.get('access_token');
+            clearInterval(interval);
+            popup.close();
+            if (token) resolve(token);
+            else reject(new Error(AuthService._ERROR_POPUP_BLOCKED));
+          }
+        } catch {
+          // Cross-origin access error while navigating; expected until redirect
+        }
+      }, 200);
+    });
+  }
+
+  /**
+   * Finalizes login by fetching profile, saving tokens, and updating cache.
+   */
+  protected async _finalizeLogin(token: string, expiresInSeconds: number): Promise<UserInfo> {
+    const userInfo = await this._fetchUserProfile(token);
+    const expiryTimestamp = Date.now() + expiresInSeconds * AuthService._MS_PER_SECOND;
+
+    this._saveToStorage(token, userInfo, expiryTimestamp);
+    this._cachedUser = userInfo;
+    return userInfo;
+  }
+
+  /**
+   * Fetches the user profile from Google OAuth2 userinfo endpoint.
+   */
+  protected async _fetchUserProfile(token: string): Promise<UserInfo> {
+    const response = await this._fetchFn(GOOGLE_USERINFO_ENDPOINT, {
+      headers: {
+        [AuthService._HEADER_AUTHORIZATION]: `${AuthService._BEARER_PREFIX}${token}`,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch Google user profile (${response.status})`);
+    }
+    const data = (await response.json()) as { name?: string; email?: string };
     return {
-      displayName: account.name ?? AuthService._EMPTY_STRING,
-      email: account.username ?? AuthService._EMPTY_STRING,
+      displayName: data.name ?? data.email ?? 'Google User',
+      email: data.email ?? '',
     };
   }
 
   /**
-   * Returns the underlying MSAL client application.
+   * Saves authentication state into storage.
    */
-  public getClient(): IPublicClientApplication {
-    return this._ensureInitialized();
+  protected _saveToStorage(token: string, user: UserInfo, expiry: number): void {
+    if (!this._storage) return;
+    this._storage.setItem(STORAGE_KEY_TOKEN, token);
+    this._storage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
+    this._storage.setItem(STORAGE_KEY_EXPIRY, expiry.toString());
   }
 
   /**
-   * Validates and returns the initialized client instance.
+   * Clears authentication state from storage.
    */
-  protected _ensureInitialized(): IPublicClientApplication {
-    if (!this._client || !this._isInitialized) {
-      throw new Error(AuthService._ERROR_NOT_INITIALIZED);
-    }
-    return this._client;
+  protected _clearStorage(): void {
+    if (!this._storage) return;
+    this._storage.removeItem(STORAGE_KEY_TOKEN);
+    this._storage.removeItem(STORAGE_KEY_USER);
+    this._storage.removeItem(STORAGE_KEY_EXPIRY);
   }
 
   /**
-   * Synchronizes the active account from all accounts if active account is not set.
+   * Loads cached user info from storage.
    */
-  protected _syncActiveAccount(): void {
-    if (!this._client) {
-      return;
-    }
-    const active = this._client.getActiveAccount();
-    if (!active) {
-      const all = this._client.getAllAccounts();
-      if (all.length > 0) {
-        this._client.setActiveAccount(all[0]);
-      }
-    }
-  }
-
-  /**
-   * Attempts silent token acquisition with fallback to popup flow.
-   */
-  protected async _acquireTokenWithFallback(
-    client: IPublicClientApplication,
-    account: AccountInfo
-  ): Promise<string> {
+  protected _loadStoredUser(): UserInfo | null {
+    if (!this._storage) return null;
+    const raw = this._storage.getItem(STORAGE_KEY_USER);
+    if (!raw) return null;
     try {
-      const silentResponse = await client.acquireTokenSilent({
-        scopes: [...MSAL_SCOPES],
-        account,
-      });
-      return silentResponse.accessToken;
-    } catch (err) {
-      if (err instanceof InteractionRequiredAuthError) {
-        const popupResponse = await client.acquireTokenPopup({
-          scopes: [...MSAL_SCOPES],
-        });
-        return popupResponse.accessToken;
-      }
-      throw err;
+      return JSON.parse(raw) as UserInfo;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Retrieves the raw token string from storage.
+   */
+  protected _getRawStoredToken(): string | null {
+    if (!this._storage) return null;
+    return this._storage.getItem(STORAGE_KEY_TOKEN);
+  }
+
+  /**
+   * Checks whether the stored token is past its expiration time.
+   */
+  protected _isTokenExpired(): boolean {
+    if (!this._storage) return true;
+    const rawExpiry = this._storage.getItem(STORAGE_KEY_EXPIRY);
+    if (!rawExpiry) return true;
+    const expiryNumber = Number(rawExpiry);
+    return Date.now() >= expiryNumber - AuthService._EXPIRY_BUFFER_MS;
+  }
+
+  /**
+   * Sends best-effort revocation request for the token.
+   */
+  protected _revokeTokenQuietly(token: string): void {
+    try {
+      void this._fetchFn(`${GOOGLE_REVOKE_ENDPOINT}?token=${encodeURIComponent(token)}`, {
+        method: 'POST',
+      }).catch(() => {});
+    } catch {
+      // Ignore background revocation failure
     }
   }
 }

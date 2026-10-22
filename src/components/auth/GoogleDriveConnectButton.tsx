@@ -1,35 +1,32 @@
 'use client';
 
 import React, { useEffect, useState, useTransition } from 'react';
-import { useMsal, useIsAuthenticated } from '@azure/msal-react';
-import { MSAL_SCOPES } from '@/lib/auth/msal_config';
+import { useGoogleAuth } from '@/components/auth/GoogleAuthProviderWrapper';
 import { DatabaseService } from '@/lib/db/database_service';
 import { PreferencesService } from '@/lib/db/services/preferences_service';
 
-interface OneDriveConnectButtonProps {
+interface GoogleDriveConnectButtonProps {
   onConnectionChange?: (connected: boolean) => void;
   className?: string;
 }
 
 /**
- * Interactive button component for authenticating with Microsoft and linking OneDrive.
+ * Interactive button component for authenticating with Google and linking Google Drive.
  */
-export function OneDriveConnectButton({
+export function GoogleDriveConnectButton({
   onConnectionChange,
   className,
-}: OneDriveConnectButtonProps) {
-  const { instance, accounts } = useMsal();
-  const isAuthenticated = useIsAuthenticated();
+}: GoogleDriveConnectButtonProps) {
+  const { isAuthenticated, user, login, logout } = useGoogleAuth();
   const [isPending, startTransition] = useTransition();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const activeAccount = accounts.length > 0 ? accounts[0] : null;
-  const displayName = activeAccount?.name ?? activeAccount?.username ?? 'Microsoft User';
+  const displayName = user?.displayName || user?.email || 'Google User';
 
   useEffect(() => {
     const dbService = new DatabaseService();
     const prefs = new PreferencesService(dbService);
-    prefs.set('oneDriveConnected', isAuthenticated).catch(() => {});
+    prefs.set('googleDriveConnected', isAuthenticated).catch(() => {});
     if (onConnectionChange) {
       onConnectionChange(isAuthenticated);
     }
@@ -39,12 +36,7 @@ export function OneDriveConnectButton({
     setErrorMessage(null);
     startTransition(async () => {
       try {
-        const result = await instance.loginPopup({
-          scopes: [...MSAL_SCOPES],
-        });
-        if (result.account) {
-          instance.setActiveAccount(result.account);
-        }
+        await login();
       } catch (err) {
         setErrorMessage(err instanceof Error ? err.message : 'Authentication failed');
       }
@@ -55,9 +47,7 @@ export function OneDriveConnectButton({
     setErrorMessage(null);
     startTransition(async () => {
       try {
-        await instance.logoutPopup({
-          account: activeAccount ?? undefined,
-        });
+        await logout();
       } catch (err) {
         setErrorMessage(err instanceof Error ? err.message : 'Sign out failed');
       }
@@ -97,7 +87,7 @@ export function OneDriveConnectButton({
               letterSpacing: '0.04em',
             }}
           >
-            Connected to OneDrive
+            Connected to Google Drive
           </span>
           <span
             style={{
@@ -145,23 +135,25 @@ export function OneDriveConnectButton({
           gap: '0.625rem',
           padding: '0.625rem 1.125rem',
           borderRadius: 'var(--radius-md)',
-          backgroundColor: '#0078d4',
-          color: '#ffffff',
-          border: 'none',
+          backgroundColor: 'var(--color-surface-raised)',
+          color: 'var(--color-text-primary)',
+          border: '1px solid var(--color-surface-border)',
           fontWeight: 600,
           fontSize: '0.875rem',
           cursor: isPending ? 'wait' : 'pointer',
-          boxShadow: '0 2px 8px rgba(0, 120, 212, 0.35)',
+          boxShadow: 'var(--shadow-sm)',
           transition: 'all var(--transition-fast)',
         }}
       >
-        <svg width="18" height="18" viewBox="0 0 21 21" fill="none" aria-hidden="true">
-          <path d="M10 1H1V10H10V1Z" fill="#F25022" />
-          <path d="M20 1H11V10H20V1Z" fill="#7FBA00" />
-          <path d="M10 11H1V20H10V11Z" fill="#00A4EF" />
-          <path d="M20 11H11V20H20V11Z" fill="#FFB900" />
+        <svg width="18" height="18" viewBox="0 0 87.3 78" aria-hidden="true">
+          <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8H0c0 1.55.4 3.1 1.2 4.5z" fill="#0066da" />
+          <path d="M43.65 25 29.9 1.2c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44A9.06 9.06 0 0 0 0 53h27.5z" fill="#00ac47" />
+          <path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H59.8l5.85 10.15z" fill="#ea4335" />
+          <path d="M43.65 25 57.4 1.2C56.05.4 54.5 0 52.9 0H34.4c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d" />
+          <path d="M59.8 53h27.5c0-1.55-.4-3.1-1.2-4.5L70.7 20.3c-.8-1.4-1.95-2.5-3.3-3.3L53.65 40.8z" fill="#2684fc" />
+          <path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3L53.65 40.8 40.7 63.5H13.75c1.35.8 2.5 1.9 3.3 3.3l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.35h49.35z" fill="#ffba00" />
         </svg>
-        <span>{isPending ? 'Connecting...' : 'Connect OneDrive'}</span>
+        <span>{isPending ? 'Connecting...' : 'Connect Google Drive'}</span>
       </button>
       {errorMessage && (
         <span style={{ fontSize: '0.75rem', color: 'var(--color-error)' }}>

@@ -47,7 +47,7 @@ export class NoteService {
       contentFormat: input.contentFormat,
       sourceType: input.sourceType,
       sourceUrl: input.sourceUrl,
-      oneDriveItemId: input.oneDriveItemId,
+      googleDriveFileId: input.googleDriveFileId,
       wordCount: this._calculateWordCount(input.content),
       createdAt: timestamp,
       updatedAt: timestamp,

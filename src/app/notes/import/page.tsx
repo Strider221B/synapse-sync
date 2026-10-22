@@ -2,9 +2,9 @@
 
 import React, { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { useIsAuthenticated } from '@azure/msal-react';
-import { OneDriveConnectButton } from '@/components/auth/OneDriveConnectButton';
-import { OneDrivePicker, type SelectedFilePayload } from '@/components/notes/OneDrivePicker';
+import { useGoogleAuth } from '@/components/auth/GoogleAuthProviderWrapper';
+import { GoogleDriveConnectButton } from '@/components/auth/GoogleDriveConnectButton';
+import { GoogleDrivePicker, type SelectedFilePayload } from '@/components/notes/GoogleDrivePicker';
 import { ApiClient } from '@/lib/api/client';
 import { DatabaseService } from '@/lib/db/database_service';
 import type { Notebook } from '@/lib/db/models';
@@ -22,12 +22,12 @@ interface DocxParseResponse {
 }
 
 /**
- * Import notes page supporting OneDrive sync, local file parsing, and manual note creation.
+ * Import notes page supporting Google Drive sync, local file parsing, and manual note creation.
  */
 export default function ImportNotesPage() {
   const router = useRouter();
-  const isAuthenticated = useIsAuthenticated();
-  const [activeTab, setActiveTab] = useState<'onedrive' | 'manual'>('onedrive');
+  const { isAuthenticated } = useGoogleAuth();
+  const [activeTab, setActiveTab] = useState<'gdrive' | 'manual'>('gdrive');
 
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [selectedNotebookId, setSelectedNotebookId] = useState<string>('');
@@ -50,7 +50,7 @@ export default function ImportNotesPage() {
     });
   }, [selectedNotebookId]);
 
-  const handleImportOneDriveFiles = async (files: SelectedFilePayload[]) => {
+  const handleImportGoogleDriveFiles = async (files: SelectedFilePayload[]) => {
     setStatusMessage(`Processing ${files.length} document(s)...`);
     setErrorMessage(null);
 
@@ -63,6 +63,7 @@ export default function ImportNotesPage() {
       for (const { item, blob } of files) {
         let textContent = '';
         const isDocx = item.name.toLowerCase().endsWith('.docx');
+        const isGoogleDoc = item.mimeType === 'application/vnd.google-apps.document';
 
         if (isDocx) {
           const formData = new FormData();
@@ -74,13 +75,16 @@ export default function ImportNotesPage() {
         }
 
         const noteTitle = item.name.replace(/\.[^/.]+$/, '');
+        const sourceType = isDocx ? 'gdrive_docx' : isGoogleDoc ? 'gdrive_doc' : 'gdrive_md';
+        const contentFormat = isDocx ? 'plaintext' : 'markdown';
+
         await noteService.create({
           notebookId: selectedNotebookId || 'general',
           title: noteTitle,
           content: textContent,
-          contentFormat: isDocx ? 'plaintext' : 'markdown',
-          sourceType: isDocx ? 'onedrive_docx' : 'onedrive_md',
-          oneDriveItemId: item.id,
+          contentFormat,
+          sourceType,
+          googleDriveFileId: item.id,
           sourceUrl: item.webUrl,
         });
 
@@ -131,7 +135,7 @@ export default function ImportNotesPage() {
           Import & Create Notes
         </h1>
         <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.95rem' }}>
-          Bring in Word syllabi and Markdown notes from OneDrive, or draft fresh study notes manually.
+          Bring in Word syllabi, Google Docs, and Markdown notes from Google Drive, or draft fresh study notes manually.
         </p>
       </div>
 
@@ -176,18 +180,18 @@ export default function ImportNotesPage() {
       <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--color-surface-border)' }}>
         <button
           type="button"
-          onClick={() => setActiveTab('onedrive')}
+          onClick={() => setActiveTab('gdrive')}
           style={{
             padding: '0.625rem 1.25rem',
             fontWeight: 600,
             fontSize: '0.875rem',
-            color: activeTab === 'onedrive' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-            borderBottom: activeTab === 'onedrive' ? '2px solid var(--color-primary)' : '2px solid transparent',
+            color: activeTab === 'gdrive' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+            borderBottom: activeTab === 'gdrive' ? '2px solid var(--color-primary)' : '2px solid transparent',
             background: 'none',
             cursor: 'pointer',
           }}
         >
-          ☁️ Microsoft OneDrive
+          📁 Google Drive
         </button>
         <button
           type="button"
@@ -236,28 +240,28 @@ export default function ImportNotesPage() {
         </div>
       )}
 
-      {/* Tab 1: OneDrive */}
-      {activeTab === 'onedrive' && (
+      {/* Tab 1: Google Drive */}
+      {activeTab === 'gdrive' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           <OfflineNotice
-            featureName="OneDrive Document Import"
-            description="Connecting to Microsoft OneDrive and importing documents requires an active internet connection. You can still create manual notes and study cached materials offline."
+            featureName="Google Drive Document Import"
+            description="Connecting to Google Drive and importing documents requires an active internet connection. You can still create manual notes and study cached materials offline."
           />
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <h2 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                OneDrive Integration
+                Google Drive Integration
               </h2>
               <p style={{ fontSize: '0.825rem', color: 'var(--color-text-secondary)' }}>
-                Connect your account and select Word (.docx) or Markdown (.md) documents.
+                Connect your account and select Word (.docx), Google Docs, or Markdown (.md) documents.
               </p>
             </div>
-            <OneDriveConnectButton />
+            <GoogleDriveConnectButton />
           </div>
 
           {isAuthenticated ? (
-            <OneDrivePicker onImportFiles={handleImportOneDriveFiles} />
+            <GoogleDrivePicker onImportFiles={handleImportGoogleDriveFiles} />
           ) : (
             <div
               style={{
@@ -272,14 +276,14 @@ export default function ImportNotesPage() {
                 gap: '1rem',
               }}
             >
-              <div style={{ fontSize: '2.5rem' }}>☁️</div>
+              <div style={{ fontSize: '2.5rem' }}>📁</div>
               <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                Connect your Microsoft Account
+                Connect your Google Account
               </h3>
               <p style={{ maxWidth: '440px', fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
-                Authorize SynapseSync with PKCE OAuth to securely browse your study folders and import lecture notes.
+                Authorize SynapseSync with OAuth 2.0 to securely browse your study folders and import lecture notes.
               </p>
-              <OneDriveConnectButton />
+              <GoogleDriveConnectButton />
             </div>
           )}
         </div>
