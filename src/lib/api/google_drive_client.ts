@@ -53,9 +53,9 @@ export class GoogleDriveApiClient {
   private readonly _authService: AuthService;
   private readonly _fetchFn: typeof fetch;
 
-  public constructor(authService: AuthService, fetchFn: typeof fetch = fetch) {
+  public constructor(authService: AuthService, fetchFn?: typeof fetch) {
     this._authService = authService;
-    this._fetchFn = fetchFn;
+    this._fetchFn = this._resolveFetch(fetchFn);
   }
 
   /**
@@ -94,7 +94,7 @@ export class GoogleDriveApiClient {
       },
     });
 
-    this._validateResponseStatus(response);
+    await this._validateResponseStatus(response);
     return response.blob();
   }
 
@@ -122,7 +122,7 @@ export class GoogleDriveApiClient {
       body,
     });
 
-    this._validateResponseStatus(response);
+    await this._validateResponseStatus(response);
     const file = (await response.json()) as GoogleDriveRawFile;
     return this._mapRawFileToDriveItem(file);
   }
@@ -149,7 +149,7 @@ export class GoogleDriveApiClient {
       body,
     });
 
-    this._validateResponseStatus(response);
+    await this._validateResponseStatus(response);
     const file = (await response.json()) as GoogleDriveRawFile;
     return this._mapRawFileToDriveItem(file);
   }
@@ -165,7 +165,7 @@ export class GoogleDriveApiClient {
       },
     });
 
-    this._validateResponseStatus(response);
+    await this._validateResponseStatus(response);
     const data = (await response.json()) as GoogleDriveListResponse;
     const files = data.files ?? [];
     return this._filterEligibleItems(files.map((file) => this._mapRawFileToDriveItem(file)));
@@ -212,7 +212,7 @@ export class GoogleDriveApiClient {
   /**
    * Validates HTTP response status and throws contextual error on failure.
    */
-  protected _validateResponseStatus(response: Response): void {
+  protected async _validateResponseStatus(response: Response): Promise<void> {
     if (response.ok) {
       return;
     }
@@ -222,7 +222,16 @@ export class GoogleDriveApiClient {
     if (response.status === GoogleDriveApiClient._STATUS_RATE_LIMITED) {
       throw new Error('Google Drive API request limit exceeded. Please wait a moment and retry.');
     }
-    throw new Error(`Google Drive request failed (${response.status}): ${response.statusText}`);
+    let detail = response.statusText || 'Access Denied';
+    try {
+      const errData = (await response.clone().json()) as { error?: { message?: string } };
+      if (errData?.error?.message) {
+        detail = errData.error.message;
+      }
+    } catch {
+      // Keep fallback detail
+    }
+    throw new Error(`Google Drive request failed (${response.status}): ${detail}`);
   }
 
   /**
@@ -243,5 +252,22 @@ export class GoogleDriveApiClient {
         mime === GoogleDriveApiClient._MARKDOWN_MIME
       );
     });
+  }
+
+  /**
+   * Resolves a bound fetch function safe for browser and Node execution.
+   */
+  private _resolveFetch(customFetch?: typeof fetch): typeof fetch {
+    if (customFetch) {
+      return (input: RequestInfo | URL, init?: RequestInit) =>
+        customFetch.call(typeof window !== 'undefined' ? window : globalThis, input, init);
+    }
+    if (typeof window !== 'undefined' && window.fetch) {
+      return window.fetch.bind(window);
+    }
+    if (typeof globalThis !== 'undefined' && globalThis.fetch) {
+      return globalThis.fetch.bind(globalThis);
+    }
+    return (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init);
   }
 }
