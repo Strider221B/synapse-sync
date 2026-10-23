@@ -9,6 +9,7 @@ from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 from api.summarize import Summarize
+from tools.youtube_cli.config import Config
 
 
 class TestSummarize:
@@ -55,7 +56,11 @@ class TestSummarize:
             "summary": "Summary",
             "keyPoints": ["Point 1"],
             "markdownNotes": "# Notes",
-            "metadata": {"model": "gemini-2.0-flash", "inputTokens": 10, "outputTokens": 20},
+            "metadata": {
+                "model": Config.get_default_model(),
+                "inputTokens": 10,
+                "outputTokens": 20,
+            },
         }
 
         with (
@@ -138,5 +143,7 @@ class TestSummarize:
 
             result = handler.generate_detailed_notes("Sample text", "Title")
             mock_config.assert_called_once_with(api_key="test-key")
+            mock_model_cls.assert_called_once_with(model_name=Config.get_default_model())
             assert result["title"] == "Machine Learning Overview"
             assert result["metadata"]["inputTokens"] == 100
+            assert result["metadata"]["model"] == Config.get_default_model()

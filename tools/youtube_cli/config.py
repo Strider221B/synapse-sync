@@ -9,7 +9,7 @@ from typing import ClassVar
 class Config:
     """Manages CLI runtime parameters, system defaults, and environment credentials."""
 
-    _DEFAULT_MODEL_NAME: ClassVar[str] = "gemini-2.0-flash"
+    _DEFAULT_MODEL_NAME: ClassVar[str] = "gemini-3.8-flash"
     _DEFAULT_DELAY_SECONDS: ClassVar[float] = 4.0
     _DEFAULT_MAX_RETRIES: ClassVar[int] = 3
     _DEFAULT_CACHE_DIR: ClassVar[str] = "~/.synapse-sync/transcript_cache"
@@ -18,6 +18,7 @@ class Config:
     _DEFAULT_SERVER_URL: ClassVar[str] = "http://localhost:3000"
     _DEFAULT_DRIVE_FOLDER: ClassVar[str] = "SynapseSync"
 
+    _ENV_GEMINI_MODEL: ClassVar[str] = "GEMINI_MODEL"
     _ENV_GEMINI_KEY: ClassVar[str] = "GEMINI_API_KEY"
     _ENV_API_KEY: ClassVar[str] = "YOUTUBE_NOTES_API_KEY"
     _ENV_SERVER_URL: ClassVar[str] = "SYNAPSE_SERVER_URL"
@@ -26,12 +27,17 @@ class Config:
 
     def __init__(self) -> None:
         """Initialize configuration properties from environment variables with fallbacks."""
-        self._gemini_model = self._DEFAULT_MODEL_NAME
+        self._gemini_model = self.get_default_model()
         self._delay_seconds = self._DEFAULT_DELAY_SECONDS
         self._max_retries = self._DEFAULT_MAX_RETRIES
         self._cache_dir = self._DEFAULT_CACHE_DIR
         self._notes_dir = self._DEFAULT_NOTES_DIR
         self._language = self._DEFAULT_LANGUAGE
+
+    @classmethod
+    def get_default_model(cls) -> str:
+        """Return configured default Gemini model name from environment or fallback."""
+        return os.getenv(cls._ENV_GEMINI_MODEL) or cls._DEFAULT_MODEL_NAME
 
     def get_drive_token(self) -> str | None:
         """Return the Google Drive OAuth access token from environment."""

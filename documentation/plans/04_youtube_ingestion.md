@@ -132,7 +132,7 @@ Enable users to generate **detailed, comprehensive study notes** from YouTube vi
 **Task 4.4.2 — Build the CLI configuration**
 - Create `tools/youtube_cli/config.py`
 - Define named constants:
-  - `GEMINI_MODEL_NAME = "gemini-2.0-flash"`
+  - `GEMINI_MODEL_NAME = "gemini-3.8-flash"`
   - `GEMINI_REQUEST_DELAY_SECONDS = 4`
   - `MAX_RETRIES = 3`
   - `DEFAULT_DRIVE_FOLDER = "SynapseSync"`

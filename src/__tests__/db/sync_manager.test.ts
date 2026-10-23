@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { DEFAULT_AI_MODEL } from '../../lib/api/ai_config';
 import { DatabaseService } from '../../lib/db/database_service';
 import type { SyncEntry } from '../../lib/db/models';
 import { NoteService } from '../../lib/db/services/note_service';
@@ -181,7 +182,7 @@ describe('SyncManager', () => {
       'note-offline-quiz',
       [{ question: 'Q1', options: ['A', 'B', 'C', 'D'], correctIndex: 0, explanation: 'Exp' }],
       [{ front: 'F1', back: 'B1', tags: ['general'] }],
-      'gemini-2.5-flash'
+      DEFAULT_AI_MODEL
     );
 
 

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { MarkdownRenderer } from '@/components/notes/MarkdownRenderer';
 import { Skeleton } from '@/components/common/Skeleton';
 import { ErrorState } from '@/components/common/ErrorState';
+import { DEFAULT_AI_MODEL } from '@/lib/api/ai_config';
 import { ApiClient } from '@/lib/api/client';
 import { DatabaseService } from '@/lib/db/database_service';
 import type { Note, Notebook, Quiz } from '@/lib/db/models';
@@ -125,7 +126,7 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
         note.id,
         formattedMCQs,
         formattedFlashcards,
-        response.metadata?.model || 'gemini-2.0-flash'
+        response.metadata?.model || DEFAULT_AI_MODEL
       );
 
       import('@/lib/db/sync_manager').then(({ SyncManager }) => {

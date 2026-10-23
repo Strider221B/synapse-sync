@@ -9,6 +9,8 @@ from typing import Any, ClassVar
 
 import google.generativeai as genai
 
+from tools.youtube_cli.config import Config
+
 
 class Summarize(BaseHTTPRequestHandler):
     """HTTP request handler generating exhaustively detailed study notes using Google Gemini."""
@@ -17,7 +19,6 @@ class Summarize(BaseHTTPRequestHandler):
     _HEADER_CONTENT_LENGTH: ClassVar[str] = "Content-Length"
     _MIME_JSON: ClassVar[str] = "application/json"
     _ENCODING: ClassVar[str] = "utf-8"
-    _DEFAULT_MODEL: ClassVar[str] = "gemini-2.0-flash"
     _ENV_GEMINI_KEY: ClassVar[str] = "GEMINI_API_KEY"
 
     _HTTP_OK: ClassVar[int] = 200
@@ -58,20 +59,23 @@ class Summarize(BaseHTTPRequestHandler):
         except Exception as err:
             self._handle_generation_error(err)
 
-    def generate_detailed_notes(self, text: str, title: str) -> dict[str, Any]:
+    def generate_detailed_notes(
+        self, text: str, title: str, model_name: str | None = None
+    ) -> dict[str, Any]:
         """Configure Gemini and invoke structured content generation for detailed notes."""
         api_key = os.getenv(self._ENV_GEMINI_KEY)
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable is not configured.")
 
+        active_model = model_name or Config.get_default_model()
         genai_client: Any = genai
         genai_client.configure(api_key=api_key)
-        model: Any = genai_client.GenerativeModel(model_name=self._DEFAULT_MODEL)
+        model: Any = genai_client.GenerativeModel(model_name=active_model)
         prompt = f"{self._SYSTEM_PROMPT}\n\nTitle: {title}\n\nSource Content:\n{text}"
         config: Any = self._build_generation_config()
 
         response: Any = model.generate_content(prompt, generation_config=config)
-        return self._format_ai_response(response, title)
+        return self._format_ai_response(response, title, active_model)
 
     def _build_generation_config(self) -> dict[str, Any]:
         """Construct generation configuration enforcing JSON schema output."""
@@ -89,7 +93,9 @@ class Summarize(BaseHTTPRequestHandler):
             },
         }
 
-    def _format_ai_response(self, response: Any, default_title: str) -> dict[str, Any]:
+    def _format_ai_response(
+        self, response: Any, default_title: str, model_name: str
+    ) -> dict[str, Any]:
         """Parse response text and build standardized output dictionary."""
         response_text = response.text if hasattr(response, "text") else str(response)
         parsed: dict[str, Any] = json.loads(response_text)
@@ -103,7 +109,7 @@ class Summarize(BaseHTTPRequestHandler):
             "keyPoints": parsed.get("keyPoints") or [],
             "markdownNotes": parsed.get("markdownNotes") or "",
             "metadata": {
-                "model": self._DEFAULT_MODEL,
+                "model": model_name,
                 "inputTokens": in_tokens,
                 "outputTokens": out_tokens,
             },

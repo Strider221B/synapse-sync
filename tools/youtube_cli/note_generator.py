@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 from typing import Any, ClassVar
 
+from tools.youtube_cli.config import Config
 from tools.youtube_cli.gemini_service import GeminiService
 
 
 class NoteGenerator:
     """Orchestrates comprehensive study note generation via Gemini structured output."""
 
-    _DEFAULT_MODEL: ClassVar[str] = "gemini-2.0-flash"
     _MAX_CHUNK_WORDS: ClassVar[int] = 7500
     _SYSTEM_PROMPT: ClassVar[str] = (
         "You are a meticulous note-taker, not a summarizer. "
@@ -31,11 +31,11 @@ class NoteGenerator:
     def __init__(
         self,
         gemini_service: GeminiService | None = None,
-        model_name: str = _DEFAULT_MODEL,
+        model_name: str | None = None,
     ) -> None:
         """Initialize NoteGenerator with Gemini service wrapper and model choice."""
         self._gemini_service = gemini_service if gemini_service is not None else GeminiService()
-        self._model_name = model_name
+        self._model_name = model_name or Config.get_default_model()
 
     def generate(self, transcript: str, video_title: str) -> dict[str, Any]:
         """Generate comprehensive notes from full transcript text and video title."""

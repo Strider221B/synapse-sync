@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { IDBPDatabase } from 'idb';
+import { DEFAULT_AI_MODEL } from '../../lib/api/ai_config';
 import { DB_STORES } from '../../lib/db/constants';
 import { DatabaseService } from '../../lib/db/database_service';
 import type { Quiz } from '../../lib/db/models';
@@ -11,7 +12,7 @@ import { QuizService } from '../../lib/db/services/quiz_service';
 describe('QuizService', () => {
   const TEST_DB_NAME = 'synapse-quiz-service-test';
   const NOTE_ID_A = 'note-quiz-1';
-  const MODEL_NAME = 'gemini-2.5-flash';
+  const MODEL_NAME = DEFAULT_AI_MODEL;
 
   it('creates quiz with MCQ, flashcards, and initial SRS cards in transaction', async () => {
     const dbService = new DatabaseService(TEST_DB_NAME);

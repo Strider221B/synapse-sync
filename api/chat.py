@@ -6,6 +6,7 @@ import json
 from http.server import BaseHTTPRequestHandler
 from typing import Any, ClassVar
 
+from tools.youtube_cli.config import Config
 from tools.youtube_cli.gemini_service import GeminiService
 
 
@@ -16,7 +17,6 @@ class ChatEndpoint(BaseHTTPRequestHandler):
     _HEADER_CONTENT_LENGTH: ClassVar[str] = "Content-Length"
     _MIME_JSON: ClassVar[str] = "application/json"
     _ENCODING: ClassVar[str] = "utf-8"
-    _DEFAULT_MODEL: ClassVar[str] = "gemini-2.0-flash"
 
     _HTTP_OK: ClassVar[int] = 200
     _HTTP_BAD_REQUEST: ClassVar[int] = 400
@@ -108,17 +108,19 @@ class ChatEndpoint(BaseHTTPRequestHandler):
         history: list[dict[str, Any]] | None = None,
         mode: str = _MODE_DEFAULT,
         service: GeminiService | None = None,
+        model_name: str | None = None,
     ) -> dict[str, Any]:
         """Query Gemini with contextual note content, bounded history, and mode instructions."""
+        active_model = model_name or Config.get_default_model()
         gemini_svc = service if service is not None else GeminiService()
         cleaned_history = self._filter_history(history or [])
         prompt = self._build_prompt(note_context, question, cleaned_history, mode)
 
         response = gemini_svc.call_with_retry(
-            model_name=self._DEFAULT_MODEL,
+            model_name=active_model,
             prompt=prompt,
         )
-        return self._format_response(response)
+        return self._format_response(response, active_model)
 
     def _filter_history(self, history: list[dict[str, Any]]) -> list[dict[str, str]]:
         """Filter and bound conversation history to the most recent messages."""
@@ -178,7 +180,7 @@ class ChatEndpoint(BaseHTTPRequestHandler):
             f"Assistant Response:"
         )
 
-    def _format_response(self, response: Any) -> dict[str, Any]:
+    def _format_response(self, response: Any, model_name: str) -> dict[str, Any]:
         """Extract answer text and usage token counts from Gemini response."""
         answer_text = response.text if hasattr(response, "text") else str(response)
         usage = getattr(response, "usage_metadata", None)
@@ -188,7 +190,7 @@ class ChatEndpoint(BaseHTTPRequestHandler):
         return {
             self._KEY_ANSWER: answer_text,
             self._KEY_METADATA: {
-                self._KEY_MODEL: self._DEFAULT_MODEL,
+                self._KEY_MODEL: model_name,
                 self._KEY_INPUT_TOKENS: in_tokens,
                 self._KEY_OUTPUT_TOKENS: out_tokens,
             },

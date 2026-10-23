@@ -8,6 +8,7 @@ import { NotebookService } from '../../lib/db/services/notebook_service';
 import { SyncQueueService } from '../../lib/db/services/sync_queue_service';
 import { PreferencesService } from '../../lib/db/services/preferences_service';
 import { GoogleDriveSyncService, type QuizDrivePayload } from '../../lib/db/services/google_drive_sync_service';
+import { DEFAULT_AI_MODEL } from '../../lib/api/ai_config';
 import type { GoogleDriveApiClient, DriveItem } from '../../lib/api/google_drive_client';
 import type { AuthService } from '../../lib/auth/auth_service';
 import type { Note, Notebook } from '../../lib/db/models';
@@ -119,7 +120,7 @@ describe('GoogleDriveSyncService', () => {
       'note-123',
       [{ question: 'What is gradient descent?', options: ['Optimizer', 'Loss', 'Model', 'Layer'], correctIndex: 0, explanation: 'Opt' }],
       [{ front: 'Backpropagation', back: 'Chain rule algorithm', tags: ['DL'] }],
-      'gemini-2.0-flash'
+      DEFAULT_AI_MODEL
     );
 
     await syncService.pushQuiz(quizWithCards.quiz.id);
@@ -209,7 +210,7 @@ describe('GoogleDriveSyncService', () => {
       quiz: {
         id: 'remote-quiz-1',
         noteId: 'remote-note-1',
-        modelUsed: 'gemini-2.0-flash',
+        modelUsed: DEFAULT_AI_MODEL,
         version: 1,
         generatedAt: new Date().toISOString(),
       },
@@ -226,7 +227,7 @@ describe('GoogleDriveSyncService', () => {
 
     const loaded = await quizService.getQuizWithCards('remote-quiz-1');
     assert.ok(loaded);
-    assert.equal(loaded.quiz.modelUsed, 'gemini-2.0-flash');
+    assert.equal(loaded.quiz.modelUsed, DEFAULT_AI_MODEL);
     assert.equal(loaded.mcqCards.length, 1);
     assert.equal(loaded.flashcards.length, 1);
 
