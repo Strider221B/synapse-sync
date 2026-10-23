@@ -23,11 +23,11 @@ const GoogleAuthContext = createContext<GoogleAuthContextType>({
   isAuthenticated: false,
   user: null,
   authService: defaultAuthService,
-  login: async () => {},
-  logout: async () => {},
+  login: async () => { },
+  logout: async () => { },
   getAccessToken: async () => '',
   selectedUser: 'SC',
-  setSelectedUser: () => {},
+  setSelectedUser: () => { },
   registeredUsers: [],
 });
 
@@ -113,6 +113,16 @@ export function GoogleAuthProviderWrapper({ children }: GoogleAuthProviderWrappe
   };
 
   const handleLogout = async () => {
+    try {
+      const { SyncManager } = await import('@/lib/db/sync_manager');
+      const syncManager = SyncManager.getInstance();
+      if (authService.isAuthenticated()) {
+        await syncManager.forceSync().catch(() => { });
+      }
+    } catch {
+      // Continue logout if pre-sync encounters network issues
+    }
+
     await authService.logout();
     setIsAuthenticated(false);
     setUser(null);

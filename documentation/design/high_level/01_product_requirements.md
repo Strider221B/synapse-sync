@@ -39,7 +39,7 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 | NM-08 | Edit / annotate notes inline and sync changes back to Google Drive                             | P2       |
 | NM-09 | Pre-registered user identity combobox (e.g., `SC`, `DB`) with per-user `NEXT_PUBLIC_GOOGLE_CLIENT_ID` resolution beside login | P0 |
 | NM-10 | Full application state persistence on Google Drive (`app_state.json`) including cards due today, streak today, streak yesterday, and user preferences | P0 |
-| NM-11 | Zero-backend multi-user context switching: clear local IndexedDB on logout/switch; show default 0 metrics when unauthenticated | P0 |
+| NM-11 | Zero-backend multi-user context switching: auto-flush state to Google Drive on logout/switch, wipe local IndexedDB, and show default 0 metrics when unauthenticated | P0 |
 
 ### 3.2 YouTube Transcript Ingestion (Local-First Pipeline)
 

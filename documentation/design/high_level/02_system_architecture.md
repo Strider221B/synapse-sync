@@ -254,7 +254,9 @@ graph TB
 
 ## 4. Authentication & Multi-User Context Architecture
 
-SynapseSync leverages Google Drive authentication as its primary user identity and storage boundary. Multiple pre-registered users (e.g. `SC`, `DB`) can use the same application instance. Selecting a user from the combobox dynamically configures the corresponding OAuth Client ID. When authenticating, all remote state (notes, quizzes, flashcards, chat, streak today, streak yesterday, and cards due) is pulled from that user's Google Drive. Upon logout or user switching, all local IndexedDB stores are transactionally wiped, guaranteeing complete context isolation without needing a custom backend server.
+SynapseSync leverages Google Drive authentication as its primary user identity and storage boundary. Multiple pre-registered users (e.g. `SC`, `DB`) can use the same application instance. Selecting a user from the combobox dynamically configures the corresponding OAuth Client ID. When authenticating, all remote state (notes, quizzes, flashcards, chat, streak today, streak yesterday, and cards due) is pulled from that user's Google Drive. 
+
+While online, the app automatically synchronizes via periodic timers (every 5 min), network reconnection events (`online`), and tab visibility changes (`visibilitychange`). Furthermore, **when logging out or switching users, the application automatically triggers a pre-logout sync (`forceSync()`) before purging the local IndexedDB stores**, guaranteeing that all latest study streaks, cards due, and notes are committed to Google Drive without requiring manual user intervention.
 
 ```mermaid
 sequenceDiagram
@@ -287,15 +289,18 @@ sequenceDiagram
     Sync-->>UI: Dispatch synapse-sync-completed
     UI-->>User: Dashboard populated with SC's study streak & cards
 
-    Note over User,Drive: Disconnecting / Switching Users
+    Note over User,Drive: Disconnecting / Switching Users (Automatic Pre-Logout Flush)
     User->>UI: Click "Disconnect" (or select DB)
+    UI->>Sync: forceSync() [Flushes pending notes & pushes latest app_state.json]
+    Sync->>Drive: Save latest app_state.json & pending mutations
+    Drive-->>Sync: Acknowledged
     UI->>Auth: logout()
-    UI->>DB: clearAllData() [Wipes all 9 stores]
+    UI->>DB: clearAllData() [Wipes all 9 local stores]
     UI-->>User: Dashboard resets to default zeroes (Daily Streak: 0, Due: 0)
 ```
 
 > [!IMPORTANT]
-> **No tokens are ever sent to or stored on the Vercel backend.** The browser communicates directly with Google Drive API using delegated permissions. The Python serverless functions never need Google Drive access — the browser downloads file content and sends it to `/api/parse-docx`. Local IndexedDB is completely wiped on logout to guarantee absolute data privacy between users.
+> **No tokens are ever sent to or stored on the Vercel backend.** The browser communicates directly with Google Drive API using delegated permissions. The Python serverless functions never need Google Drive access — the browser downloads file content and sends it to `/api/parse-docx`. Users never need to manually force sync before logging out because the client performs an automatic pre-logout flush before wiping local IndexedDB stores.
 
 ---
 
