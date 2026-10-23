@@ -252,34 +252,50 @@ graph TB
 
 ---
 
-## 4. Authentication Architecture
+## 4. Authentication & Multi-User Context Architecture
+
+SynapseSync leverages Google Drive authentication as its primary user identity and storage boundary. Multiple pre-registered users (e.g. `SC`, `DB`) can use the same application instance. Selecting a user from the combobox dynamically configures the corresponding OAuth Client ID. When authenticating, all remote state (notes, quizzes, flashcards, chat, streak today, streak yesterday, and cards due) is pulled from that user's Google Drive. Upon logout or user switching, all local IndexedDB stores are transactionally wiped, guaranteeing complete context isolation without needing a custom backend server.
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant PWA as SynapseSync PWA
+    autonumber
+    actor User as User (SC / DB)
+    participant UI as GoogleDriveConnectButton / Header
+    participant Reg as UserRegistryService
     participant Auth as AuthService
+    participant DB as IndexedDB (DatabaseService)
+    participant Sync as GoogleDriveSyncService & AppStateSyncService
     participant Google as Google OAuth 2.0
-    participant Drive as Google Drive API v3
+    participant Drive as Google Drive API v3 (SynapseSync/)
 
-    User->>PWA: Click "Connect Google Drive"
-    PWA->>Auth: login()
-    Auth->>Google: Open OAuth 2.0 Popup<br/>(client_id, scopes, response_type=token)
-    Google->>User: Google Sign-in / Consent Screen
+    User->>UI: Selects "SC" from user combobox
+    UI->>Reg: setSelectedUserId("SC")
+    Reg-->>Auth: setClientId(NEXT_PUBLIC_GOOGLE_CLIENT_ID_SC)
+    User->>UI: Click "Connect Google Drive"
+    UI->>Auth: login()
+    Auth->>Google: Open OAuth 2.0 Popup with SC's Client ID
+    Google->>User: Consent / Account Selection
     User->>Google: Authorize SynapseSync
-    Google->>Auth: Return Access Token in URL hash
-    Auth->>Google: GET /oauth2/v3/userinfo (Bearer token)
-    Google->>Auth: User profile (name, email)
-    Auth->>PWA: Store token & profile in localStorage
+    Google->>Auth: Return Access Token
+    Auth->>DB: clearAllData() [Purge stale/previous context]
+    Auth-->>UI: Authenticated as SC
+    UI->>Sync: forceSync() / syncAll()
+    Sync->>Drive: pullNotes(), pullQuizzes(), pullNotebooks()
+    Sync->>Drive: pullAppState() [downloads SynapseSync/app_state.json]
+    Drive-->>Sync: Return notes, quizzes, streak today, streak yesterday, preferences
+    Sync->>DB: Hydrate IndexedDB with SC's data
+    Sync-->>UI: Dispatch synapse-sync-completed
+    UI-->>User: Dashboard populated with SC's study streak & cards
 
-    Note over PWA: All subsequent API calls use<br/>the access token directly
-
-    PWA->>Drive: GET /drive/v3/files?q='root'+in+parents<br/>Authorization: Bearer {token}
-    Drive->>PWA: File & folder listing JSON
+    Note over User,Drive: Disconnecting / Switching Users
+    User->>UI: Click "Disconnect" (or select DB)
+    UI->>Auth: logout()
+    UI->>DB: clearAllData() [Wipes all 9 stores]
+    UI-->>User: Dashboard resets to default zeroes (Daily Streak: 0, Due: 0)
 ```
 
 > [!IMPORTANT]
-> **No tokens are ever sent to or stored on the Vercel backend.** The browser communicates directly with Google Drive API using delegated permissions. The Python serverless functions never need Google Drive access — the browser downloads file content and sends it to `/api/parse-docx`.
+> **No tokens are ever sent to or stored on the Vercel backend.** The browser communicates directly with Google Drive API using delegated permissions. The Python serverless functions never need Google Drive access — the browser downloads file content and sends it to `/api/parse-docx`. Local IndexedDB is completely wiped on logout to guarantee absolute data privacy between users.
 
 ---
 

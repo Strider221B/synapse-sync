@@ -467,6 +467,67 @@ interface UserPreference {
 | `lastSyncTimestamp`    | `string`  | `null`     | ISO 8601 of last successful sync    |
 | `pomodoroWorkMinutes`  | `number`  | `25`       | Pomodoro work interval duration      |
 | `pomodoroBreakMinutes` | `number`  | `5`        | Pomodoro break interval duration     |
+| `studyStreakDays`      | `number`  | `0`        | Cached current daily study streak    |
+| `studyStreakYesterday` | `number`  | `0`        | Cached study streak as of yesterday  |
+| `cardsDueToday`        | `number`  | `0`        | Cached cards due on current date     |
+
+---
+
+### 3.10 Pre-Registered User
+
+Models client-side configured users with dedicated Google OAuth Client IDs.
+
+```typescript
+interface PreRegisteredUser {
+  /** Identifier displayed in combobox (e.g. "SC", "DB") */
+  id: string;
+
+  /** Human-readable display label */
+  name: string;
+
+  /** Google Cloud OAuth 2.0 Web Client ID */
+  clientId: string;
+}
+```
+
+---
+
+### 3.11 Application State Snapshot (Google Drive `app_state.json`)
+
+Serialized and saved directly to the root `SynapseSync/` folder on Google Drive. Represents the complete learning context of a user across devices.
+
+```typescript
+interface AppStateStudyStats {
+  cardsDueToday: number;
+  studyStreakDays: number;
+  studyStreakYesterday: number;
+  lastReviewDate: string | null;
+  totalReviewsCompleted: number;
+  masteredCards: number;
+}
+
+interface AppStatePayload {
+  version: number;
+  updatedAt: string;
+  userId?: string;
+  studyStats: AppStateStudyStats;
+  preferences: Record<string, unknown>;
+  srsCards: SRSCard[];
+  chatMessages: ChatMessage[];
+}
+```
+
+**Google Drive Cloud Directory Structure:**
+```
+SynapseSync/
+├── app_state.json                 # Global state, streaks, due cards, preferences, chat
+├── notebooks/
+│   └── notebook_<id>.json         # Notebook collections
+├── notes/
+│   └── note_<id>.json             # Study notes
+└── quizzes/
+    └── quiz_<id>.json             # Quizzes bundled with MCQs, flashcards, and SRS cards
+```
 
 ---
 
