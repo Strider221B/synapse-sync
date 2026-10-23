@@ -38,9 +38,9 @@ export class ApiClient {
   private readonly _baseUrl: string;
   private readonly _fetchFn: typeof fetch;
 
-  public constructor(baseUrl: string = ApiClient._DEFAULT_BASE_URL, fetchFn: typeof fetch = fetch) {
+  public constructor(baseUrl: string = ApiClient._DEFAULT_BASE_URL, fetchFn?: typeof fetch) {
     this._baseUrl = baseUrl;
-    this._fetchFn = fetchFn;
+    this._fetchFn = this._resolveFetch(fetchFn);
   }
 
   /**
@@ -171,5 +171,14 @@ export class ApiClient {
       }
     }
     throw new Error('Maximum retry attempts exceeded');
+  }
+
+  /**
+   * Resolves a fetch function safely bound to window/globalThis scope.
+   */
+  private _resolveFetch(customFetch?: typeof fetch): typeof fetch {
+    const scope = typeof window !== 'undefined' ? window : globalThis;
+    const baseFetch = customFetch || (typeof window !== 'undefined' ? window.fetch : globalThis.fetch);
+    return (input: RequestInfo | URL, init?: RequestInit) => baseFetch.call(scope, input, init);
   }
 }
