@@ -12,6 +12,13 @@ export const GOOGLE_DEFAULT_REDIRECT_URI = 'http://localhost:3000';
 export const STORAGE_KEY_TOKEN = 'synapse_gdrive_token';
 export const STORAGE_KEY_USER = 'synapse_gdrive_user';
 export const STORAGE_KEY_EXPIRY = 'synapse_gdrive_expiry';
+export const STORAGE_KEY_SELECTED_USER = 'synapse_gdrive_selected_user';
+
+export interface PreRegisteredUser {
+  id: string;
+  name: string;
+  clientId: string;
+}
 
 export interface GoogleAuthConfig {
   clientId: string;

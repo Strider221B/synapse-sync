@@ -5,6 +5,7 @@ import type { GoogleDriveApiClient } from '../../api/google_drive_client';
 import type { AuthService } from '../../auth/auth_service';
 import type { SyncQueueService } from './sync_queue_service';
 import { PreferencesService } from './preferences_service';
+import { AppStateSyncService } from './app_state_sync_service';
 
 export interface SyncResult {
   success: boolean;
@@ -46,6 +47,7 @@ export class GoogleDriveSyncService {
   private readonly _authService: AuthService;
   private readonly _syncQueueService?: SyncQueueService;
   private readonly _preferencesService: PreferencesService;
+  private readonly _appStateSyncService: AppStateSyncService;
 
   private _appFolderId: string | null = null;
   private _notesFolderId: string | null = null;
@@ -57,13 +59,17 @@ export class GoogleDriveSyncService {
     googleDriveClient: GoogleDriveApiClient,
     authService: AuthService,
     syncQueueService?: SyncQueueService,
-    preferencesService?: PreferencesService
+    preferencesService?: PreferencesService,
+    appStateSyncService?: AppStateSyncService
   ) {
     this._dbService = databaseService;
     this._gdriveClient = googleDriveClient;
     this._authService = authService;
     this._syncQueueService = syncQueueService;
     this._preferencesService = preferencesService ?? new PreferencesService(databaseService);
+    this._appStateSyncService =
+      appStateSyncService ??
+      new AppStateSyncService(databaseService, googleDriveClient, this._preferencesService);
   }
 
   /**
@@ -207,6 +213,20 @@ export class GoogleDriveSyncService {
   }
 
   /**
+   * Pushes the global application state snapshot to Google Drive.
+   */
+  public async pushAppState(): Promise<void> {
+    await this._appStateSyncService.pushAppState();
+  }
+
+  /**
+   * Pulls the global application state snapshot from Google Drive.
+   */
+  public async pullAppState(): Promise<void> {
+    await this._appStateSyncService.pullAppState();
+  }
+
+  /**
    * Executes a full bidirectional sync: pushes local unsynced mutations and pulls remote updates.
    */
   public async syncAll(): Promise<SyncResult> {
@@ -219,10 +239,12 @@ export class GoogleDriveSyncService {
     const pushedNotebooks = await this._pushUnsyncedNotebooks();
     const pushedQuizzes = await this._pushUnsyncedQuizzes();
     await this._replayQueueEntries();
+    await this.pushAppState();
 
     const pulledNotebooks = await this.pullNotebooks();
     const pulledNotes = await this.pullNotes();
     const pulledQuizzes = await this.pullQuizzes();
+    await this.pullAppState();
 
     await this._preferencesService.set(GoogleDriveSyncService._PREF_LAST_SYNC, nowIso);
     const result: SyncResult = {

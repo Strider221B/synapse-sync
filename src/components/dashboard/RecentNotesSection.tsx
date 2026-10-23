@@ -2,12 +2,14 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useGoogleAuth } from '@/components/auth/GoogleAuthProviderWrapper';
 import { DatabaseService } from '@/lib/db/database_service';
 import type { Note } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
 import { Skeleton } from '@/components/common/Skeleton';
 
 export function RecentNotesSection() {
+  const { isAuthenticated } = useGoogleAuth();
   const [recentNotes, setRecentNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -15,6 +17,13 @@ export function RecentNotesSection() {
     let active = true;
 
     async function loadNotes() {
+      if (!isAuthenticated) {
+        if (active) {
+          setRecentNotes([]);
+          setLoading(false);
+        }
+        return;
+      }
       try {
         const dbService = new DatabaseService();
         const noteService = new NoteService(dbService);
@@ -33,10 +42,24 @@ export function RecentNotesSection() {
     }
 
     loadNotes();
+
+    const handleRefresh = () => {
+      loadNotes();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('synapse-sync-completed', handleRefresh);
+      window.addEventListener('synapse-auth-changed', handleRefresh);
+    }
+
     return () => {
       active = false;
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('synapse-sync-completed', handleRefresh);
+        window.removeEventListener('synapse-auth-changed', handleRefresh);
+      }
     };
-  }, []);
+  }, [isAuthenticated]);
 
   return (
     <section aria-label="Recent Notes">

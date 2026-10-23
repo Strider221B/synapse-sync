@@ -47,6 +47,30 @@ export class DatabaseService {
   }
 
   /**
+   * Clears all records across all application IndexedDB stores.
+   */
+  public async clearAllData(): Promise<void> {
+    const db = await this.getDB();
+    const storeNames = [
+      DB_STORES.NOTEBOOKS,
+      DB_STORES.NOTES,
+      DB_STORES.QUIZZES,
+      DB_STORES.MCQ_CARDS,
+      DB_STORES.FLASHCARDS,
+      DB_STORES.SRS_CARDS,
+      DB_STORES.CHAT_MESSAGES,
+      DB_STORES.SYNC_QUEUE,
+      DB_STORES.PREFERENCES,
+    ] as const;
+
+    const tx = db.transaction(storeNames, 'readwrite');
+    for (const storeName of storeNames) {
+      await tx.objectStore(storeName).clear();
+    }
+    await tx.done;
+  }
+
+  /**
    * Performs the database connection and configuration.
    */
   protected async _connect(): Promise<IDBPDatabase<SynapseSyncDB>> {

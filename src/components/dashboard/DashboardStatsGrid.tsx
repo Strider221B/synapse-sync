@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useGoogleAuth } from '@/components/auth/GoogleAuthProviderWrapper';
 import { DatabaseService } from '@/lib/db/database_service';
 import { StatsService, type DashboardStats } from '@/lib/db/services/stats_service';
 import { Skeleton } from '@/components/common/Skeleton';
 
 export function DashboardStatsGrid() {
+  const { isAuthenticated } = useGoogleAuth();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -16,7 +18,7 @@ export function DashboardStatsGrid() {
       try {
         const dbService = new DatabaseService();
         const statsService = new StatsService(dbService);
-        const data = await statsService.getDashboardStats();
+        const data = await statsService.getDashboardStats(isAuthenticated);
         if (active) {
           setStats(data);
         }
@@ -28,10 +30,24 @@ export function DashboardStatsGrid() {
     }
 
     loadStats();
+
+    const handleRefresh = () => {
+      loadStats();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('synapse-sync-completed', handleRefresh);
+      window.addEventListener('synapse-auth-changed', handleRefresh);
+    }
+
     return () => {
       active = false;
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('synapse-sync-completed', handleRefresh);
+        window.removeEventListener('synapse-auth-changed', handleRefresh);
+      }
     };
-  }, []);
+  }, [isAuthenticated]);
 
   return (
     <section aria-label="Study Progress Summary">

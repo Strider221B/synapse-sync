@@ -84,6 +84,14 @@ describe('StatsService', () => {
     assert.equal(stats.srsCards, 3); // 2 flashcards + 1 MCQ
     assert.equal(stats.cardsDueToday, 3); // Initial nextReview is now or earlier
 
+    // 4. Test unauthenticated stats returns all zeroes
+    const unauthStats = await statsService.getDashboardStats(false);
+    assert.equal(unauthStats.notebooks, 0);
+    assert.equal(unauthStats.notes, 0);
+    assert.equal(unauthStats.cardsDueToday, 0);
+    assert.equal(unauthStats.studyStreakDays, 0);
+    assert.equal(unauthStats.studyStreakYesterday, 0);
+
     await dbService.close();
   });
 });

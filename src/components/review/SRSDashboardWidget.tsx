@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useGoogleAuth } from '@/components/auth/GoogleAuthProviderWrapper';
 import { DB_STORES } from '@/lib/db/constants';
 import { DatabaseService } from '@/lib/db/database_service';
 import type { SRSCard } from '@/lib/db/models';
@@ -19,12 +20,14 @@ export interface SRSWidgetData {
   dueCount: number;
   totalCards: number;
   studyStreakDays: number;
+  studyStreakYesterday: number;
   notebooksMastery: NotebookMastery[];
   nextReviewDate: string | null;
   overallMasteryPercentage: number;
 }
 
 export const SRSDashboardWidget: React.FC = () => {
+  const { isAuthenticated } = useGoogleAuth();
   const [data, setData] = useState<SRSWidgetData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -32,6 +35,22 @@ export const SRSDashboardWidget: React.FC = () => {
     let active = true;
 
     async function computeStats() {
+      if (!isAuthenticated) {
+        if (active) {
+          setData({
+            dueCount: 0,
+            totalCards: 0,
+            studyStreakDays: 0,
+            studyStreakYesterday: 0,
+            notebooksMastery: [],
+            nextReviewDate: null,
+            overallMasteryPercentage: 0,
+          });
+          setIsLoading(false);
+        }
+        return;
+      }
+
       try {
         const dbService = new DatabaseService();
         const srsService = new SRSCardService(dbService);
@@ -50,7 +69,7 @@ export const SRSDashboardWidget: React.FC = () => {
         if (!active) return;
 
         // Calculate Streak
-        const streak = calculateStreak(allSrs);
+        const { streakToday, streakYesterday } = calculateStreakValues(allSrs);
 
         // Find Next Review Date among non-due cards
         const nowIso = new Date().toISOString();
@@ -115,7 +134,8 @@ export const SRSDashboardWidget: React.FC = () => {
         setData({
           dueCount: rawDue.length,
           totalCards: allSrs.length,
-          studyStreakDays: streak,
+          studyStreakDays: streakToday,
+          studyStreakYesterday: streakYesterday,
           notebooksMastery,
           nextReviewDate,
           overallMasteryPercentage,
@@ -128,10 +148,24 @@ export const SRSDashboardWidget: React.FC = () => {
     }
 
     computeStats();
+
+    const handleRefresh = () => {
+      computeStats();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('synapse-sync-completed', handleRefresh);
+      window.addEventListener('synapse-auth-changed', handleRefresh);
+    }
+
     return () => {
       active = false;
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('synapse-sync-completed', handleRefresh);
+        window.removeEventListener('synapse-auth-changed', handleRefresh);
+      }
     };
-  }, []);
+  }, [isAuthenticated]);
 
   if (isLoading || !data) {
     return (
@@ -362,7 +396,7 @@ export const SRSDashboardWidget: React.FC = () => {
             <span>{data.studyStreakDays} {data.studyStreakDays === 1 ? 'day' : 'days'}</span>
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-            Consecutive study
+            Yesterday: {data.studyStreakYesterday} {data.studyStreakYesterday === 1 ? 'day' : 'days'}
           </div>
         </div>
 
@@ -543,53 +577,38 @@ export const SRSDashboardWidget: React.FC = () => {
 };
 
 /**
- * Calculates consecutive daily review streak based on SRS cards' lastReview timestamps.
+ * Calculates consecutive daily review streak and yesterday's streak from SRS cards.
  */
-function calculateStreak(cards: SRSCard[]): number {
+function calculateStreakValues(cards: SRSCard[]): { streakToday: number; streakYesterday: number } {
   const reviewDates = new Set<string>();
   for (const card of cards) {
     if (card.lastReview) {
-      // YYYY-MM-DD
-      const datePart = card.lastReview.slice(0, 10);
-      reviewDates.add(datePart);
+      reviewDates.add(card.lastReview.slice(0, 10));
     }
   }
 
-  if (reviewDates.size === 0) return 0;
+  if (reviewDates.size === 0) return { streakToday: 0, streakYesterday: 0 };
 
-  const today = new Date();
-  const formatUtcDate = (d: Date): string => d.toISOString().slice(0, 10);
+  const formatOffsetDate = (offsetDays: number): string => {
+    const d = new Date(Date.now() - offsetDays * 86400000);
+    return d.toISOString().slice(0, 10);
+  };
 
-  const todayStr = formatUtcDate(today);
-
-  const yesterday = new Date(today.getTime());
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = formatUtcDate(yesterday);
-
-  // Check if today or yesterday has a review
-  let currentCheckDate: Date;
-  let streak = 0;
-
-  if (reviewDates.has(todayStr)) {
-    streak = 1;
-    currentCheckDate = yesterday;
-  } else if (reviewDates.has(yesterdayStr)) {
-    streak = 1;
-    currentCheckDate = new Date(yesterday.getTime());
-    currentCheckDate.setDate(currentCheckDate.getDate() - 1);
-  } else {
-    return 0;
-  }
-
+  let streakYesterday = 0;
+  let offset = 1;
   while (true) {
-    const checkStr = formatUtcDate(currentCheckDate);
+    const checkStr = formatOffsetDate(offset);
     if (reviewDates.has(checkStr)) {
-      streak += 1;
-      currentCheckDate.setDate(currentCheckDate.getDate() - 1);
+      streakYesterday += 1;
+      offset += 1;
     } else {
       break;
     }
   }
 
-  return streak;
+  const todayStr = formatOffsetDate(0);
+  const studiedToday = reviewDates.has(todayStr);
+  const streakToday = studiedToday ? 1 + streakYesterday : streakYesterday;
+
+  return { streakToday, streakYesterday };
 }
