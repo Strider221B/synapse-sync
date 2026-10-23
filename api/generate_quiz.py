@@ -8,6 +8,7 @@ from typing import Any, ClassVar
 
 from google.generativeai.types import GenerationConfig
 
+from tools.youtube_cli.config import Config
 from tools.youtube_cli.gemini_service import GeminiService
 
 
@@ -18,7 +19,6 @@ class GenerateQuiz(BaseHTTPRequestHandler):
     _HEADER_CONTENT_LENGTH: ClassVar[str] = "Content-Length"
     _MIME_JSON: ClassVar[str] = "application/json"
     _ENCODING: ClassVar[str] = "utf-8"
-    _DEFAULT_MODEL: ClassVar[str] = "gemini-2.0-flash"
 
     _HTTP_OK: ClassVar[int] = 200
     _HTTP_BAD_REQUEST: ClassVar[int] = 400
@@ -117,19 +117,21 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         mcq_count: int = _DEFAULT_COUNT,
         flashcard_count: int = _DEFAULT_COUNT,
         service: GeminiService | None = None,
+        model_name: str | None = None,
     ) -> dict[str, Any]:
         """Generate structured MCQs and flashcards using Gemini service."""
+        active_model = model_name or Config.get_default_model()
         truncated_text = self._truncate_text(text)
         prompt = self._build_prompt(truncated_text, difficulty, mcq_count, flashcard_count)
         config = self._build_generation_config()
         gemini_svc = service if service is not None else GeminiService()
 
         response = gemini_svc.call_with_retry(
-            model_name=self._DEFAULT_MODEL,
+            model_name=active_model,
             prompt=prompt,
             config=config,
         )
-        return self._parse_quiz_response(response)
+        return self._parse_quiz_response(response, active_model)
 
     def _sanitize_difficulty(self, diff: Any) -> str:
         """Sanitize and validate difficulty string, returning default if invalid."""
@@ -169,7 +171,7 @@ class GenerateQuiz(BaseHTTPRequestHandler):
             temperature=self._TEMPERATURE,
         )
 
-    def _parse_quiz_response(self, response: Any) -> dict[str, Any]:
+    def _parse_quiz_response(self, response: Any, model_name: str) -> dict[str, Any]:
         """Parse raw Gemini response text into structured dictionary with usage tokens."""
         raw_text = response.text if hasattr(response, "text") else str(response)
         parsed: dict[str, Any] = json.loads(raw_text)
@@ -178,7 +180,7 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         out_tokens = getattr(usage, "candidates_token_count", 0) if usage else 0
 
         parsed["metadata"] = {
-            "model": self._DEFAULT_MODEL,
+            "model": model_name,
             "inputTokens": in_tokens,
             "outputTokens": out_tokens,
         }

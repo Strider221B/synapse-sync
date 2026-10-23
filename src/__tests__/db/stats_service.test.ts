@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { DEFAULT_AI_MODEL } from '../../lib/api/ai_config';
 import { DatabaseService } from '../../lib/db/database_service';
 import { NoteService } from '../../lib/db/services/note_service';
 import { NotebookService } from '../../lib/db/services/notebook_service';
@@ -72,7 +73,7 @@ describe('StatsService', () => {
         { front: 'What is ATP?', back: 'Adenosine Triphosphate', tags: ['bio'] },
         { front: 'Where does glycolysis occur?', back: 'Cytoplasm', tags: ['bio'] },
       ],
-      'gemini-2.5'
+      DEFAULT_AI_MODEL
     );
 
     const stats = await statsService.getDashboardStats();

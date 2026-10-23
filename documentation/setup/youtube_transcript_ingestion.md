@@ -167,7 +167,7 @@ export GOOGLE_DRIVE_FOLDER_NAME="Stanford_AI_Notes"
 | `--local-only` | — | `False` | Skip Drive upload; save solely to local disk. |
 | `--output-dir <path>` | — | `~/.synapse-sync/processed_notes` | Local directory for note JSON backups. |
 | `--cache-dir <path>` | — | `~/.synapse-sync/transcript_cache` | Local directory for raw transcript cache. |
-| `--model <name>` | — | `gemini-2.5-flash` | Gemini model used for note generation. |
+| `--model <name>` | — | `gemini-3.8-flash` | Gemini model used for note generation. |
 
 #### `push` Command Options
 | Option / Flag | Environment Variable | Default | Description |

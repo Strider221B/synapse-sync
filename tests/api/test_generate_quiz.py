@@ -9,6 +9,7 @@ from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 from api.generate_quiz import GenerateQuiz
+from tools.youtube_cli.config import Config
 
 
 class TestGenerateQuiz:
@@ -74,7 +75,11 @@ class TestGenerateQuiz:
         mock_result = {
             "mcqs": self._SAMPLE_QUIZ_PAYLOAD["mcqs"],
             "flashcards": self._SAMPLE_QUIZ_PAYLOAD["flashcards"],
-            "metadata": {"model": "gemini-2.0-flash", "inputTokens": 100, "outputTokens": 80},
+            "metadata": {
+                "model": Config.get_default_model(),
+                "inputTokens": 100,
+                "outputTokens": 80,
+            },
         }
 
         with (
@@ -88,7 +93,7 @@ class TestGenerateQuiz:
 
         resp_data = self._get_response_json(handler)
         assert len(resp_data["mcqs"]) == 1
-        assert resp_data["metadata"]["model"] == "gemini-2.0-flash"
+        assert resp_data["metadata"]["model"] == Config.get_default_model()
 
     def test_do_post_returns_400_on_missing_body(self) -> None:
         """Verify do_POST responds with 400 when body is empty."""

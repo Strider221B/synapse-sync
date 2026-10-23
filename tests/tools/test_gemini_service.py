@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tools.youtube_cli.config import Config
 from tools.youtube_cli.gemini_service import GeminiService
 
 
@@ -36,10 +37,11 @@ class TestGeminiService:
         mock_genai.GenerativeModel.return_value = mock_model
 
         service = GeminiService(api_key="key", delay_seconds=0.0, genai_module=mock_genai)
-        res = service.call_with_retry("gemini-2.0-flash", "test prompt")
+        model = Config.get_default_model()
+        res = service.call_with_retry(model, "test prompt")
 
         assert res.text == '{"result": "ok"}'
-        mock_genai.GenerativeModel.assert_called_once_with(model_name="gemini-2.0-flash")
+        mock_genai.GenerativeModel.assert_called_once_with(model_name=model)
 
     def test_call_with_retry_retries_on_rate_limit_and_succeeds(self) -> None:
         """Verify call_with_retry catches 429 error and succeeds on subsequent try."""
@@ -53,8 +55,9 @@ class TestGeminiService:
         mock_genai.GenerativeModel.return_value = mock_model
 
         service = GeminiService(api_key="key", delay_seconds=0.0, genai_module=mock_genai)
+        model = Config.get_default_model()
         with patch("time.sleep"):
-            res = service.call_with_retry("gemini-2.0-flash", "prompt", max_retries=2)
+            res = service.call_with_retry(model, "prompt", max_retries=2)
 
         assert res.text == '{"result": "ok"}'
         assert mock_model.generate_content.call_count == 2
@@ -67,8 +70,9 @@ class TestGeminiService:
         mock_genai.GenerativeModel.return_value = mock_model
 
         service = GeminiService(api_key="key", delay_seconds=0.0, genai_module=mock_genai)
+        model = Config.get_default_model()
         with pytest.raises(ValueError, match="Invalid prompt format"):
-            service.call_with_retry("gemini-2.0-flash", "prompt", max_retries=3)
+            service.call_with_retry(model, "prompt", max_retries=3)
 
         assert mock_model.generate_content.call_count == 1
 

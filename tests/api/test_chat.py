@@ -9,6 +9,7 @@ from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 from api.chat import ChatEndpoint
+from tools.youtube_cli.config import Config
 
 
 class TestChatEndpoint:
@@ -69,7 +70,11 @@ class TestChatEndpoint:
         })
         mock_result = {
             "answer": self._SAMPLE_ANSWER,
-            "metadata": {"model": "gemini-2.0-flash", "inputTokens": 150, "outputTokens": 45},
+            "metadata": {
+                "model": Config.get_default_model(),
+                "inputTokens": 150,
+                "outputTokens": 45,
+            },
         }
 
         with (
@@ -83,7 +88,7 @@ class TestChatEndpoint:
 
         data = self._get_response_json(handler)
         assert data["answer"] == self._SAMPLE_ANSWER
-        assert data["metadata"]["model"] == "gemini-2.0-flash"
+        assert data["metadata"]["model"] == Config.get_default_model()
         assert data["metadata"]["inputTokens"] == 150
 
     def test_do_post_returns_400_on_missing_body(self) -> None:

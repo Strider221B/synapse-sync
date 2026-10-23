@@ -237,7 +237,7 @@ Sends note text to Google Gemini and receives structured MCQs and flashcards. Us
     }
   ],
   "metadata": {
-    "model": "gemini-2.0-flash",
+    "model": "gemini-3.8-flash",
     "inputTokens": 1250,
     "outputTokens": 890
   }
@@ -317,7 +317,7 @@ def handler(request):
     if len(words) > 8000:
         text = ' '.join(words[:8000])
     
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    model = genai.GenerativeModel('gemini-3.8-flash')
     
     prompt = f"""{SYSTEM_PROMPT.format(difficulty=difficulty)}
 
@@ -340,7 +340,7 @@ based strictly on the following text:
         
         result = json.loads(response.text)
         result['metadata'] = {
-            'model': 'gemini-2.0-flash',
+            'model': 'gemini-3.8-flash',
             'inputTokens': response.usage_metadata.prompt_token_count,
             'outputTokens': response.usage_metadata.candidates_token_count
         }
@@ -395,7 +395,7 @@ Generates **detailed, comprehensive notes** from a YouTube transcript or long do
   ],
   "markdownNotes": "# Lecture 1: Introduction to Machine Learning\n\n## Overview\n...",
   "metadata": {
-    "model": "gemini-2.0-flash",
+    "model": "gemini-3.8-flash",
     "inputTokens": 5000,
     "outputTokens": 1200
   }
@@ -433,7 +433,7 @@ AI study assistant that answers questions about note content. Maintains context 
 {
   "answer": "Think of it like learning to cook! **Supervised learning** is like following a recipe — someone gives you the ingredients (input) and the finished dish (output), and you learn the steps in between. **Unsupervised learning** is like being dropped in a kitchen with random ingredients and figuring out on your own which ones go well together, without anyone telling you what dish to make.",
   "metadata": {
-    "model": "gemini-2.0-flash",
+    "model": "gemini-3.8-flash",
     "inputTokens": 2100,
     "outputTokens": 350
   }
