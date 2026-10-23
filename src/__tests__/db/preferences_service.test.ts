@@ -27,6 +27,9 @@ describe('PreferencesService', () => {
     const goal = await service.get<number>(KEY_DAILY_GOAL);
     assert.equal(goal, PREFERENCE_DEFAULTS.dailyCardGoal);
 
+    const throttle = await service.get<string>('throttleSpeed');
+    assert.equal(throttle, 'low');
+
     const unknown = await service.get('unknown-key-xyz');
     assert.equal(unknown, undefined);
 

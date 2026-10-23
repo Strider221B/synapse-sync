@@ -13,6 +13,7 @@ import type { Note, Notebook, Quiz } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
 import { NotebookService } from '@/lib/db/services/notebook_service';
 import { QuizService } from '@/lib/db/services/quiz_service';
+import { PreferencesService } from '@/lib/db/services/preferences_service';
 
 interface NoteReaderPageProps {
   params: Promise<{ id: string }>;
@@ -52,6 +53,7 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
     totalChunks: number;
     mcqCount: number;
     flashcardCount: number;
+    throttleSpeed?: string;
   } | null>(null);
   const [quizError, setQuizError] = useState<string | null>(null);
 
@@ -112,13 +114,19 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
       let allFlashcards: GenerateQuizApiResponse['flashcards'] = [];
       let lastModel = DEFAULT_AI_MODEL;
 
+      const dbService = new DatabaseService();
+      const prefs = new PreferencesService(dbService);
+      const throttleSpeed = (await prefs.get<string>('throttleSpeed')) || 'low';
+      const delayMs = throttleSpeed === 'high' ? 4000 : 0;
+
       if (words.length <= CHUNK_WORDS) {
-        setGenerationProgress({ currentChunk: 1, totalChunks: 1, mcqCount: 0, flashcardCount: 0 });
+        setGenerationProgress({ currentChunk: 1, totalChunks: 1, mcqCount: 0, flashcardCount: 0, throttleSpeed });
         const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
           text: note.content,
           difficulty: 'medium',
           mcqCount: 5,
           flashcardCount: 5,
+          throttleSpeed,
         });
         allMCQs = response.mcqs;
         allFlashcards = response.flashcards;
@@ -130,21 +138,22 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
         }
 
         for (let idx = 0; idx < chunks.length; idx++) {
-          if (idx > 0) {
-            // Throttling to respect Gemini free tier limit (15 requests per minute = 4s interval)
-            await new Promise((resolve) => setTimeout(resolve, 4000));
+          if (idx > 0 && delayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
           }
           setGenerationProgress({
             currentChunk: idx + 1,
             totalChunks: chunks.length,
             mcqCount: allMCQs.length,
             flashcardCount: allFlashcards.length,
+            throttleSpeed,
           });
           const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
             text: chunks[idx],
             difficulty: 'medium',
             mcqCount: 5,
             flashcardCount: 5,
+            throttleSpeed,
           });
           allMCQs.push(...response.mcqs);
           allFlashcards.push(...response.flashcards);
@@ -165,7 +174,6 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
         tags: [note.title],
       }));
 
-      const dbService = new DatabaseService();
       const quizService = new QuizService(dbService);
       const newQuiz = await quizService.create(
         note.id,
@@ -418,7 +426,7 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
             <span>
-              ⚡ Generating quiz & flashcards across document (Chunk {generationProgress.currentChunk} of {generationProgress.totalChunks})...
+              ⚡ Generating quiz & flashcards across document (Chunk {generationProgress.currentChunk} of {generationProgress.totalChunks} • {generationProgress.throttleSpeed === 'high' ? 'High throttle (Free Tier)' : 'Low throttle (Paid Plan)'})...
             </span>
             <span>
               {generationProgress.mcqCount + generationProgress.flashcardCount} questions accumulated

@@ -251,3 +251,37 @@ class TestGenerateQuiz:
             instance.do_POST()
             mock_resp.assert_called_once_with(self._HTTP_BAD_REQUEST)
 
+    def test_sanitize_throttle_speed(self) -> None:
+        """Verify throttle speed sanitization and defaults."""
+        handler = self._create_handler()
+        assert handler._sanitize_throttle_speed(None) == "low"
+        assert handler._sanitize_throttle_speed("invalid") == "low"
+        assert handler._sanitize_throttle_speed("HIGH") == "high"
+        assert handler._sanitize_throttle_speed("low") == "low"
+
+    def test_do_post_with_throttle_speed_high(self) -> None:
+        """Verify do_POST passes high throttle speed configuration."""
+        payload = {
+            "text": self._SAMPLE_TEXT,
+            "throttleSpeed": "high",
+        }
+        handler = self._create_handler(payload)
+        with (
+            patch.object(handler, "generate_quiz") as mock_gen,
+            patch.object(handler, "send_response") as mock_resp,
+            patch.object(handler, "send_header"),
+            patch.object(handler, "end_headers"),
+        ):
+            mock_gen.return_value = {"mcqs": [], "flashcards": []}
+            handler.do_POST()
+            mock_resp.assert_called_once_with(self._HTTP_OK)
+            mock_gen.assert_called_once_with(
+                self._SAMPLE_TEXT,
+                "medium",
+                5,
+                5,
+                chunk_size=2500,
+                delay_seconds=4.0,
+            )
+
+

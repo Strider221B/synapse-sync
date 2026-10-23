@@ -42,6 +42,10 @@ class GenerateQuiz(BaseHTTPRequestHandler):
     _MAX_COUNT: ClassVar[int] = 10
     _DEFAULT_DIFFICULTY: ClassVar[str] = "medium"
     _VALID_DIFFICULTIES: ClassVar[tuple[str, ...]] = ("easy", "medium", "hard")
+    _DEFAULT_THROTTLE_SPEED: ClassVar[str] = "low"
+    _VALID_THROTTLE_SPEEDS: ClassVar[tuple[str, ...]] = ("low", "high")
+    _THROTTLE_DELAY_HIGH: ClassVar[float] = 4.0
+    _THROTTLE_DELAY_LOW: ClassVar[float] = 0.0
     _TEMPERATURE: ClassVar[float] = 0.7
 
     _SYSTEM_PROMPT: ClassVar[str] = (
@@ -106,10 +110,19 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         mcq_count = self._clamp_count(body_dict.get("mcqCount", self._DEFAULT_COUNT))
         flash_count = self._clamp_count(body_dict.get("flashcardCount", self._DEFAULT_COUNT))
         chunk_size = self._sanitize_chunk_size(body_dict.get("chunkSize"))
+        throttle_speed = self._sanitize_throttle_speed(body_dict.get("throttleSpeed"))
+        delay_sec = (
+            self._THROTTLE_DELAY_HIGH if throttle_speed == "high" else self._THROTTLE_DELAY_LOW
+        )
 
         try:
             result = self.generate_quiz(
-                text, difficulty, mcq_count, flash_count, chunk_size=chunk_size
+                text,
+                difficulty,
+                mcq_count,
+                flash_count,
+                chunk_size=chunk_size,
+                delay_seconds=delay_sec,
             )
             self._send_json(self._HTTP_OK, result)
         except Exception as err:
@@ -124,10 +137,11 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         service: GeminiService | None = None,
         model_name: str | None = None,
         chunk_size: int = _DEFAULT_CHUNK_WORDS,
+        delay_seconds: float = _THROTTLE_DELAY_LOW,
     ) -> dict[str, Any]:
         """Generate structured MCQs and flashcards with chunking for large texts."""
         active_model = model_name or Config.get_default_model()
-        gemini_svc = service if service is not None else GeminiService()
+        gemini_svc = service if service is not None else GeminiService(delay_seconds=delay_seconds)
         words = text.split()
         if len(words) <= chunk_size:
             return self._generate_single_chunk(
@@ -299,6 +313,11 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         """Sanitize and validate difficulty string, returning default if invalid."""
         clean = str(diff).lower() if diff is not None else self._DEFAULT_DIFFICULTY
         return clean if clean in self._VALID_DIFFICULTIES else self._DEFAULT_DIFFICULTY
+
+    def _sanitize_throttle_speed(self, speed_val: Any) -> str:
+        """Sanitize and validate throttle speed parameter or return default."""
+        clean = str(speed_val).lower() if speed_val is not None else self._DEFAULT_THROTTLE_SPEED
+        return clean if clean in self._VALID_THROTTLE_SPEEDS else self._DEFAULT_THROTTLE_SPEED
 
     def _send_error(self, status: int, code: str, message: str) -> None:
         """Emit structured JSON error response conforming to API standards."""

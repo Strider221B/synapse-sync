@@ -10,6 +10,7 @@ import type { Flashcard, MCQCard, Note, Quiz } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
 import { QuizService } from '@/lib/db/services/quiz_service';
 import { SRSCardService } from '@/lib/db/services/srs_card_service';
+import { PreferencesService } from '@/lib/db/services/preferences_service';
 import { MCQCard as MCQCardComponent } from '@/components/quiz/MCQCard';
 import { QuizResults } from '@/components/quiz/QuizResults';
 import { FlashCard as FlashCardComponent } from '@/components/quiz/FlashCard';
@@ -69,6 +70,7 @@ function QuizContent({ params }: QuizPageProps) {
     totalChunks: number;
     mcqCount: number;
     flashcardCount: number;
+    throttleSpeed?: string;
   } | null>(null);
   const [rerollError, setRerollError] = useState<string | null>(null);
 
@@ -186,13 +188,19 @@ function QuizContent({ params }: QuizPageProps) {
       let allFlashcards: GenerateQuizApiResponse['flashcards'] = [];
       let lastModel = DEFAULT_AI_MODEL;
 
+      const dbService = new DatabaseService();
+      const prefs = new PreferencesService(dbService);
+      const throttleSpeed = (await prefs.get<string>('throttleSpeed')) || 'low';
+      const delayMs = throttleSpeed === 'high' ? 4000 : 0;
+
       if (words.length <= CHUNK_WORDS) {
-        setRerollProgress({ currentChunk: 1, totalChunks: 1, mcqCount: 0, flashcardCount: 0 });
+        setRerollProgress({ currentChunk: 1, totalChunks: 1, mcqCount: 0, flashcardCount: 0, throttleSpeed });
         const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
           text: note.content,
           difficulty: 'medium',
           mcqCount: 5,
           flashcardCount: 5,
+          throttleSpeed,
         });
         allMCQs = response.mcqs;
         allFlashcards = response.flashcards;
@@ -204,21 +212,22 @@ function QuizContent({ params }: QuizPageProps) {
         }
 
         for (let idx = 0; idx < chunks.length; idx++) {
-          if (idx > 0) {
-            // Throttling to respect Gemini free tier limit (15 requests per minute = 4s interval)
-            await new Promise((resolve) => setTimeout(resolve, 4000));
+          if (idx > 0 && delayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
           }
           setRerollProgress({
             currentChunk: idx + 1,
             totalChunks: chunks.length,
             mcqCount: allMCQs.length,
             flashcardCount: allFlashcards.length,
+            throttleSpeed,
           });
           const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
             text: chunks[idx],
             difficulty: 'medium',
             mcqCount: 5,
             flashcardCount: 5,
+            throttleSpeed,
           });
           allMCQs.push(...response.mcqs);
           allFlashcards.push(...response.flashcards);
@@ -239,7 +248,6 @@ function QuizContent({ params }: QuizPageProps) {
         tags: [note.title],
       }));
 
-      const dbService = new DatabaseService();
       const quizService = new QuizService(dbService);
       const newQuiz = await quizService.create(
         note.id,
@@ -480,7 +488,7 @@ function QuizContent({ params }: QuizPageProps) {
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
             <span>
-              ⚡ Re-generating questions across document (Chunk {rerollProgress.currentChunk} of {rerollProgress.totalChunks})...
+              ⚡ Re-generating questions across document (Chunk {rerollProgress.currentChunk} of {rerollProgress.totalChunks} • {rerollProgress.throttleSpeed === 'high' ? 'High throttle (Free Tier)' : 'Low throttle (Paid Plan)'})...
             </span>
             <span>
               {rerollProgress.mcqCount + rerollProgress.flashcardCount} questions accumulated

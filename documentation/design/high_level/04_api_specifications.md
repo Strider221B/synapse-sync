@@ -206,12 +206,13 @@ Sends note text to Google Gemini and receives structured MCQs and flashcards. Us
 }
 ```
 
-| Field            | Type   | Required | Default    | Description                       |
-|:-----------------|:-------|:---------|:-----------|:----------------------------------|
-| `text`           | string | Yes      | —          | Note content to generate from     |
-| `difficulty`     | string | No       | `"medium"` | `"easy"`, `"medium"`, or `"hard"` |
-| `mcqCount`       | int    | No       | `5`        | Number of MCQs (1-10)             |
-| `flashcardCount` | int    | No       | `5`        | Number of flashcards (1-10)       |
+| Field            | Type   | Required | Default    | Description                                             |
+|:-----------------|:-------|:---------|:-----------|:--------------------------------------------------------|
+| `text`           | string | Yes      | —          | Note content to generate from                           |
+| `difficulty`     | string | No       | `"medium"` | `"easy"`, `"medium"`, or `"hard"`                       |
+| `mcqCount`       | int    | No       | `5`        | Number of MCQs (1-10)                                   |
+| `flashcardCount` | int    | No       | `5`        | Number of flashcards (1-10)                             |
+| `throttleSpeed`  | string | No       | `"low"`    | `"low"` (paid plan, 0s delay) or `"high"` (free tier, 4s delay) |
 
 #### Response — `200 OK`
 

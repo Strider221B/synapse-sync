@@ -6,6 +6,7 @@ import { ThemeToggle } from '@/components/common/ThemeToggle';
 import { SettingRow } from '@/components/settings/SettingRow';
 import { NumberInput } from '@/components/settings/NumberInput';
 import { SelectDropdown, type SelectOption } from '@/components/settings/SelectDropdown';
+import { ClearDataModal } from '@/components/settings/ClearDataModal';
 import { useToast } from '@/components/common/ToastNotification';
 import { DatabaseService } from '@/lib/db/database_service';
 import { PreferencesService } from '@/lib/db/services/preferences_service';
@@ -18,11 +19,17 @@ const DIFFICULTY_OPTIONS: SelectOption[] = [
   { value: 'hard', label: 'Hard (Deep analytical & edge cases)' },
 ];
 
+const THROTTLE_OPTIONS: SelectOption[] = [
+  { value: 'low', label: 'Low (Paid Plan - Faster)' },
+  { value: 'high', label: 'High (Free Tier - Throttled)' },
+];
+
 export default function SettingsPage() {
   const toast = useToast();
 
   const [dailyGoal, setDailyGoal] = useState<number>(20);
   const [difficulty, setDifficulty] = useState<string>('medium');
+  const [throttleSpeed, setThrottleSpeed] = useState<string>('low');
   const [confirmClearOpen, setConfirmClearOpen] = useState<boolean>(false);
   const [isClearing, setIsClearing] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
@@ -36,10 +43,12 @@ export default function SettingsPage() {
         const prefs = new PreferencesService(dbService);
         const goal = await prefs.get<number>('dailyCardGoal');
         const diff = await prefs.get<string>('quizDifficulty');
+        const throttle = await prefs.get<string>('throttleSpeed');
         const lastSync = await prefs.get<string>('lastSyncTimestamp');
 
         if (goal !== undefined) setDailyGoal(goal);
         if (diff !== undefined) setDifficulty(diff);
+        if (throttle !== undefined) setThrottleSpeed(throttle);
         if (lastSync) setLastSyncTime(lastSync);
       } catch (err) {
         console.error('Failed to load user preferences:', err);
@@ -70,6 +79,18 @@ export default function SettingsPage() {
       toast.success(`Default quiz difficulty updated to ${newDiff}`);
     } catch {
       toast.error('Failed to save difficulty preference');
+    }
+  };
+
+  const handleThrottleSpeedChange = async (newSpeed: string) => {
+    setThrottleSpeed(newSpeed);
+    try {
+      const dbService = new DatabaseService();
+      const prefs = new PreferencesService(dbService);
+      await prefs.set('throttleSpeed', newSpeed);
+      toast.success(`Throttle speed set to ${newSpeed === 'high' ? 'High' : 'Low'}`);
+    } catch {
+      toast.error('Failed to save throttle speed preference');
     }
   };
 
@@ -113,13 +134,7 @@ export default function SettingsPage() {
         app: 'SynapseSync',
         version: '0.1.0',
         exportedAt: new Date().toISOString(),
-        data: {
-          notebooks,
-          notes,
-          quizzes,
-          flashcards,
-          srsCards,
-        },
+        data: { notebooks, notes, quizzes, flashcards, srsCards },
       };
 
       const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
@@ -147,7 +162,6 @@ export default function SettingsPage() {
       const dbService = new DatabaseService();
       const db = await dbService.getDB();
 
-      // Clear all stores cleanly
       const storeNames = [
         DB_STORES.NOTEBOOKS,
         DB_STORES.NOTES,
@@ -203,17 +217,9 @@ export default function SettingsPage() {
           boxShadow: 'var(--shadow-sm)',
         }}
       >
-        <h2
-          style={{
-            fontSize: '1.15rem',
-            fontWeight: 600,
-            color: 'var(--color-text-primary)',
-            marginBottom: '0.75rem',
-          }}
-        >
+        <h2 style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '0.75rem' }}>
           Appearance
         </h2>
-
         <SettingRow
           label="Interface Theme"
           description="Choose between dark theme, light theme, or follow your operating system appearance."
@@ -232,17 +238,9 @@ export default function SettingsPage() {
           boxShadow: 'var(--shadow-sm)',
         }}
       >
-        <h2
-          style={{
-            fontSize: '1.15rem',
-            fontWeight: 600,
-            color: 'var(--color-text-primary)',
-            marginBottom: '0.75rem',
-          }}
-        >
+        <h2 style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '0.75rem' }}>
           Cloud & Synchronization
         </h2>
-
         <SettingRow
           label="Google Drive Integration"
           description="Link your Google account to import documents and sync study notes from Google Drive."
@@ -285,7 +283,7 @@ export default function SettingsPage() {
         </SettingRow>
       </section>
 
-      {/* 3. Study Preferences */}
+      {/* 3. Study & AI Preferences */}
       <section
         style={{
           backgroundColor: 'var(--color-surface)',
@@ -295,15 +293,8 @@ export default function SettingsPage() {
           boxShadow: 'var(--shadow-sm)',
         }}
       >
-        <h2
-          style={{
-            fontSize: '1.15rem',
-            fontWeight: 600,
-            color: 'var(--color-text-primary)',
-            marginBottom: '0.75rem',
-          }}
-        >
-          Study Preferences
+        <h2 style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '0.75rem' }}>
+          Study & AI Preferences
         </h2>
 
         <SettingRow
@@ -334,6 +325,20 @@ export default function SettingsPage() {
             ariaLabel="Default quiz difficulty"
           />
         </SettingRow>
+
+        <SettingRow
+          label="Throttle Speed"
+          description="Controls request pacing between AI chunks. Use high for free tier gemini (15 RPM limit). Low is recommended for Paid plans."
+          htmlFor="throttle-speed-select"
+        >
+          <SelectDropdown
+            id="throttle-speed-select"
+            value={throttleSpeed}
+            onChange={handleThrottleSpeedChange}
+            options={THROTTLE_OPTIONS}
+            ariaLabel="Throttle Speed"
+          />
+        </SettingRow>
       </section>
 
       {/* 4. Data Management */}
@@ -346,14 +351,7 @@ export default function SettingsPage() {
           boxShadow: 'var(--shadow-sm)',
         }}
       >
-        <h2
-          style={{
-            fontSize: '1.15rem',
-            fontWeight: 600,
-            color: 'var(--color-text-primary)',
-            marginBottom: '0.75rem',
-          }}
-        >
+        <h2 style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '0.75rem' }}>
           Data Management
         </h2>
 
@@ -421,14 +419,7 @@ export default function SettingsPage() {
           boxShadow: 'var(--shadow-sm)',
         }}
       >
-        <h2
-          style={{
-            fontSize: '1.15rem',
-            fontWeight: 600,
-            color: 'var(--color-text-primary)',
-            marginBottom: '0.75rem',
-          }}
-        >
+        <h2 style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '0.75rem' }}>
           About SynapseSync
         </h2>
 
@@ -448,119 +439,13 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* Confirmation Modal for Clear Data */}
-      {confirmClearOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="clear-modal-title"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
-            backdropFilter: 'blur(6px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9999,
-            padding: '1.5rem',
-          }}
-        >
-          <div
-            className="animate-fade-in"
-            style={{
-              backgroundColor: 'var(--color-surface)',
-              borderRadius: 'var(--radius-xl)',
-              border: '1px solid var(--color-surface-border)',
-              padding: '2rem',
-              maxWidth: '480px',
-              width: '100%',
-              boxShadow: 'var(--shadow-lg)',
-            }}
-          >
-            <div
-              style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--color-error-bg)',
-                color: 'var(--color-error)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '1.5rem',
-                marginBottom: '1rem',
-              }}
-            >
-              ⚠️
-            </div>
-
-            <h3
-              id="clear-modal-title"
-              style={{
-                fontSize: '1.25rem',
-                fontWeight: 700,
-                color: 'var(--color-text-primary)',
-                marginBottom: '0.5rem',
-              }}
-            >
-              Clear All Local Data?
-            </h3>
-
-            <p
-              style={{
-                fontSize: '0.9rem',
-                color: 'var(--color-text-secondary)',
-                lineHeight: 1.5,
-                marginBottom: '1.5rem',
-              }}
-            >
-              This action will permanently delete all notebooks, notes, generated quizzes, flashcards,
-              and spaced repetition progress from your browser storage. This action cannot be undone.
-            </p>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-              <button
-                type="button"
-                onClick={() => setConfirmClearOpen(false)}
-                disabled={isClearing}
-                className="btn-interactive"
-                style={{
-                  padding: '0.5rem 1rem',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--color-surface-border)',
-                  backgroundColor: 'transparent',
-                  color: 'var(--color-text-primary)',
-                  fontSize: '0.875rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={handleClearAllData}
-                disabled={isClearing}
-                className="btn-interactive"
-                style={{
-                  padding: '0.5rem 1rem',
-                  borderRadius: 'var(--radius-md)',
-                  border: 'none',
-                  backgroundColor: 'var(--color-error)',
-                  color: '#ffffff',
-                  fontSize: '0.875rem',
-                  fontWeight: 600,
-                  cursor: isClearing ? 'wait' : 'pointer',
-                }}
-              >
-                {isClearing ? 'Clearing...' : 'Yes, Delete All'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Clear Data Confirmation Modal */}
+      <ClearDataModal
+        isOpen={confirmClearOpen}
+        isClearing={isClearing}
+        onClose={() => setConfirmClearOpen(false)}
+        onConfirm={handleClearAllData}
+      />
     </div>
   );
 }

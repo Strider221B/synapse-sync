@@ -44,3 +44,12 @@ class TestConfig:
             assert config.get_server_url() == "https://synapse-sync.vercel.app"
             assert config.get_drive_token() == "gdrive-token-123"
             assert config.get_drive_folder() == "MyStudyDrive"
+
+    def test_throttle_speed_environment_overrides(self) -> None:
+        """Verify THROTTLE_SPEED environment variable toggles delay seconds."""
+        with patch.dict("os.environ", {"THROTTLE_SPEED": "low"}, clear=True):
+            assert Config().get_delay_seconds() == 0.0
+
+        with patch.dict("os.environ", {"THROTTLE_SPEED": "high"}, clear=True):
+            assert Config().get_delay_seconds() == 4.0
+
