@@ -312,10 +312,11 @@ def handler(request):
                       "message": "Provide at least 50 characters of text."}
         }), 400
     
-    # Truncate to ~8000 words to stay within token limits
+    # Chunketize text (like NoteGenerator) to avoid losing content on long documents (up to 100+ pages)
     words = text.split()
-    if len(words) > 8000:
-        text = ' '.join(words[:8000])
+    CHUNK_WORDS = 2500
+    chunks = [words[i:i + CHUNK_WORDS] for i in range(0, len(words), CHUNK_WORDS)]
+    # Generates MCQs and flashcards per chunk and stitches/merges results across all segments
     
     model = genai.GenerativeModel('gemini-3.8-flash')
     
