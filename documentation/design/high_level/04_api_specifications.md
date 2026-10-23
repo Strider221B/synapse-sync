@@ -527,7 +527,10 @@ def call_gemini_with_retry(model, prompt, config, max_retries=3):
 | Variable         | Service        | Where Set       | Description                              |
 |:-----------------|:---------------|:----------------|:-----------------------------------------|
 | `GEMINI_API_KEY` | Google Gemini  | Vercel Dashboard | API key from Google AI Studio           |
-| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google Cloud | Vercel + `.env.local` | OAuth 2.0 Web Client ID        |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google Cloud | Vercel + `.env.local` | Default OAuth 2.0 Web Client ID        |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID_SC` | Google Cloud | Vercel + `.env.local` | OAuth 2.0 Web Client ID for user SC    |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID_DB` | Google Cloud | Vercel + `.env.local` | OAuth 2.0 Web Client ID for user DB    |
+| `NEXT_PUBLIC_GOOGLE_USERS` | Internal | Vercel + `.env.local` | Optional JSON array of custom pre-registered users |
 | `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` | Google Cloud | Vercel + `.env.local` | OAuth 2.0 redirect URI          |
 | `NEXT_PUBLIC_API_URL` | Internal   | Vercel + `.env.local` | API base URL (for absolute URLs)      |
 | `YOUTUBE_NOTES_API_KEY` | Internal | Vercel Dashboard | Shared secret for authenticating local CLI pushes to `/api/youtube-notes` |

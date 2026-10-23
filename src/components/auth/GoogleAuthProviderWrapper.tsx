@@ -1,7 +1,9 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { AuthService, type UserInfo } from '@/lib/auth/auth_service';
+import type { PreRegisteredUser } from '@/lib/auth/google_auth_config';
+import { UserRegistryService } from '@/lib/auth/user_registry_service';
 
 export interface GoogleAuthContextType {
   isAuthenticated: boolean;
@@ -10,6 +12,9 @@ export interface GoogleAuthContextType {
   login: () => Promise<void>;
   logout: () => Promise<void>;
   getAccessToken: () => Promise<string>;
+  selectedUser: string;
+  setSelectedUser: (userId: string) => void;
+  registeredUsers: PreRegisteredUser[];
 }
 
 const defaultAuthService = new AuthService();
@@ -21,6 +26,9 @@ const GoogleAuthContext = createContext<GoogleAuthContextType>({
   login: async () => {},
   logout: async () => {},
   getAccessToken: async () => '',
+  selectedUser: 'SC',
+  setSelectedUser: () => {},
+  registeredUsers: [],
 });
 
 export function useGoogleAuth(): GoogleAuthContextType {
@@ -35,12 +43,20 @@ interface GoogleAuthProviderWrapperProps {
  * Root Google authentication provider wrapper managing client-side Google auth session.
  */
 export function GoogleAuthProviderWrapper({ children }: GoogleAuthProviderWrapperProps) {
-  const [authService] = useState<AuthService>(() => new AuthService());
+  const registry = useMemo(() => new UserRegistryService(), []);
+  const [selectedUser, setSelectedUserState] = useState<string>(() => registry.getSelectedUserId());
+  const [registeredUsers] = useState<PreRegisteredUser[]>(() => registry.getUsers());
+  const [authService] = useState<AuthService>(() => {
+    const service = new AuthService();
+    service.setClientId(registry.getClientIdForUser(selectedUser));
+    return service;
+  });
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [user, setUser] = useState<UserInfo | null>(null);
 
   useEffect(() => {
     let active = true;
+    authService.setClientId(registry.getClientIdForUser(selectedUser));
     authService.initialize().then(() => {
       if (!active) return;
       const isAuthed = authService.isAuthenticated();
@@ -70,12 +86,25 @@ export function GoogleAuthProviderWrapper({ children }: GoogleAuthProviderWrappe
     return () => {
       active = false;
     };
-  }, [authService]);
+  }, [authService, registry, selectedUser]);
+
+  const handleSelectUser = (userId: string) => {
+    registry.setSelectedUserId(userId);
+    setSelectedUserState(userId);
+    authService.setClientId(registry.getClientIdForUser(userId));
+  };
 
   const handleLogin = async () => {
+    authService.setClientId(registry.getClientIdForUser(selectedUser));
     const userInfo = await authService.login();
     setIsAuthenticated(true);
     setUser(userInfo);
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('synapse-auth-changed', {
+        detail: { isAuthenticated: true, user: userInfo, selectedUser },
+      }));
+    }
 
     const { SyncManager } = await import('@/lib/db/sync_manager');
     void SyncManager.getInstance().forceSync().catch((err) => {
@@ -88,8 +117,21 @@ export function GoogleAuthProviderWrapper({ children }: GoogleAuthProviderWrappe
     setIsAuthenticated(false);
     setUser(null);
 
+    const { DatabaseService } = await import('@/lib/db/database_service');
+    const dbService = new DatabaseService();
+    await dbService.clearAllData();
+
     const { SyncManager } = await import('@/lib/db/sync_manager');
     SyncManager.getInstance().setSyncService(null);
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('synapse-auth-changed', {
+        detail: { isAuthenticated: false, user: null, selectedUser },
+      }));
+      window.dispatchEvent(new CustomEvent('synapse-sync-completed', {
+        detail: { success: true, timestamp: new Date().toISOString() },
+      }));
+    }
   };
 
   const handleGetAccessToken = async (): Promise<string> => {
@@ -105,6 +147,9 @@ export function GoogleAuthProviderWrapper({ children }: GoogleAuthProviderWrappe
         login: handleLogin,
         logout: handleLogout,
         getAccessToken: handleGetAccessToken,
+        selectedUser,
+        setSelectedUser: handleSelectUser,
+        registeredUsers,
       }}
     >
       {children}

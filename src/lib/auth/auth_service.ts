@@ -141,6 +141,25 @@ export class AuthService {
   }
 
   /**
+   * Updates the active Google OAuth configuration, such as switching client IDs.
+   */
+  public updateConfig(newConfig: Partial<GoogleAuthConfig>): void {
+    if (newConfig.clientId !== undefined) {
+      this._config.clientId = newConfig.clientId;
+    }
+    if (newConfig.redirectUri !== undefined) {
+      this._config.redirectUri = newConfig.redirectUri;
+    }
+  }
+
+  /**
+   * Sets the active OAuth client ID for authentication requests.
+   */
+  public setClientId(clientId: string): void {
+    this._config.clientId = clientId;
+  }
+
+  /**
    * Builds the Google OAuth2 authorization endpoint URL with query parameters.
    */
   protected _buildAuthUrl(): string {

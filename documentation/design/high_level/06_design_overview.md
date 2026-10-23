@@ -141,6 +141,15 @@ graph TB
 | **Rationale**| Single codebase; installable on both iOS and Android home screens; offline via Service Worker + IndexedDB; no app store submission required |
 | **Tradeoff**| Slightly less native feel than React Native; limited push notification support on iOS; depends on browser cache policies |
 
+### ADR-09: Google Drive as Primary User Identity & Multi-User Context Boundary
+
+| Aspect     | Decision                                                                  |
+|:-----------|:--------------------------------------------------------------------------|
+| **Context**| Multiple team members and students use the application without wanting a separate backend database, user table, or custom auth server. Each user has their own Google Drive account and assigned OAuth Client ID. |
+| **Decision**| Google Drive acts as the sole user authentication boundary. A user combobox beside the connect button lets users select their pre-registered profile (`SC`, `DB`), dynamically applying their `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. Connecting pulls all notes, quizzes, and complete learning state (`SynapseSync/app_state.json`). Disconnecting purges all 9 IndexedDB stores and resets UI to default `0` counters. |
+| **Rationale**| Eliminates server-side user data storage completely. Guarantees 100% data isolation on shared devices. Provides instant multi-user switching without backend maintenance overhead. |
+| **Tradeoff**| Requires clearing local IndexedDB cache upon logout or user switch so remote pull is needed when reconnecting. |
+
 ---
 
 ## 4. Component Interaction Flows

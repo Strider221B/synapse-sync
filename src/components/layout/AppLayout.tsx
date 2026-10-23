@@ -3,6 +3,7 @@ import { Sidebar } from './Sidebar';
 import { BottomNav } from './BottomNav';
 import { ConnectionStatus } from '@/components/common/ConnectionStatus';
 import { ThemeToggle } from '@/components/common/ThemeToggle';
+import { GoogleDriveConnectButton } from '@/components/auth/GoogleDriveConnectButton';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { ToastProvider } from '@/components/common/ToastNotification';
 
@@ -63,6 +64,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 gap: '0.875rem',
               }}
             >
+              <GoogleDriveConnectButton compact />
               <ThemeToggle id="header-theme-toggle" />
               <ConnectionStatus />
             </div>
