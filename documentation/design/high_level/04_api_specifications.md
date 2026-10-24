@@ -548,28 +548,25 @@ def call_gemini_with_retry(model, prompt, config, max_retries=3):
 // vercel.json
 {
   "version": 2,
-  "builds": [
+  "framework": "nextjs",
+  "headers": [
     {
-      "src": "api/*.py",
-      "use": "@vercel/python"
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "POST, GET, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
+      ]
     },
     {
-      "src": "next.config.js",
-      "use": "@vercel/next"
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
     }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
-    }
-  ],
-  "functions": {
-    "api/*.py": {
-      "maxDuration": 60,
-      "memory": 1024
-    }
-  }
+  ]
 }
 ```
 
