@@ -1,5 +1,6 @@
 import {
   GOOGLE_AUTH_ENDPOINT,
+  GOOGLE_DEFAULT_REDIRECT_URI,
   GOOGLE_REVOKE_ENDPOINT,
   GOOGLE_USERINFO_ENDPOINT,
   type GoogleAuthConfig,
@@ -31,6 +32,10 @@ export class AuthService {
   private static readonly _DEFAULT_EXPIRY_SECONDS = 3600;
   private static readonly _MS_PER_SECOND = 1000;
   private static readonly _EXPIRY_BUFFER_MS = 60000;
+  private static readonly _HTTP_PREFIX = 'http://';
+  private static readonly _HTTPS_PREFIX = 'https://';
+  private static readonly _LOCALHOST = 'localhost';
+  private static readonly _LOCAL_IP = '127.0.0.1';
 
   private readonly _storage: Storage | null;
   private readonly _fetchFn: typeof fetch;
@@ -52,7 +57,11 @@ export class AuthService {
         ? window.localStorage
         : null;
     this._fetchFn = this._resolveFetch(customFetch);
-    this._config = customConfig ?? googleAuthConfig;
+    const baseConfig = customConfig ?? googleAuthConfig;
+    this._config = {
+      ...baseConfig,
+      redirectUri: this._normalizeRedirectUri(baseConfig.redirectUri),
+    };
     this._popupOpener = popupOpener;
   }
 
@@ -148,7 +157,7 @@ export class AuthService {
       this._config.clientId = newConfig.clientId;
     }
     if (newConfig.redirectUri !== undefined) {
-      this._config.redirectUri = newConfig.redirectUri;
+      this._config.redirectUri = this._normalizeRedirectUri(newConfig.redirectUri);
     }
   }
 
@@ -160,12 +169,19 @@ export class AuthService {
   }
 
   /**
+   * Returns the normalized, effective redirect URI used for OAuth authentication.
+   */
+  public getRedirectUri(): string {
+    return this._getEffectiveRedirectUri();
+  }
+
+  /**
    * Builds the Google OAuth2 authorization endpoint URL with query parameters.
    */
   protected _buildAuthUrl(): string {
     const params = new URLSearchParams({
       client_id: this._config.clientId,
-      redirect_uri: this._config.redirectUri,
+      redirect_uri: this.getRedirectUri(),
       response_type: 'token',
       scope: this._config.scopes.join(' '),
       include_granted_scopes: 'true',
@@ -317,6 +333,37 @@ export class AuthService {
     } catch {
       // Ignore background revocation failure
     }
+  }
+
+  /**
+   * Resolves the effective redirect URI, falling back to window origin on non-local browser environments.
+   */
+  protected _getEffectiveRedirectUri(): string {
+    const uri = this._normalizeRedirectUri(this._config.redirectUri);
+    if (uri === GOOGLE_DEFAULT_REDIRECT_URI && typeof window !== 'undefined' && window.location?.origin) {
+      const hostname = window.location.hostname;
+      if (hostname !== AuthService._LOCALHOST && hostname !== AuthService._LOCAL_IP) {
+        return window.location.origin.replace(/\/+$/, '');
+      }
+    }
+    return uri;
+  }
+
+  /**
+   * Normalizes a redirect URI ensuring valid protocol scheme and no trailing slashes.
+   */
+  protected _normalizeRedirectUri(rawUri?: string | null): string {
+    if (!rawUri || !rawUri.trim()) {
+      return typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin.replace(/\/+$/, '')
+        : GOOGLE_DEFAULT_REDIRECT_URI;
+    }
+    let uri = rawUri.trim();
+    if (!uri.startsWith(AuthService._HTTP_PREFIX) && !uri.startsWith(AuthService._HTTPS_PREFIX)) {
+      const isLocal = uri.startsWith(AuthService._LOCALHOST) || uri.startsWith(AuthService._LOCAL_IP);
+      uri = `${isLocal ? AuthService._HTTP_PREFIX : AuthService._HTTPS_PREFIX}${uri}`;
+    }
+    return uri.replace(/\/+$/, '');
   }
 
   /**

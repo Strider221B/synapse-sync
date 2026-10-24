@@ -230,14 +230,21 @@ https://<your-project-name>.vercel.app/api/health
 
 ## 8. Troubleshooting & Common Production Pitfalls
 
-### Issue 1: `redirect_uri_mismatch` (Google 400 Error)
-* **Symptom:** Clicking "Connect Google Drive" opens a Google error popup: `Error 400: redirect_uri_mismatch`.
-* **Cause:** The URL in `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` or the browser origin does not match the URIs in Google Cloud Console.
-* **Fix:**
-  1. Note the exact URL displayed in the error details (e.g., `https://synapse-sync-xxx.vercel.app`).
-  2. Open [Google Cloud Console Credentials](https://console.cloud.google.com/apis/credentials).
-  3. Add both the Authorized JavaScript Origin and Authorized Redirect URI matching that exact domain (without trailing slash).
-  4. Ensure `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` in Vercel Environment Variables is set to that URL.
+### Issue 1: Google OAuth Error 400 (`invalid_request` or `redirect_uri_mismatch`)
+* **Symptom A:** Popup shows `Error 400: invalid_request` with `Request details: redirect_uri=synapse-sync-sc.vercel.app`.
+  * **Cause:** The `redirect_uri` is missing the `https://` protocol scheme (e.g. `synapse-sync-sc.vercel.app` was entered instead of `https://synapse-sync-sc.vercel.app`).
+  * **Fix:**
+    1. In **Vercel** → Project Settings → **Environment Variables**, update `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` to `https://synapse-sync-sc.vercel.app` (including `https://`).
+    2. Redeploy the latest deployment in Vercel to pick up the updated environment variable.
+* **Symptom B:** Popup shows `Error 400: redirect_uri_mismatch`.
+  * **Cause:** The URL in `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` or the browser origin does not match the URIs in Google Cloud Console OAuth 2.0 Client credentials.
+  * **Fix:**
+    1. Note the exact URL displayed in the error details (e.g., `https://synapse-sync-sc.vercel.app`).
+    2. Open [Google Cloud Console Credentials](https://console.cloud.google.com/apis/credentials).
+    3. Select your OAuth 2.0 Client ID.
+    4. Add `https://synapse-sync-sc.vercel.app` under **Authorized JavaScript origins**.
+    5. Add `https://synapse-sync-sc.vercel.app` under **Authorized redirect URIs** (ensure no trailing slash).
+    6. Save and allow 5–10 minutes for Google's edge cache to propagate.
 
 ### Issue 2: Python Serverless Function Timeout (504 Gateway Timeout)
 * **Symptom:** Long API requests (like large quiz generation or note summaries) time out with HTTP 504.
