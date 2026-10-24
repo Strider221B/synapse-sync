@@ -7,7 +7,7 @@
 [![Version](https://img.shields.io/badge/version-1.1.0-orange)](#)
 [![Next.js](https://img.shields.io/badge/Next.js-16.4.2-black?logo=next.js)](https://nextjs.org/)
 [![Python](https://img.shields.io/badge/python-3.13-blue?logo=python)](https://python.org/)
-[![AI](https://img.shields.io/badge/AI-Google%20Gemini-4285F4?logo=google)](https://aistudio.google.com/)
+[![AI](https://img.shields.io/badge/AI-Gemini%203.8%20Flash-4285F4?logo=google)](https://aistudio.google.com/)
 [![PWA](https://img.shields.io/badge/PWA-offline--first-success)](#)
 
 ---
@@ -43,7 +43,7 @@ SynapseSync solves the study friction experienced by self-directed learners, stu
 - **No fragmented workflows:** Reading lecture notes, watching video playlists, creating flashcards, and scheduling reviews are unified in one place.
 - **Offline-First:** All notes, quizzes, flashcards, review histories, and SM-2 states are stored locally in the browser via **IndexedDB** — allowing full study sessions on commutes or flights without an internet connection.
 - **Local-First YouTube Pipeline:** Transcript fetching and detailed note generation run locally on your development machine using residential IPs, bypassing cloud datacenter IP blocks and serverless timeout limits.
-- **Exhaustive Notes, Not Summaries:** Gemini is instructed as a meticulous note-taker, capturing every definition, concept, formula, and example in formatted Markdown.
+- **Exhaustive Notes, Not Summaries:** Gemini 3.8 Flash is instructed as a meticulous note-taker, capturing every definition, concept, formula, and example in formatted Markdown.
 
 ---
 
@@ -52,9 +52,9 @@ SynapseSync solves the study friction experienced by self-directed learners, stu
 - 📁 **Google Drive Integration & Multi-User Context:** Authenticate via Google OAuth 2.0 with full read and write capabilities (`https://www.googleapis.com/auth/drive`). Pre-registered users (`SC`, `DB`) select their identity from a combobox beside the connect button, which dynamically binds their specific `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. Connecting to Google Drive acts as the user's primary login—switching the entire context of the app and restoring all notes, quizzes, flashcards, preferences, cards due today, and study streaks (today & yesterday). Continuous online sync and an automatic pre-logout flush (`forceSync`) ensure your work is committed before local IndexedDB is purged for data isolation.
 - 💾 **Full Cloud State Persistence (`app_state.json`):** Persists complete learning state (daily review streak, yesterday's streak, cards due today, mastery counts, preferences, and AI chat histories) directly to your personal Google Drive folder (`SynapseSync/`). Unauthenticated users see default zero metrics (`Daily Streak: 0`).
 - 🎬 **Local YouTube Lecture Processing:** Ingest entire multi-video playlists via a Python CLI tool. Generates complete, structured Markdown notes for every lecture.
-- 🤖 **Structured AI Quizzing:** One-click generation of 5 multiple-choice questions (with explanations) and 5 flashcards per note, using Gemini structured outputs.
+- 🤖 **Structured AI Quizzing:** One-click generation of 5 multiple-choice questions (with explanations) and 5 flashcards per note, using Gemini 3.8 Flash (`gemini-3.8-flash`) structured outputs.
 - 🧠 **SuperMemo SM-2 Spaced Repetition:** Scientifically schedules daily card reviews based on your recall quality (ratings 0–5), with an interactive review queue, today's streak, and yesterday's streak tracking.
-- 💬 **Context-Aware Study Chat:** Scoped AI assistant for every note with specialized modes (*Default*, *ELI5 / Explain to a 5-Year-Old*, and *Quiz Me*).
+- 💬 **Context-Aware Study Chat:** Scoped AI assistant for every note with specialized modes (*Default*, *ELI5 / Explain to a 5-Year-Old*, and *Quiz Me*). Conversations persist locally in IndexedDB and synchronize automatically to Google Drive (`SynapseSync/app_state.json`).
 - 📱 **Installable PWA:** Installs to desktop and mobile home screens with app-shell caching, smooth dark/light theme, and offline capability.
 
 ---
@@ -235,7 +235,7 @@ python -m tools.youtube_cli.main process --url "https://www.youtube.com/playlist
 #### What happens during execution:
 1. **Transcript Fetching:** Captures captions locally via `youtube-transcript-api` (uses your residential IP to avoid rate limits).
 2. **Local Caching:** Caches raw transcripts in `~/.synapse-sync/transcript_cache/<video_id>.json`.
-3. **Exhaustive Note Generation:** Streams transcript to Gemini to produce comprehensive Markdown notes covering all concepts, definitions, and code examples.
+3. **Exhaustive Note Generation:** Streams transcript to Gemini 3.8 Flash to produce comprehensive Markdown notes covering all concepts, definitions, and code examples.
 4. **Local Markdown File Saving:** Saves Markdown notes to `~/.synapse-sync/processed_notes/<playlist_slug>/`. You can open and read these in Obsidian or VS Code.
 5. **Server Push:** Posts the structured notebook and notes to `POST /api/youtube-notes` on your running local server.
 6. **In-App Availability:** Open the web app at `http://localhost:3000/notes` to view the notebook and its lecture notes.
@@ -264,7 +264,7 @@ python -m tools.youtube_cli.main process --url "https://www.youtube.com/playlist
 ### Quiz & Flashcard Generation
 1. Open any lecture or document note in the **Note Reader** (`/notes/[id]`).
 2. Click **Generate Quiz**.
-3. Gemini processes the note text and returns 5 multiple-choice questions (with explanations) and 5 flashcards.
+3. Gemini 3.8 Flash processes the note text and returns 5 multiple-choice questions (with explanations) and 5 flashcards.
 4. Quizzes are stored in IndexedDB and can be retaken at any time.
 
 ### Spaced Repetition System (SM-2)
@@ -285,7 +285,7 @@ python -m tools.youtube_cli.main process --url "https://www.youtube.com/playlist
    - **Default:** Precise answers grounded strictly in the note text.
    - **Explain (ELI5):** Analogies and simple explanations for beginners.
    - **Quiz Me:** AI asks follow-up questions to test your understanding.
-3. Conversation histories persist locally per note.
+3. Conversation histories persist locally per note in IndexedDB for instant offline access and automatically synchronize to Google Drive (`SynapseSync/app_state.json`) across sessions and devices.
 
 ---
 
@@ -366,7 +366,7 @@ synapse-sync/
 | **Local Offline Storage**| [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) via [`idb@8.0.4`](https://github.com/jakearchibald/idb) |
 | **PWA & Caching** | Serwist 9.5.13 ([`@serwist/next@9.5.13`](https://serwist.pages.dev/)), Web App Manifest, Cache-First & Network-First strategies |
 | **Backend Runtime** | Python 3.13 Serverless Functions (Vercel) |
-| **AI Engine** | [Google Gemini 2.0 Flash](https://aistudio.google.com/) via `google-generativeai==0.8.6` with Structured Output |
+| **AI Engine** | [Google Gemini 3.8 Flash](https://aistudio.google.com/) (`gemini-3.8-flash`) via `google-generativeai==0.8.6` with Structured Output |
 | **Cloud Authentication**| Google OAuth 2.0 with Google Drive API v3 |
 | **Local CLI Pipeline** | Python 3.13 (`uv pip`), `youtube-transcript-api==1.2.4`, `rich==15.0.0`, `requests==2.34.2` |
 | **Code Quality** | ESLint, TypeScript (`tsc`), Ruff 0.16.9, Pytest 9.1.1 |
@@ -398,7 +398,9 @@ Detailed specifications and architectural decisions can be found in the document
 - [09. Epic 9 — Polish, Theming & UI Enhancements](./documentation/plans/09_polish_enhancements.md)
 
 ### Guides & Setup
+- [Vercel Production Deployment Guide](./documentation/setup/vercel_production_deployment.md)
 - [Google Drive OAuth 2.0 & API Setup Guide](./documentation/setup/google_drive_setup.md)
+- [YouTube Transcript Ingestion Pipeline Guide](./documentation/setup/youtube_transcript_ingestion.md)
 
 ### Standards
 - [Coding Standards & Conventions](./documentation/prompts/coding_standards.md)
