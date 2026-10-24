@@ -173,34 +173,6 @@ vercel env add YOUTUBE_NOTES_API_KEY production
 {
   "version": 2,
   "framework": "nextjs",
-  "builds": [
-    {
-      "src": "api/*.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "functions": {
-    "api/youtube_notes.py": {
-      "maxDuration": 60,
-      "memory": 1024
-    },
-    "api/generate_quiz.py": {
-      "maxDuration": 60,
-      "memory": 1024
-    },
-    "api/summarize.py": {
-      "maxDuration": 60,
-      "memory": 1024
-    },
-    "api/chat.py": {
-      "maxDuration": 60,
-      "memory": 512
-    },
-    "api/parse_docx.py": {
-      "maxDuration": 30,
-      "memory": 512
-    }
-  },
   "headers": [
     {
       "source": "/api/(.*)",
