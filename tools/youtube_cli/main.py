@@ -4,22 +4,27 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
 from typing import Any, ClassVar
 
-from rich.console import Console
-from rich.table import Table
+_WORKSPACE_ROOT: str = str(Path(__file__).resolve().parent.parent.parent)
+if _WORKSPACE_ROOT not in sys.path:
+    sys.path.insert(0, _WORKSPACE_ROOT)
 
-from tools.youtube_cli.config import Config
-from tools.youtube_cli.google_drive_pusher import GoogleDrivePusher
-from tools.youtube_cli.note_generator import NoteGenerator
-from tools.youtube_cli.playlist_resolver import PlaylistResolver
-from tools.youtube_cli.server_pusher import ServerPusher
-from tools.youtube_cli.transcript_cache import TranscriptCache
-from tools.youtube_cli.transcript_fetcher import TranscriptFetcher
-from tools.youtube_cli.url_utils import UrlUtils
+from rich.console import Console  # noqa: E402
+from rich.table import Table  # noqa: E402
+
+from tools.youtube_cli.config import Config  # noqa: E402
+from tools.youtube_cli.google_drive_pusher import GoogleDrivePusher  # noqa: E402
+from tools.youtube_cli.note_generator import NoteGenerator  # noqa: E402
+from tools.youtube_cli.playlist_resolver import PlaylistResolver  # noqa: E402
+from tools.youtube_cli.server_pusher import ServerPusher  # noqa: E402
+from tools.youtube_cli.transcript_cache import TranscriptCache  # noqa: E402
+from tools.youtube_cli.transcript_fetcher import TranscriptFetcher  # noqa: E402
+from tools.youtube_cli.url_utils import UrlUtils  # noqa: E402
 
 
 class YouTubeCli:
@@ -35,6 +40,10 @@ class YouTubeCli:
     _OPT_NOTEBOOK_DIR: ClassVar[str] = "--notebook-dir"
     _SOURCE_TYPE: ClassVar[str] = "youtube_transcript"
     _FORMAT_MARKDOWN: ClassVar[str] = "markdown"
+    _ENV_LOCAL_FILE: ClassVar[str] = ".env.local"
+    _ENV_FILE: ClassVar[str] = ".env"
+    _ENV_COMMENT_PREFIX: ClassVar[str] = "#"
+    _ENV_DELIMITER: ClassVar[str] = "="
 
     def __init__(
         self,
@@ -48,6 +57,7 @@ class YouTubeCli:
         url_utils: UrlUtils | None = None,
     ) -> None:
         """Initialize the CLI with configurable subcomponents and rendering console."""
+        self._load_environment()
         self._config = config if config is not None else Config()
         self._console = console if console is not None else Console()
         self._url_utils = url_utils if url_utils is not None else UrlUtils()
@@ -399,6 +409,36 @@ class YouTubeCli:
         table.add_row("Total Words Generated", str(word_count))
         table.add_row("Elapsed Time", f"{duration:.1f}s")
         self._console.print(table)
+
+    def _load_environment(self) -> None:
+        """Load environment variables from local .env files if present and unset."""
+        env_files = [
+            Path(_WORKSPACE_ROOT) / self._ENV_LOCAL_FILE,
+            Path(_WORKSPACE_ROOT) / self._ENV_FILE,
+        ]
+        for env_file in env_files:
+            if env_file.is_file():
+                self._load_env_file(env_file)
+
+    def _load_env_file(self, env_path: Path) -> None:
+        """Parse key-value pairs from an env file without overriding active environment."""
+        try:
+            with env_path.open(encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if (
+                        not line
+                        or line.startswith(self._ENV_COMMENT_PREFIX)
+                        or self._ENV_DELIMITER not in line
+                    ):
+                        continue
+                    key, val = line.split(self._ENV_DELIMITER, 1)
+                    key = key.strip()
+                    val = val.strip().strip("'\"")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":

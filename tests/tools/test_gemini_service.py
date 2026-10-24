@@ -14,67 +14,62 @@ class TestGeminiService:
     """Test suite validating Gemini configuration, rate limit retries, and throttling."""
 
     def test_configure_sets_api_key_when_provided(self) -> None:
-        """Verify configure calls genai.configure with supplied API key."""
-        mock_genai = MagicMock()
-        service = GeminiService(api_key="test-api-key", genai_module=mock_genai)
-        service.configure()
-        mock_genai.configure.assert_called_once_with(api_key="test-api-key")
+        """Verify configure initializes genai.Client with supplied API key."""
+        service = GeminiService(api_key="test-api-key")
+        with patch("google.genai.Client") as mock_client_cls:
+            client = service.configure()
+            assert client == mock_client_cls.return_value
+            mock_client_cls.assert_called_once_with(api_key="test-api-key")
 
     def test_configure_raises_value_error_when_no_key_available(self) -> None:
         """Verify configure raises ValueError when neither param nor env var has key."""
-        mock_genai = MagicMock()
-        service = GeminiService(api_key=None, genai_module=mock_genai)
+        mock_client = MagicMock()
+        service = GeminiService(api_key=None, client=mock_client)
         with patch.dict("os.environ", {}, clear=True):
             with pytest.raises(ValueError, match="GEMINI_API_KEY environment variable is not set"):
                 service.configure()
 
     def test_call_with_retry_succeeds_first_attempt(self) -> None:
         """Verify call_with_retry invokes generate_content and returns response."""
-        mock_genai = MagicMock()
-        mock_model = MagicMock()
+        mock_client = MagicMock()
         mock_response = MagicMock(text='{"result": "ok"}')
-        mock_model.generate_content.return_value = mock_response
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client.models.generate_content.return_value = mock_response
 
-        service = GeminiService(api_key="key", delay_seconds=0.0, genai_module=mock_genai)
+        service = GeminiService(api_key="key", delay_seconds=0.0, client=mock_client)
         model = Config.get_default_model()
         res = service.call_with_retry(model, "test prompt")
 
         assert res.text == '{"result": "ok"}'
-        mock_genai.GenerativeModel.assert_called_once_with(model_name=model)
+        mock_client.models.generate_content.assert_called_once()
 
     def test_call_with_retry_retries_on_rate_limit_and_succeeds(self) -> None:
         """Verify call_with_retry catches 429 error and succeeds on subsequent try."""
-        mock_genai = MagicMock()
-        mock_model = MagicMock()
+        mock_client = MagicMock()
         mock_response = MagicMock(text='{"result": "ok"}')
-        mock_model.generate_content.side_effect = [
+        mock_client.models.generate_content.side_effect = [
             Exception("429 ResourceExhausted: quota exceeded"),
             mock_response,
         ]
-        mock_genai.GenerativeModel.return_value = mock_model
 
-        service = GeminiService(api_key="key", delay_seconds=0.0, genai_module=mock_genai)
+        service = GeminiService(api_key="key", delay_seconds=0.0, client=mock_client)
         model = Config.get_default_model()
         with patch("time.sleep"):
             res = service.call_with_retry(model, "prompt", max_retries=2)
 
         assert res.text == '{"result": "ok"}'
-        assert mock_model.generate_content.call_count == 2
+        assert mock_client.models.generate_content.call_count == 2
 
     def test_call_with_retry_raises_non_rate_limit_errors_immediately(self) -> None:
         """Verify non-retryable exceptions are raised without exhausting retries."""
-        mock_genai = MagicMock()
-        mock_model = MagicMock()
-        mock_model.generate_content.side_effect = ValueError("Invalid prompt format")
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = ValueError("Invalid prompt format")
 
-        service = GeminiService(api_key="key", delay_seconds=0.0, genai_module=mock_genai)
+        service = GeminiService(api_key="key", delay_seconds=0.0, client=mock_client)
         model = Config.get_default_model()
         with pytest.raises(ValueError, match="Invalid prompt format"):
             service.call_with_retry(model, "prompt", max_retries=3)
 
-        assert mock_model.generate_content.call_count == 1
+        assert mock_client.models.generate_content.call_count == 1
 
     def test_throttle_requests_sleeps_when_interval_not_elapsed(self) -> None:
         """Verify _throttle_requests executes sleep when elapsed time is below delay threshold."""
@@ -84,3 +79,38 @@ class TestGeminiService:
         with patch("time.time", return_value=102.0), patch("time.sleep") as mock_sleep:
             service._throttle_requests()
             mock_sleep.assert_called_once_with(3.0)
+
+    def test_call_with_retry_succeeds_with_modern_client(self) -> None:
+        """Verify call_with_retry converts dict config to GenerateContentConfig."""
+        mock_client = MagicMock()
+        mock_response = MagicMock(text='{"result": "ok"}')
+        mock_client.models.generate_content.return_value = mock_response
+
+        service = GeminiService(api_key="key", delay_seconds=0.0, client=mock_client)
+        model = Config.get_default_model()
+        res = service.call_with_retry(
+            model, "test prompt", config={"response_mime_type": "application/json"}
+        )
+
+        assert res.text == '{"result": "ok"}'
+        mock_client.models.generate_content.assert_called_once()
+
+    def test_generate_content_raises_attribute_error_on_unsupported_client(self) -> None:
+        """Verify _generate_content raises AttributeError when client lacks expected methods."""
+        service = GeminiService(api_key="key", client=object())
+        with pytest.raises(AttributeError, match="Provided client does not support"):
+            service.call_with_retry("gemini-test", "prompt")
+
+    def test_build_generate_content_config_disables_afc_by_default(self) -> None:
+        """Verify _build_generate_content_config sets automatic_function_calling.disable to True."""
+        service = GeminiService(api_key="key")
+        cfg_none = service._build_generate_content_config(None)
+        assert cfg_none.automatic_function_calling is not None
+        assert cfg_none.automatic_function_calling.disable is True
+
+        cfg_dict = service._build_generate_content_config(
+            {"response_mime_type": "application/json"}
+        )
+        assert cfg_dict.automatic_function_calling is not None
+        assert cfg_dict.automatic_function_calling.disable is True
+
