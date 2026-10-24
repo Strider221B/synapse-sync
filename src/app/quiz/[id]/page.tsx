@@ -10,6 +10,7 @@ import type { Flashcard, MCQCard, Note, Quiz } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
 import { QuizService } from '@/lib/db/services/quiz_service';
 import { SRSCardService } from '@/lib/db/services/srs_card_service';
+import { PreferencesService } from '@/lib/db/services/preferences_service';
 import { MCQCard as MCQCardComponent } from '@/components/quiz/MCQCard';
 import { QuizResults } from '@/components/quiz/QuizResults';
 import { FlashCard as FlashCardComponent } from '@/components/quiz/FlashCard';
@@ -64,6 +65,14 @@ function QuizContent({ params }: QuizPageProps) {
 
   // Re-roll state
   const [isRerolling, setIsRerolling] = useState(false);
+  const [rerollProgress, setRerollProgress] = useState<{
+    currentChunk: number;
+    totalChunks: number;
+    mcqCount: number;
+    flashcardCount: number;
+    throttleSpeed?: string;
+  } | null>(null);
+  const [availableQuizzes, setAvailableQuizzes] = useState<Quiz[]>([]);
   const [rerollError, setRerollError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -74,10 +83,8 @@ function QuizContent({ params }: QuizPageProps) {
 
     async function loadQuizData() {
       const quizWithCards = await quizService.getQuizWithCards(quizId);
-      if (!active) return;
-
-      if (!quizWithCards) {
-        setIsLoading(false);
+      if (!active || !quizWithCards) {
+        if (active) setIsLoading(false);
         return;
       }
 
@@ -86,11 +93,15 @@ function QuizContent({ params }: QuizPageProps) {
       setFlashcards(quizWithCards.flashcards);
       setUserAnswers(new Array(quizWithCards.mcqCards.length).fill(null));
 
-      const foundNote = await noteService.getById(quizWithCards.quiz.noteId);
-      if (active && foundNote) {
-        setNote(foundNote);
+      const [foundNote, allQuizzes] = await Promise.all([
+        noteService.getById(quizWithCards.quiz.noteId),
+        quizService.getByNote(quizWithCards.quiz.noteId),
+      ]);
+      if (active) {
+        if (foundNote) setNote(foundNote);
+        setAvailableQuizzes([...allQuizzes].sort((a, b) => b.version - a.version));
+        setIsLoading(false);
       }
-      setIsLoading(false);
     }
 
     loadQuizData();
@@ -167,40 +178,99 @@ function QuizContent({ params }: QuizPageProps) {
   };
 
   const handleRerollQuiz = async () => {
-    if (!note) return;
+    if (!note || isRerolling) return;
     setIsRerolling(true);
     setRerollError(null);
+    setRerollProgress(null);
 
     try {
+      const words = note.content.trim().split(/\s+/);
+      const CHUNK_WORDS = 2500;
       const client = new ApiClient();
-      const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
-        text: note.content,
-        difficulty: 'medium',
-        mcqCount: 5,
-        flashcardCount: 5,
-      });
+      let allMCQs: GenerateQuizApiResponse['mcqs'] = [];
+      let allFlashcards: GenerateQuizApiResponse['flashcards'] = [];
+      let lastModel = DEFAULT_AI_MODEL;
 
-      const formattedMCQs = response.mcqs.map((q) => ({
+      const dbService = new DatabaseService();
+      const prefs = new PreferencesService(dbService);
+      const throttleSpeed = (await prefs.get<string>('throttleSpeed')) || 'low';
+      const delayMs = throttleSpeed === 'high' ? 4000 : 0;
+
+      if (words.length <= CHUNK_WORDS) {
+        setRerollProgress({ currentChunk: 1, totalChunks: 1, mcqCount: 0, flashcardCount: 0, throttleSpeed });
+        const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
+          text: note.content,
+          difficulty: 'medium',
+          mcqCount: 5,
+          flashcardCount: 5,
+          throttleSpeed,
+        });
+        allMCQs = response.mcqs;
+        allFlashcards = response.flashcards;
+        lastModel = response.metadata?.model || DEFAULT_AI_MODEL;
+      } else {
+        const chunks: string[] = [];
+        for (let i = 0; i < words.length; i += CHUNK_WORDS) {
+          chunks.push(words.slice(i, i + CHUNK_WORDS).join(' '));
+        }
+
+        for (let idx = 0; idx < chunks.length; idx++) {
+          if (idx > 0 && delayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+          setRerollProgress({
+            currentChunk: idx + 1,
+            totalChunks: chunks.length,
+            mcqCount: allMCQs.length,
+            flashcardCount: allFlashcards.length,
+            throttleSpeed,
+          });
+          const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
+            text: chunks[idx],
+            difficulty: 'medium',
+            mcqCount: 5,
+            flashcardCount: 5,
+            throttleSpeed,
+          });
+          allMCQs.push(...response.mcqs);
+          allFlashcards.push(...response.flashcards);
+          lastModel = response.metadata?.model || DEFAULT_AI_MODEL;
+        }
+      }
+
+      const formattedMCQs = allMCQs.map((q) => ({
         question: q.question,
         options: q.options,
         correctIndex: q.correctIndex,
         explanation: q.explanation,
       }));
 
-      const formattedFlashcards = response.flashcards.map((f) => ({
+      const formattedFlashcards = allFlashcards.map((f) => ({
         front: f.front,
         back: f.back,
         tags: [note.title],
       }));
 
-      const dbService = new DatabaseService();
       const quizService = new QuizService(dbService);
       const newQuiz = await quizService.create(
         note.id,
         formattedMCQs,
         formattedFlashcards,
-        response.metadata?.model || DEFAULT_AI_MODEL
+        lastModel
       );
+
+      // Save directly to Google Drive and trigger sync
+      const { SyncManager } = await import('@/lib/db/sync_manager');
+      const syncManager = SyncManager.getInstance();
+      const syncService = syncManager.getSyncService();
+      if (syncService && syncService.isConnected()) {
+        try {
+          await syncService.pushQuiz(newQuiz.quiz.id);
+        } catch (syncErr) {
+          console.warn('Direct Google Drive quiz push deferred to sync queue:', syncErr);
+        }
+      }
+      void syncManager.forceSync().catch(() => {});
 
       router.push(`/quiz/${newQuiz.quiz.id}`);
     } catch (err: unknown) {
@@ -213,6 +283,7 @@ function QuizContent({ params }: QuizPageProps) {
       setRerollError(errorMsg);
     } finally {
       setIsRerolling(false);
+      setRerollProgress(null);
     }
   };
 
@@ -304,68 +375,196 @@ function QuizContent({ params }: QuizPageProps) {
               </Link>
             </>
           )}
+          {availableQuizzes.length > 1 ? (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                Version:
+              </span>
+              <select
+                value={quiz.id}
+                onChange={(e) => router.push(`/quiz/${e.target.value}`)}
+                aria-label="Select quiz version"
+                style={{
+                  padding: '0.2rem 0.5rem',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.75rem',
+                  backgroundColor: 'var(--color-surface-raised)',
+                  border: '1px solid var(--color-surface-border)',
+                  color: 'var(--color-text-primary)',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {availableQuizzes.map((q) => (
+                  <option key={q.id} value={q.id}>
+                    v{q.version} ({new Date(q.generatedAt).toLocaleDateString()})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <span
+              style={{
+                fontSize: '0.75rem',
+                padding: '0.15rem 0.5rem',
+                borderRadius: 'var(--radius-full)',
+                backgroundColor: 'var(--color-surface-raised)',
+                border: '1px solid var(--color-surface-border)',
+                color: 'var(--color-text-muted)',
+                fontWeight: 600,
+              }}
+            >
+              v{quiz.version}
+            </span>
+          )}
+        </div>
+
+        {/* Mode Switcher Tabs & Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <span
             style={{
               fontSize: '0.75rem',
-              padding: '0.15rem 0.5rem',
-              borderRadius: 'var(--radius-full)',
+              color: 'var(--color-primary)',
+              fontWeight: 500,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.25rem',
+            }}
+          >
+            ☁️ Saved to Drive
+          </span>
+
+          <div
+            style={{
+              display: 'inline-flex',
+              backgroundColor: 'var(--color-surface)',
+              border: '1px solid var(--color-surface-border)',
+              borderRadius: 'var(--radius-md)',
+              padding: '0.25rem',
+              gap: '0.25rem',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setActiveMode('mcq')}
+              style={{
+                padding: '0.4rem 0.85rem',
+                borderRadius: 'var(--radius-sm)',
+                border: 'none',
+                backgroundColor: activeMode === 'mcq' ? 'var(--color-primary)' : 'transparent',
+                color: activeMode === 'mcq' ? '#ffffff' : 'var(--color-text-secondary)',
+                fontSize: '0.825rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              📝 MCQ Quiz ({mcqCards.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMode('flashcards')}
+              style={{
+                padding: '0.4rem 0.85rem',
+                borderRadius: 'var(--radius-sm)',
+                border: 'none',
+                backgroundColor: activeMode === 'flashcards' ? 'var(--color-primary)' : 'transparent',
+                color: activeMode === 'flashcards' ? '#ffffff' : 'var(--color-text-secondary)',
+                fontSize: '0.825rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              🔄 Flashcards ({flashcards.length})
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={activeMode === 'mcq' ? handleRetakeMcq : handleResetFlashcards}
+            style={{
+              padding: '0.4rem 0.85rem',
+              borderRadius: 'var(--radius-md)',
               backgroundColor: 'var(--color-surface-raised)',
               border: '1px solid var(--color-surface-border)',
-              color: 'var(--color-text-muted)',
-              fontWeight: 600,
-            }}
-          >
-            v{quiz.version}
-          </span>
-        </div>
-
-        {/* Mode Switcher Tabs */}
-        <div
-          style={{
-            display: 'inline-flex',
-            backgroundColor: 'var(--color-surface)',
-            border: '1px solid var(--color-surface-border)',
-            borderRadius: 'var(--radius-md)',
-            padding: '0.25rem',
-            gap: '0.25rem',
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setActiveMode('mcq')}
-            style={{
-              padding: '0.4rem 0.85rem',
-              borderRadius: 'var(--radius-sm)',
-              border: 'none',
-              backgroundColor: activeMode === 'mcq' ? 'var(--color-primary)' : 'transparent',
-              color: activeMode === 'mcq' ? '#ffffff' : 'var(--color-text-secondary)',
+              color: 'var(--color-text-secondary)',
               fontSize: '0.825rem',
               fontWeight: 600,
               cursor: 'pointer',
               transition: 'all var(--transition-fast)',
             }}
+            title="Retake or reset this version from question 1"
           >
-            📝 MCQ Quiz ({mcqCards.length})
+            <span>🔁</span> Retake
           </button>
+
           <button
             type="button"
-            onClick={() => setActiveMode('flashcards')}
+            onClick={handleRerollQuiz}
+            disabled={isRerolling}
             style={{
               padding: '0.4rem 0.85rem',
-              borderRadius: 'var(--radius-sm)',
-              border: 'none',
-              backgroundColor: activeMode === 'flashcards' ? 'var(--color-primary)' : 'transparent',
-              color: activeMode === 'flashcards' ? '#ffffff' : 'var(--color-text-secondary)',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-surface-raised)',
+              border: '1px solid var(--color-surface-border)',
+              color: 'var(--color-text-secondary)',
               fontSize: '0.825rem',
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: isRerolling ? 'not-allowed' : 'pointer',
+              opacity: isRerolling ? 0.7 : 1,
               transition: 'all var(--transition-fast)',
             }}
+            title="Re-trigger quiz and flashcard generation across the entire document"
           >
-            🔄 Flashcards ({flashcards.length})
+            <span>{isRerolling ? '⏳' : '🔄'}</span> Re-trigger
           </button>
         </div>
       </div>
+
+      {/* Re-roll Progress Indicator */}
+      {isRerolling && rerollProgress && (
+        <div
+          style={{
+            padding: '1rem 1.25rem',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: 'var(--color-primary-light)',
+            border: '1px solid var(--color-primary-glow)',
+            color: 'var(--color-primary)',
+            fontSize: '0.875rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+            <span>
+              ⚡ Re-generating questions across document (Chunk {rerollProgress.currentChunk} of {rerollProgress.totalChunks} • {rerollProgress.throttleSpeed === 'high' ? 'High throttle (Free Tier)' : 'Low throttle (Paid Plan)'})...
+            </span>
+            <span>
+              {rerollProgress.mcqCount + rerollProgress.flashcardCount} questions accumulated
+            </span>
+          </div>
+          <div
+            style={{
+              width: '100%',
+              height: '6px',
+              borderRadius: 'var(--radius-full)',
+              backgroundColor: 'rgba(0,0,0,0.1)',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                width: `${(rerollProgress.currentChunk / rerollProgress.totalChunks) * 100}%`,
+                height: '100%',
+                backgroundColor: 'var(--color-primary)',
+                transition: 'width 0.3s ease',
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {rerollError && (
         <div
@@ -387,24 +586,56 @@ function QuizContent({ params }: QuizPageProps) {
         <>
           {!isMcqCompleted ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              {/* Progress Indicator */}
-              <div
-                style={{
-                  width: '100%',
-                  height: '6px',
-                  borderRadius: 'var(--radius-full)',
-                  backgroundColor: 'var(--color-surface-border)',
-                  overflow: 'hidden',
-                }}
-              >
+              {/* Progress & Question Selector Header */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                    Question {currentMcqIndex + 1} of {mcqCards.length}
+                  </span>
+                  {mcqCards.length > 5 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                      <span>Jump:</span>
+                      <select
+                        value={currentMcqIndex}
+                        onChange={(e) => setCurrentMcqIndex(Number(e.target.value))}
+                        style={{
+                          padding: '0.2rem 0.5rem',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--color-surface-border)',
+                          backgroundColor: 'var(--color-surface)',
+                          color: 'var(--color-text-primary)',
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {mcqCards.map((_, idx) => (
+                          <option key={idx} value={idx}>
+                            Q{idx + 1} {userAnswers[idx] !== null ? '✓' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
                 <div
                   style={{
-                    height: '100%',
-                    width: `${mcqProgress}%`,
-                    background: 'var(--color-accent-gradient)',
-                    transition: 'width 0.4s ease',
+                    width: '100%',
+                    height: '6px',
+                    borderRadius: 'var(--radius-full)',
+                    backgroundColor: 'var(--color-surface-border)',
+                    overflow: 'hidden',
                   }}
-                />
+                >
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${mcqProgress}%`,
+                      background: 'var(--color-accent-gradient)',
+                      transition: 'width 0.4s ease',
+                    }}
+                  />
+                </div>
               </div>
 
               {mcqCards[currentMcqIndex] && (
@@ -417,9 +648,30 @@ function QuizContent({ params }: QuizPageProps) {
                 />
               )}
 
-              {/* Next Question Navigation */}
-              {userAnswers[currentMcqIndex] !== null && (
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              {/* Navigation Controls */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                {currentMcqIndex > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setCurrentMcqIndex((prev) => prev - 1)}
+                    style={{
+                      padding: '0.625rem 1.25rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--color-surface-raised)',
+                      border: '1px solid var(--color-surface-border)',
+                      color: 'var(--color-text-secondary)',
+                      fontWeight: 600,
+                      fontSize: '0.875rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ← Previous Question
+                  </button>
+                ) : (
+                  <div />
+                )}
+
+                {userAnswers[currentMcqIndex] !== null && (
                   <button
                     type="button"
                     onClick={handleNextMcq}
@@ -440,8 +692,8 @@ function QuizContent({ params }: QuizPageProps) {
                   >
                     {currentMcqIndex < mcqCards.length - 1 ? 'Next Question →' : 'View Results 🎯'}
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           ) : (
             <QuizResults

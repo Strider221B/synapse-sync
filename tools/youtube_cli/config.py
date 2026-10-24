@@ -24,6 +24,10 @@ class Config:
     _ENV_SERVER_URL: ClassVar[str] = "SYNAPSE_SERVER_URL"
     _ENV_DRIVE_TOKEN: ClassVar[str] = "GOOGLE_DRIVE_ACCESS_TOKEN"
     _ENV_DRIVE_FOLDER: ClassVar[str] = "GOOGLE_DRIVE_FOLDER_NAME"
+    _ENV_THROTTLE_SPEED: ClassVar[str] = "THROTTLE_SPEED"
+    _THROTTLE_SPEED_HIGH: ClassVar[str] = "high"
+    _THROTTLE_DELAY_HIGH: ClassVar[float] = 4.0
+    _THROTTLE_DELAY_LOW: ClassVar[float] = 0.0
 
     def __init__(self) -> None:
         """Initialize configuration properties from environment variables with fallbacks."""
@@ -65,6 +69,13 @@ class Config:
 
     def get_delay_seconds(self) -> float:
         """Return configured delay interval in seconds between requests."""
+        throttle = os.getenv(self._ENV_THROTTLE_SPEED)
+        if throttle is not None:
+            return (
+                self._THROTTLE_DELAY_HIGH
+                if throttle.lower() == self._THROTTLE_SPEED_HIGH
+                else self._THROTTLE_DELAY_LOW
+            )
         return self._delay_seconds
 
     def get_max_retries(self) -> int:

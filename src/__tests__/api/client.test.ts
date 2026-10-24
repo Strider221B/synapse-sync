@@ -91,5 +91,18 @@ describe('ApiClient', () => {
     assert.equal(capturedMethod, 'GET');
     assert.deepEqual(result.notebooks, []);
   });
+
+  it('invokes fetch without binding this to ApiClient, avoiding illegal invocation', async () => {
+    function strictFetch(this: unknown) {
+      if (this instanceof ApiClient) {
+        throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+      }
+      return Promise.resolve(new Response(JSON.stringify({ safe: true }), { status: 200 }));
+    }
+
+    const client = new ApiClient('', strictFetch as unknown as typeof fetch);
+    const result = await client.get<{ safe: boolean }>('/safe-fetch');
+    assert.equal(result.safe, true);
+  });
 });
 

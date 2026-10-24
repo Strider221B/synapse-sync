@@ -17,6 +17,7 @@ class GoogleDrivePusher:
     _DEFAULT_FOLDER_NAME: ClassVar[str] = "SynapseSync"
     _SUBFOLDER_NOTEBOOKS: ClassVar[str] = "notebooks"
     _SUBFOLDER_NOTES: ClassVar[str] = "notes"
+    _SUBFOLDER_QUIZZES: ClassVar[str] = "quizzes"
     _ENV_ACCESS_TOKEN: ClassVar[str] = "GOOGLE_DRIVE_ACCESS_TOKEN"
     _ENV_FOLDER_NAME: ClassVar[str] = "GOOGLE_DRIVE_FOLDER_NAME"
 
@@ -29,6 +30,7 @@ class GoogleDrivePusher:
 
     _PREFIX_NOTE: ClassVar[str] = "note_"
     _PREFIX_NOTEBOOK: ClassVar[str] = "notebook_"
+    _PREFIX_QUIZ: ClassVar[str] = "quiz_"
     _EXT_JSON: ClassVar[str] = ".json"
     _FORMAT_MARKDOWN: ClassVar[str] = "markdown"
     _SOURCE_TYPE: ClassVar[str] = "youtube_transcript"
@@ -68,6 +70,22 @@ class GoogleDrivePusher:
 
         note_ids = self._prepare_and_upload_notes(notes, nb_id, notes_folder_id)
         return {"notebookId": nb_id, "noteIds": note_ids, "notesStored": len(note_ids)}
+
+    def push_quiz(self, quiz_payload: dict[str, Any]) -> str:
+        """Upload quiz and cards payload directly into SynapseSync/quizzes folder."""
+        if not quiz_payload:
+            raise ValueError("Quiz payload dictionary is required for push")
+        if not self._access_token:
+            msg = "Google Drive access token missing. Set GOOGLE_DRIVE_ACCESS_TOKEN."
+            raise PermissionError(msg)
+
+        quiz_id = str(quiz_payload.get("quiz", {}).get("id") or uuid.uuid4())
+        root_id = self._get_or_create_folder(self._root_folder_name)
+        quiz_folder_id = self._get_or_create_folder(self._SUBFOLDER_QUIZZES, root_id)
+        filename = f"{self._PREFIX_QUIZ}{quiz_id}{self._EXT_JSON}"
+        self._upload_json_file(filename, quiz_payload, quiz_folder_id)
+        return quiz_id
+
 
     def _ensure_valid_inputs(
         self, notebook: dict[str, Any], notes: list[dict[str, Any]]

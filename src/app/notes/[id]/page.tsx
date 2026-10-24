@@ -13,6 +13,7 @@ import type { Note, Notebook, Quiz } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
 import { NotebookService } from '@/lib/db/services/notebook_service';
 import { QuizService } from '@/lib/db/services/quiz_service';
+import { PreferencesService } from '@/lib/db/services/preferences_service';
 
 interface NoteReaderPageProps {
   params: Promise<{ id: string }>;
@@ -47,6 +48,13 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState<{
+    currentChunk: number;
+    totalChunks: number;
+    mcqCount: number;
+    flashcardCount: number;
+    throttleSpeed?: string;
+  } | null>(null);
   const [quizError, setQuizError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -96,42 +104,96 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
 
     setIsGeneratingQuiz(true);
     setQuizError(null);
-
+    setGenerationProgress(null);
 
     try {
+      const words = note.content.trim().split(/\s+/);
+      const CHUNK_WORDS = 2500;
       const client = new ApiClient();
-      const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
-        text: note.content,
-        difficulty: 'medium',
-        mcqCount: 5,
-        flashcardCount: 5,
-      });
+      let allMCQs: GenerateQuizApiResponse['mcqs'] = [];
+      let allFlashcards: GenerateQuizApiResponse['flashcards'] = [];
+      let lastModel = DEFAULT_AI_MODEL;
 
-      const formattedMCQs = response.mcqs.map((q) => ({
+      const dbService = new DatabaseService();
+      const prefs = new PreferencesService(dbService);
+      const throttleSpeed = (await prefs.get<string>('throttleSpeed')) || 'low';
+      const delayMs = throttleSpeed === 'high' ? 4000 : 0;
+
+      if (words.length <= CHUNK_WORDS) {
+        setGenerationProgress({ currentChunk: 1, totalChunks: 1, mcqCount: 0, flashcardCount: 0, throttleSpeed });
+        const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
+          text: note.content,
+          difficulty: 'medium',
+          mcqCount: 5,
+          flashcardCount: 5,
+          throttleSpeed,
+        });
+        allMCQs = response.mcqs;
+        allFlashcards = response.flashcards;
+        lastModel = response.metadata?.model || DEFAULT_AI_MODEL;
+      } else {
+        const chunks: string[] = [];
+        for (let i = 0; i < words.length; i += CHUNK_WORDS) {
+          chunks.push(words.slice(i, i + CHUNK_WORDS).join(' '));
+        }
+
+        for (let idx = 0; idx < chunks.length; idx++) {
+          if (idx > 0 && delayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+          setGenerationProgress({
+            currentChunk: idx + 1,
+            totalChunks: chunks.length,
+            mcqCount: allMCQs.length,
+            flashcardCount: allFlashcards.length,
+            throttleSpeed,
+          });
+          const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
+            text: chunks[idx],
+            difficulty: 'medium',
+            mcqCount: 5,
+            flashcardCount: 5,
+            throttleSpeed,
+          });
+          allMCQs.push(...response.mcqs);
+          allFlashcards.push(...response.flashcards);
+          lastModel = response.metadata?.model || DEFAULT_AI_MODEL;
+        }
+      }
+
+      const formattedMCQs = allMCQs.map((q) => ({
         question: q.question,
         options: q.options,
         correctIndex: q.correctIndex,
         explanation: q.explanation,
       }));
 
-      const formattedFlashcards = response.flashcards.map((f) => ({
+      const formattedFlashcards = allFlashcards.map((f) => ({
         front: f.front,
         back: f.back,
         tags: [note.title],
       }));
 
-      const dbService = new DatabaseService();
       const quizService = new QuizService(dbService);
       const newQuiz = await quizService.create(
         note.id,
         formattedMCQs,
         formattedFlashcards,
-        response.metadata?.model || DEFAULT_AI_MODEL
+        lastModel
       );
 
-      import('@/lib/db/sync_manager').then(({ SyncManager }) => {
-        void SyncManager.getInstance().forceSync().catch(() => {});
-      });
+      // Save directly to Google Drive and trigger sync
+      const { SyncManager } = await import('@/lib/db/sync_manager');
+      const syncManager = SyncManager.getInstance();
+      const syncService = syncManager.getSyncService();
+      if (syncService && syncService.isConnected()) {
+        try {
+          await syncService.pushQuiz(newQuiz.quiz.id);
+        } catch (syncErr) {
+          console.warn('Direct Google Drive quiz push deferred to sync queue:', syncErr);
+        }
+      }
+      void syncManager.forceSync().catch(() => {});
 
       router.push(`/quiz/${newQuiz.quiz.id}`);
     } catch (err: unknown) {
@@ -146,9 +208,9 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
             : err.message
           : 'Failed to generate quiz. Please try again.';
       setQuizError(errorMsg);
-
     } finally {
       setIsGeneratingQuiz(false);
+      setGenerationProgress(null);
     }
   };
 
@@ -226,50 +288,85 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
         </Link>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          {quizzes.length > 0 && (
-            <Link
-              href={`/quiz/${quizzes[quizzes.length - 1].id}`}
+          {quizzes.length > 0 ? (
+            <>
+              <Link
+                href={`/quiz/${quizzes[quizzes.length - 1].id}`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.5rem 0.875rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-primary)',
+                  color: '#ffffff',
+                  fontSize: '0.825rem',
+                  fontWeight: 600,
+                  textDecoration: 'none',
+                  boxShadow: 'var(--shadow-glow)',
+                }}
+              >
+                <span>🎯</span> Study Stored Quiz (v{quizzes[quizzes.length - 1].version})
+              </Link>
+
+              <button
+                type="button"
+                onClick={handleGenerateQuiz}
+                disabled={isGeneratingQuiz}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.5rem 0.875rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-surface-raised)',
+                  color: 'var(--color-text-secondary)',
+                  border: '1px solid var(--color-surface-border)',
+                  fontSize: '0.825rem',
+                  fontWeight: 600,
+                  cursor: isGeneratingQuiz ? 'not-allowed' : 'pointer',
+                  opacity: isGeneratingQuiz ? 0.7 : 1,
+                  transition: 'all var(--transition-fast)',
+                }}
+                title="Re-trigger quiz and flashcard generation across the entire document"
+              >
+                <span>{isGeneratingQuiz ? '⏳' : '🔄'}</span>
+                {isGeneratingQuiz
+                  ? generationProgress
+                    ? `Generating chunk ${generationProgress.currentChunk}/${generationProgress.totalChunks}...`
+                    : 'Generating quiz...'
+                  : 'Re-trigger Generation'}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={handleGenerateQuiz}
+              disabled={isGeneratingQuiz}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.4rem',
-                padding: '0.45rem 0.75rem',
-                borderRadius: 'var(--radius-full)',
-                backgroundColor: 'var(--color-accent-light)',
-                border: '1px solid var(--color-accent)',
-                color: 'var(--color-accent)',
-                fontSize: '0.775rem',
-                fontWeight: 700,
-                textDecoration: 'none',
+                padding: '0.5rem 0.875rem',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--color-primary-light)',
+                color: 'var(--color-primary)',
+                border: '1px solid var(--color-primary-glow)',
+                fontSize: '0.825rem',
+                fontWeight: 600,
+                cursor: isGeneratingQuiz ? 'not-allowed' : 'pointer',
+                opacity: isGeneratingQuiz ? 0.7 : 1,
+                transition: 'all var(--transition-fast)',
               }}
             >
-              <span>🎯</span> {quizzes.length} {quizzes.length === 1 ? 'Quiz Available' : 'Quizzes Available'}
-            </Link>
+              <span>{isGeneratingQuiz ? '⏳' : '📝'}</span>
+              {isGeneratingQuiz
+                ? generationProgress
+                  ? `Generating chunk ${generationProgress.currentChunk}/${generationProgress.totalChunks}...`
+                  : 'Generating quiz...'
+                : 'Generate Quiz'}
+            </button>
           )}
-
-          <button
-            type="button"
-            onClick={handleGenerateQuiz}
-            disabled={isGeneratingQuiz}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              padding: '0.5rem 0.875rem',
-              borderRadius: 'var(--radius-md)',
-              backgroundColor: 'var(--color-primary-light)',
-              color: 'var(--color-primary)',
-              border: '1px solid var(--color-primary-glow)',
-              fontSize: '0.825rem',
-              fontWeight: 600,
-              cursor: isGeneratingQuiz ? 'not-allowed' : 'pointer',
-              opacity: isGeneratingQuiz ? 0.7 : 1,
-              transition: 'all var(--transition-fast)',
-            }}
-          >
-            <span>{isGeneratingQuiz ? '⏳' : '📝'}</span>
-            {isGeneratingQuiz ? 'Generating quiz...' : 'Generate Quiz'}
-          </button>
 
           <Link
             href={`/chat?noteId=${note.id}`}
@@ -311,6 +408,155 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
           </button>
         </div>
       </div>
+
+      {/* Live Chunk Generation Progress Indicator */}
+      {isGeneratingQuiz && generationProgress && (
+        <div
+          style={{
+            padding: '1rem 1.25rem',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: 'var(--color-primary-light)',
+            border: '1px solid var(--color-primary-glow)',
+            color: 'var(--color-primary)',
+            fontSize: '0.875rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+            <span>
+              ⚡ Generating quiz & flashcards across document (Chunk {generationProgress.currentChunk} of {generationProgress.totalChunks} • {generationProgress.throttleSpeed === 'high' ? 'High throttle (Free Tier)' : 'Low throttle (Paid Plan)'})...
+            </span>
+            <span>
+              {generationProgress.mcqCount + generationProgress.flashcardCount} questions accumulated
+            </span>
+          </div>
+          <div
+            style={{
+              width: '100%',
+              height: '6px',
+              borderRadius: 'var(--radius-full)',
+              backgroundColor: 'rgba(0,0,0,0.1)',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                width: `${(generationProgress.currentChunk / generationProgress.totalChunks) * 100}%`,
+                height: '100%',
+                backgroundColor: 'var(--color-primary)',
+                transition: 'width 0.3s ease',
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Stored Quiz Banner */}
+      {quizzes.length > 0 && !isGeneratingQuiz && (
+        <div
+          style={{
+            backgroundColor: 'var(--color-surface)',
+            border: '1px solid var(--color-surface-border)',
+            borderRadius: 'var(--radius-lg)',
+            padding: '1rem 1.25rem',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <span style={{ fontSize: '1.5rem' }}>🎯</span>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontWeight: 700, color: 'var(--color-text-primary)', fontSize: '0.925rem' }}>
+                  Stored Quiz Ready
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.725rem',
+                    padding: '0.15rem 0.5rem',
+                    borderRadius: 'var(--radius-full)',
+                    backgroundColor: 'var(--color-surface-raised)',
+                    border: '1px solid var(--color-surface-border)',
+                    color: 'var(--color-text-muted)',
+                    fontWeight: 600,
+                  }}
+                >
+                  v{quizzes[quizzes.length - 1].version}
+                </span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--color-primary)', fontWeight: 500 }}>
+                  ☁️ Stored on Google Drive
+                </span>
+              </div>
+              {quizzes.length > 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 500 }}>Retake version:</span>
+                  {quizzes.map((q) => (
+                    <Link
+                      key={q.id}
+                      href={`/quiz/${q.id}`}
+                      style={{
+                        padding: '0.1rem 0.45rem',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: '0.75rem',
+                        backgroundColor: q.id === quizzes[quizzes.length - 1].id ? 'var(--color-primary-light)' : 'var(--color-surface-raised)',
+                        border: '1px solid var(--color-surface-border)',
+                        color: q.id === quizzes[quizzes.length - 1].id ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                        textDecoration: 'none',
+                        fontWeight: 600,
+                      }}
+                    >
+                      v{q.version}
+                    </Link>
+                  ))}
+                </div>
+              )}
+              <p style={{ margin: '0.2rem 0 0 0', color: 'var(--color-text-secondary)', fontSize: '0.825rem' }}>
+                Questions and flashcards are ready to study. You can also re-trigger generation if desired.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Link
+              href={`/quiz/${quizzes[quizzes.length - 1].id}`}
+              style={{
+                padding: '0.5rem 1rem',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--color-primary)',
+                color: '#ffffff',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                textDecoration: 'none',
+                boxShadow: 'var(--shadow-glow)',
+              }}
+            >
+              Open Quiz →
+            </Link>
+            <button
+              type="button"
+              onClick={handleGenerateQuiz}
+              style={{
+                padding: '0.5rem 0.75rem',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--color-surface-raised)',
+                border: '1px solid var(--color-surface-border)',
+                color: 'var(--color-text-secondary)',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+              }}
+            >
+              🔄 Re-trigger
+            </button>
+          </div>
+        </div>
+      )}
 
       {quizError && (
         <div

@@ -110,3 +110,32 @@ class TestGoogleDrivePusher:
         pusher = GoogleDrivePusher(access_token="expired_token", session=mock_session)
         with pytest.raises(PermissionError, match="401 Unauthorized"):
             pusher.push(dict(self._NOTEBOOK), [dict(n) for n in self._NOTES])
+
+    def test_push_quiz_success_creates_file_in_quizzes_folder(self) -> None:
+        """Verify push_quiz creates file in quizzes folder and returns quiz identifier."""
+        mock_session = self._create_mock_session()
+        pusher = GoogleDrivePusher(access_token=self._VALID_TOKEN, session=mock_session)
+        quiz_payload = {
+            "quiz": {"id": "quiz_test_123", "noteId": "note_101", "version": 1},
+            "mcqCards": [{"question": "Q1", "options": ["A", "B", "C", "D"], "correctIndex": 0}],
+            "flashcards": [{"front": "Front", "back": "Back"}],
+        }
+
+        quiz_id = pusher.push_quiz(quiz_payload)
+
+        assert quiz_id == "quiz_test_123"
+        assert mock_session.post.call_count > 0
+
+    def test_push_quiz_raises_value_error_on_empty_payload(self) -> None:
+        """Verify push_quiz raises ValueError when payload dictionary is empty."""
+        pusher = GoogleDrivePusher(access_token=self._VALID_TOKEN)
+        with pytest.raises(ValueError, match="Quiz payload dictionary is required"):
+            pusher.push_quiz({})
+
+    def test_push_quiz_raises_permission_error_when_token_missing(self) -> None:
+        """Verify push_quiz raises PermissionError when no OAuth token is configured."""
+        with patch.dict("os.environ", {}, clear=True):
+            pusher = GoogleDrivePusher(access_token=None)
+            with pytest.raises(PermissionError, match="access token missing"):
+                pusher.push_quiz({"quiz": {"id": "quiz_test"}})
+

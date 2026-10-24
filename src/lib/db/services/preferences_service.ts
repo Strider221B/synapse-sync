@@ -6,6 +6,7 @@ export const PREFERENCE_DEFAULTS: Readonly<Record<string, UserPreference['value'
   theme: 'system',
   dailyCardGoal: 20,
   quizDifficulty: 'medium',
+  throttleSpeed: 'low',
   googleDriveConnected: false,
   lastSyncTimestamp: null as unknown as string,
   pomodoroWorkMinutes: 25,

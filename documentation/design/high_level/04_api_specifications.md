@@ -206,12 +206,13 @@ Sends note text to Google Gemini and receives structured MCQs and flashcards. Us
 }
 ```
 
-| Field            | Type   | Required | Default    | Description                       |
-|:-----------------|:-------|:---------|:-----------|:----------------------------------|
-| `text`           | string | Yes      | —          | Note content to generate from     |
-| `difficulty`     | string | No       | `"medium"` | `"easy"`, `"medium"`, or `"hard"` |
-| `mcqCount`       | int    | No       | `5`        | Number of MCQs (1-10)             |
-| `flashcardCount` | int    | No       | `5`        | Number of flashcards (1-10)       |
+| Field            | Type   | Required | Default    | Description                                             |
+|:-----------------|:-------|:---------|:-----------|:--------------------------------------------------------|
+| `text`           | string | Yes      | —          | Note content to generate from                           |
+| `difficulty`     | string | No       | `"medium"` | `"easy"`, `"medium"`, or `"hard"`                       |
+| `mcqCount`       | int    | No       | `5`        | Number of MCQs (1-10)                                   |
+| `flashcardCount` | int    | No       | `5`        | Number of flashcards (1-10)                             |
+| `throttleSpeed`  | string | No       | `"low"`    | `"low"` (paid plan, 0s delay) or `"high"` (free tier, 4s delay) |
 
 #### Response — `200 OK`
 
@@ -312,10 +313,11 @@ def handler(request):
                       "message": "Provide at least 50 characters of text."}
         }), 400
     
-    # Truncate to ~8000 words to stay within token limits
+    # Chunketize text (like NoteGenerator) to avoid losing content on long documents (up to 100+ pages)
     words = text.split()
-    if len(words) > 8000:
-        text = ' '.join(words[:8000])
+    CHUNK_WORDS = 2500
+    chunks = [words[i:i + CHUNK_WORDS] for i in range(0, len(words), CHUNK_WORDS)]
+    # Generates MCQs and flashcards per chunk and stitches/merges results across all segments
     
     model = genai.GenerativeModel('gemini-3.8-flash')
     

@@ -182,12 +182,41 @@ class TestGenerateQuiz:
         assert result["metadata"]["outputTokens"] == 95
         mock_service.call_with_retry.assert_called_once()
 
-    def test_text_truncation_limits_to_8000_words(self) -> None:
-        """Verify input texts exceeding 8000 words are truncated properly."""
+    def test_generate_quiz_chunks_long_text_and_combines_results(self) -> None:
+        """Verify input texts exceeding chunk size are split into chunks and merged."""
         handler = self._create_handler()
-        long_text = "word " * 9000
-        truncated = handler._truncate_text(long_text)
-        assert len(truncated.split()) == 8000
+        mock_service = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = json.dumps(self._SAMPLE_QUIZ_PAYLOAD)
+        mock_response.usage_metadata = MagicMock(prompt_token_count=50, candidates_token_count=40)
+        mock_service.call_with_retry.return_value = mock_response
+
+        # 600 words with chunk_size 250 yields 3 chunks
+        long_text = "word " * 600
+        result = handler.generate_quiz(
+            text=long_text,
+            difficulty="medium",
+            mcq_count=5,
+            flashcard_count=5,
+            service=mock_service,
+            chunk_size=250,
+        )
+
+        assert mock_service.call_with_retry.call_count == 3
+        assert len(result["mcqs"]) == 3
+        assert len(result["flashcards"]) == 3
+        assert result["metadata"]["inputTokens"] == 150
+        assert result["metadata"]["outputTokens"] == 120
+        assert result["metadata"]["totalChunks"] == 3
+
+    def test_sanitize_chunk_size(self) -> None:
+        """Verify chunk size sanitization and boundaries."""
+        handler = self._create_handler()
+        assert handler._sanitize_chunk_size(None) == 2500
+        assert handler._sanitize_chunk_size(100) == 200
+        assert handler._sanitize_chunk_size(10000) == 5000
+        assert handler._sanitize_chunk_size("invalid") == 2500
+        assert handler._sanitize_chunk_size(1500) == 1500
 
     def test_sanitize_difficulty_fallback(self) -> None:
         """Verify invalid difficulty inputs fall back to default medium."""
@@ -221,4 +250,38 @@ class TestGenerateQuiz:
         ):
             instance.do_POST()
             mock_resp.assert_called_once_with(self._HTTP_BAD_REQUEST)
+
+    def test_sanitize_throttle_speed(self) -> None:
+        """Verify throttle speed sanitization and defaults."""
+        handler = self._create_handler()
+        assert handler._sanitize_throttle_speed(None) == "low"
+        assert handler._sanitize_throttle_speed("invalid") == "low"
+        assert handler._sanitize_throttle_speed("HIGH") == "high"
+        assert handler._sanitize_throttle_speed("low") == "low"
+
+    def test_do_post_with_throttle_speed_high(self) -> None:
+        """Verify do_POST passes high throttle speed configuration."""
+        payload = {
+            "text": self._SAMPLE_TEXT,
+            "throttleSpeed": "high",
+        }
+        handler = self._create_handler(payload)
+        with (
+            patch.object(handler, "generate_quiz") as mock_gen,
+            patch.object(handler, "send_response") as mock_resp,
+            patch.object(handler, "send_header"),
+            patch.object(handler, "end_headers"),
+        ):
+            mock_gen.return_value = {"mcqs": [], "flashcards": []}
+            handler.do_POST()
+            mock_resp.assert_called_once_with(self._HTTP_OK)
+            mock_gen.assert_called_once_with(
+                self._SAMPLE_TEXT,
+                "medium",
+                5,
+                5,
+                chunk_size=2500,
+                delay_seconds=4.0,
+            )
+
 

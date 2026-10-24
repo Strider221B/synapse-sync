@@ -24,7 +24,7 @@ Enable users to generate AI-powered MCQs and flashcards from any note, take quiz
 - Implement a handler class that:
   - Accepts POST with JSON body: `{ text, difficulty?, mcqCount?, flashcardCount? }`
   - Validates that `text` is at least 50 characters; `difficulty` is one of `easy`, `medium`, `hard`; counts are clamped to 1-10
-  - Truncates text to ~8000 words if longer
+  - Chunketizes calls like NoteGenerator across long documents (up to 100+ pages), generating questions per segment and merging results
   - Builds a system prompt that instructs Gemini to generate quiz content strictly from the provided text
   - Calls Gemini with structured output mode using the quiz JSON schema (see [Data Models §5.1](file:///home/somesh/git_repos/synapse-sync/documentation/design/high_level/03_data_models.md)):
     - `response_mime_type: "application/json"`
