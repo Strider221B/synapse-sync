@@ -151,4 +151,35 @@ describe('AuthService (Google Drive)', () => {
       /Failed to fetch Google user profile/
     );
   });
+
+  it('normalizes schemeless and trailing-slash redirect URIs', async () => {
+    const storage = new MockStorage();
+    const service = new AuthService(storage, createMockFetch() as typeof fetch, {
+      clientId: 'test-client',
+      redirectUri: 'synapse-sync-sc.vercel.app/',
+      scopes: ['https://www.googleapis.com/auth/drive'],
+    });
+
+    assert.equal(service.getRedirectUri(), 'https://synapse-sync-sc.vercel.app');
+  });
+
+  it('normalizes localhost schemeless redirect URIs with http prefix', async () => {
+    const storage = new MockStorage();
+    const service = new AuthService(storage, createMockFetch() as typeof fetch, {
+      clientId: 'test-client',
+      redirectUri: 'localhost:3000/',
+      scopes: ['https://www.googleapis.com/auth/drive'],
+    });
+
+    assert.equal(service.getRedirectUri(), 'http://localhost:3000');
+  });
+
+  it('updates and normalizes redirectUri via updateConfig', async () => {
+    const storage = new MockStorage();
+    const service = new AuthService(storage, createMockFetch() as typeof fetch);
+    service.updateConfig({ redirectUri: 'my-custom-domain.vercel.app' });
+
+    assert.equal(service.getRedirectUri(), 'https://my-custom-domain.vercel.app');
+  });
 });
+
