@@ -89,12 +89,15 @@ export function ConnectionStatus() {
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: '0.5rem',
+        gap: '0.4rem',
+        flexShrink: 0,
+        whiteSpace: 'nowrap',
       }}
       data-testid="connection-status-badge"
     >
       {syncToastMessage && (
         <span
+          className="sync-toast-badge hide-on-mobile"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -107,6 +110,8 @@ export function ConnectionStatus() {
             borderRadius: 'var(--radius-full)',
             fontWeight: 600,
             animation: 'fadeIn 0.2s ease-in-out',
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
           }}
         >
           🔄 {syncToastMessage}
@@ -114,7 +119,7 @@ export function ConnectionStatus() {
       )}
 
       {isOnline ? (
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', flexShrink: 0 }}>
           <span
             style={{
               display: 'inline-flex',
@@ -124,9 +129,11 @@ export function ConnectionStatus() {
               color: 'var(--color-success)',
               background: 'var(--color-success-bg)',
               border: '1px solid rgba(16, 185, 129, 0.2)',
-              padding: '0.25rem 0.625rem',
+              padding: '0.25rem 0.55rem',
               borderRadius: 'var(--radius-full)',
               fontWeight: 500,
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
             }}
           >
             <span
@@ -137,9 +144,10 @@ export function ConnectionStatus() {
                 backgroundColor: 'var(--color-success)',
                 display: 'inline-block',
                 boxShadow: '0 0 6px var(--color-success)',
+                flexShrink: 0,
               }}
             />
-            Online
+            <span className="connection-label">Online</span>
           </span>
 
           <button
@@ -148,19 +156,22 @@ export function ConnectionStatus() {
             disabled={isSyncing}
             title="Force sync notes and quizzes with Google Drive"
             aria-label="Force sync notes and quizzes with Google Drive"
+            className="btn-interactive"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: '0.25rem',
-              padding: '0.2rem 0.55rem',
+              padding: '0.2rem 0.5rem',
               borderRadius: 'var(--radius-full)',
-              backgroundColor: 'var(--color-surface)',
+              backgroundColor: 'var(--color-surface-raised)',
               border: '1px solid var(--color-surface-border)',
               color: 'var(--color-text-secondary)',
               fontSize: '0.75rem',
               fontWeight: 500,
               cursor: isSyncing ? 'wait' : 'pointer',
               transition: 'all var(--transition-fast)',
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
             }}
           >
             <span
@@ -171,7 +182,7 @@ export function ConnectionStatus() {
             >
               🔄
             </span>
-            <span>{isSyncing ? 'Syncing...' : 'Sync'}</span>
+            <span className="sync-btn-label">{isSyncing ? 'Syncing...' : 'Sync'}</span>
           </button>
         </div>
       ) : (
@@ -184,9 +195,11 @@ export function ConnectionStatus() {
             color: 'var(--color-warning)',
             background: 'rgba(245, 158, 11, 0.12)',
             border: '1px solid rgba(245, 158, 11, 0.25)',
-            padding: '0.25rem 0.625rem',
+            padding: '0.25rem 0.55rem',
             borderRadius: 'var(--radius-full)',
             fontWeight: 500,
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
           }}
         >
           <span
@@ -197,9 +210,11 @@ export function ConnectionStatus() {
               backgroundColor: 'var(--color-warning)',
               display: 'inline-block',
               boxShadow: '0 0 6px var(--color-warning)',
+              flexShrink: 0,
             }}
           />
-          Offline — studying from cache
+          <span>Offline</span>
+          <span className="hide-on-mobile"> — studying from cache</span>
         </span>
       )}
     </div>
