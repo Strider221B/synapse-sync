@@ -72,6 +72,7 @@ function QuizContent({ params }: QuizPageProps) {
     flashcardCount: number;
     throttleSpeed?: string;
   } | null>(null);
+  const [availableQuizzes, setAvailableQuizzes] = useState<Quiz[]>([]);
   const [rerollError, setRerollError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -82,10 +83,8 @@ function QuizContent({ params }: QuizPageProps) {
 
     async function loadQuizData() {
       const quizWithCards = await quizService.getQuizWithCards(quizId);
-      if (!active) return;
-
-      if (!quizWithCards) {
-        setIsLoading(false);
+      if (!active || !quizWithCards) {
+        if (active) setIsLoading(false);
         return;
       }
 
@@ -94,11 +93,15 @@ function QuizContent({ params }: QuizPageProps) {
       setFlashcards(quizWithCards.flashcards);
       setUserAnswers(new Array(quizWithCards.mcqCards.length).fill(null));
 
-      const foundNote = await noteService.getById(quizWithCards.quiz.noteId);
-      if (active && foundNote) {
-        setNote(foundNote);
+      const [foundNote, allQuizzes] = await Promise.all([
+        noteService.getById(quizWithCards.quiz.noteId),
+        quizService.getByNote(quizWithCards.quiz.noteId),
+      ]);
+      if (active) {
+        if (foundNote) setNote(foundNote);
+        setAvailableQuizzes([...allQuizzes].sort((a, b) => b.version - a.version));
+        setIsLoading(false);
       }
-      setIsLoading(false);
     }
 
     loadQuizData();
@@ -372,22 +375,51 @@ function QuizContent({ params }: QuizPageProps) {
               </Link>
             </>
           )}
-          <span
-            style={{
-              fontSize: '0.75rem',
-              padding: '0.15rem 0.5rem',
-              borderRadius: 'var(--radius-full)',
-              backgroundColor: 'var(--color-surface-raised)',
-              border: '1px solid var(--color-surface-border)',
-              color: 'var(--color-text-muted)',
-              fontWeight: 600,
-            }}
-          >
-            v{quiz.version}
-          </span>
+          {availableQuizzes.length > 1 ? (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                Version:
+              </span>
+              <select
+                value={quiz.id}
+                onChange={(e) => router.push(`/quiz/${e.target.value}`)}
+                aria-label="Select quiz version"
+                style={{
+                  padding: '0.2rem 0.5rem',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.75rem',
+                  backgroundColor: 'var(--color-surface-raised)',
+                  border: '1px solid var(--color-surface-border)',
+                  color: 'var(--color-text-primary)',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {availableQuizzes.map((q) => (
+                  <option key={q.id} value={q.id}>
+                    v{q.version} ({new Date(q.generatedAt).toLocaleDateString()})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <span
+              style={{
+                fontSize: '0.75rem',
+                padding: '0.15rem 0.5rem',
+                borderRadius: 'var(--radius-full)',
+                backgroundColor: 'var(--color-surface-raised)',
+                border: '1px solid var(--color-surface-border)',
+                color: 'var(--color-text-muted)',
+                fontWeight: 600,
+              }}
+            >
+              v{quiz.version}
+            </span>
+          )}
         </div>
 
-        {/* Mode Switcher Tabs & Re-trigger */}
+        {/* Mode Switcher Tabs & Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <span
             style={{
@@ -447,6 +479,25 @@ function QuizContent({ params }: QuizPageProps) {
               🔄 Flashcards ({flashcards.length})
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={activeMode === 'mcq' ? handleRetakeMcq : handleResetFlashcards}
+            style={{
+              padding: '0.4rem 0.85rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-surface-raised)',
+              border: '1px solid var(--color-surface-border)',
+              color: 'var(--color-text-secondary)',
+              fontSize: '0.825rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+            title="Retake or reset this version from question 1"
+          >
+            <span>🔁</span> Retake
+          </button>
 
           <button
             type="button"

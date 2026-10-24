@@ -277,6 +277,32 @@ function QuizListContent() {
                     year: 'numeric',
                   })}
                 </span>
+
+                {quizzes.length > 1 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 500 }}>
+                      Retake:
+                    </span>
+                    {quizzes.map((q) => (
+                      <Link
+                        key={q.id}
+                        href={`/quiz/${q.id}`}
+                        style={{
+                          padding: '0.15rem 0.5rem',
+                          borderRadius: 'var(--radius-sm)',
+                          backgroundColor: q.id === latestQuiz.id ? 'var(--color-primary-light)' : 'var(--color-surface-raised)',
+                          border: '1px solid var(--color-surface-border)',
+                          color: q.id === latestQuiz.id ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          textDecoration: 'none',
+                        }}
+                      >
+                        v{q.version}
+                      </Link>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div style={{ display: 'flex', gap: '0.75rem' }}>

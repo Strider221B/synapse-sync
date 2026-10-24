@@ -493,6 +493,29 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
                   ☁️ Stored on Google Drive
                 </span>
               </div>
+              {quizzes.length > 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 500 }}>Retake version:</span>
+                  {quizzes.map((q) => (
+                    <Link
+                      key={q.id}
+                      href={`/quiz/${q.id}`}
+                      style={{
+                        padding: '0.1rem 0.45rem',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: '0.75rem',
+                        backgroundColor: q.id === quizzes[quizzes.length - 1].id ? 'var(--color-primary-light)' : 'var(--color-surface-raised)',
+                        border: '1px solid var(--color-surface-border)',
+                        color: q.id === quizzes[quizzes.length - 1].id ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                        textDecoration: 'none',
+                        fontWeight: 600,
+                      }}
+                    >
+                      v{q.version}
+                    </Link>
+                  ))}
+                </div>
+              )}
               <p style={{ margin: '0.2rem 0 0 0', color: 'var(--color-text-secondary)', fontSize: '0.825rem' }}>
                 Questions and flashcards are ready to study. You can also re-trigger generation if desired.
               </p>
