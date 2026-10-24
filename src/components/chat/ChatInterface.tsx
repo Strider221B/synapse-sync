@@ -110,6 +110,7 @@ export function ChatInterface({ noteId, noteTitle, noteContent }: ChatInterfaceP
 
       const savedAssistantMessage = await chatService.create(noteId, 'assistant', response.answer);
       setMessages((prev) => [...prev, savedAssistantMessage]);
+      void syncChatStateToCloud();
     } catch (err: unknown) {
       console.error('Chat API invocation failed:', err);
       let desc = 'Unable to get AI response. Please try again.';
@@ -129,6 +130,18 @@ export function ChatInterface({ noteId, noteTitle, noteContent }: ChatInterfaceP
     }
   };
 
+  const syncChatStateToCloud = async () => {
+    try {
+      const { SyncManager } = await import('@/lib/db/sync_manager');
+      const syncService = SyncManager.getInstance().getSyncService();
+      if (syncService && syncService.isConnected()) {
+        await syncService.pushChat(noteId);
+      }
+    } catch (syncErr) {
+      console.warn('Direct Google Drive chat history sync deferred:', syncErr);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -144,6 +157,15 @@ export function ChatInterface({ noteId, noteTitle, noteContent }: ChatInterfaceP
       setMessages([]);
       setShowClearConfirm(false);
       setErrorMessage(null);
+      try {
+        const { SyncManager } = await import('@/lib/db/sync_manager');
+        const syncService = SyncManager.getInstance().getSyncService();
+        if (syncService && syncService.isConnected()) {
+          await syncService.deleteRemoteChat(noteId);
+        }
+      } catch (syncErr) {
+        console.warn('Direct Google Drive chat history deletion deferred:', syncErr);
+      }
     } catch (err) {
       console.error('Failed to clear conversation history:', err);
     }

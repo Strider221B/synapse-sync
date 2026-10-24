@@ -32,3 +32,5 @@ export type { DashboardStats } from './stats_service';
 export { GoogleDriveSyncService } from './google_drive_sync_service';
 export type { SyncResult, QuizDrivePayload } from './google_drive_sync_service';
 
+export { ChatSyncService } from './chat_sync_service';
+

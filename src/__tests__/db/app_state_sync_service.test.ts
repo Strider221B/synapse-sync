@@ -115,6 +115,7 @@ describe('AppStateSyncService', () => {
     assert.equal(payload.userId, 'SC');
     assert.equal(payload.preferences.theme, 'dark');
     assert.equal(payload.srsCards.length, 1);
+    assert.equal(payload.chatMessages, undefined);
     assert.ok(savedFiles['app_state.json']);
 
     await dbService.close();

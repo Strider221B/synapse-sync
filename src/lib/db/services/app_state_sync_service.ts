@@ -20,7 +20,7 @@ export interface AppStatePayload {
   studyStats: AppStateStudyStats;
   preferences: Record<string, unknown>;
   srsCards: SRSCard[];
-  chatMessages: ChatMessage[];
+  chatMessages?: ChatMessage[];
 }
 
 /**
@@ -91,9 +91,8 @@ export class AppStateSyncService {
    */
   public async buildLocalPayload(userId?: string): Promise<AppStatePayload> {
     const db = await this._databaseService.getDB();
-    const [srsCards, chatMessages, preferences] = await Promise.all([
+    const [srsCards, preferences] = await Promise.all([
       db.getAll(DB_STORES.SRS_CARDS),
-      db.getAll(DB_STORES.CHAT_MESSAGES),
       this._preferencesService.getAll(),
     ]);
 
@@ -105,7 +104,6 @@ export class AppStateSyncService {
       studyStats,
       preferences,
       srsCards,
-      chatMessages,
     };
   }
 
@@ -141,15 +139,20 @@ export class AppStateSyncService {
    */
   protected async _restoreRemotePayload(payload: AppStatePayload): Promise<void> {
     const db = await this._databaseService.getDB();
-    const tx = db.transaction([DB_STORES.SRS_CARDS, DB_STORES.CHAT_MESSAGES], 'readwrite');
+    const tx = db.transaction([DB_STORES.SRS_CARDS], 'readwrite');
 
     for (const card of payload.srsCards || []) {
       await tx.objectStore(DB_STORES.SRS_CARDS).put(card);
     }
-    for (const message of payload.chatMessages || []) {
-      await tx.objectStore(DB_STORES.CHAT_MESSAGES).put(message);
-    }
     await tx.done;
+
+    if (payload.chatMessages && payload.chatMessages.length > 0) {
+      const chatTx = db.transaction([DB_STORES.CHAT_MESSAGES], 'readwrite');
+      for (const message of payload.chatMessages) {
+        await chatTx.objectStore(DB_STORES.CHAT_MESSAGES).put(message);
+      }
+      await chatTx.done;
+    }
 
     await this._restorePreferences(payload.preferences);
     await this._cacheStatsInPreferences(payload.studyStats);
