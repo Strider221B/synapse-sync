@@ -135,7 +135,7 @@ export function ChatInterface({ noteId, noteTitle, noteContent }: ChatInterfaceP
       const { SyncManager } = await import('@/lib/db/sync_manager');
       const syncService = SyncManager.getInstance().getSyncService();
       if (syncService && syncService.isConnected()) {
-        await syncService.pushAppState();
+        await syncService.pushChat(noteId);
       }
     } catch (syncErr) {
       console.warn('Direct Google Drive chat history sync deferred:', syncErr);
@@ -157,7 +157,15 @@ export function ChatInterface({ noteId, noteTitle, noteContent }: ChatInterfaceP
       setMessages([]);
       setShowClearConfirm(false);
       setErrorMessage(null);
-      void syncChatStateToCloud();
+      try {
+        const { SyncManager } = await import('@/lib/db/sync_manager');
+        const syncService = SyncManager.getInstance().getSyncService();
+        if (syncService && syncService.isConnected()) {
+          await syncService.deleteRemoteChat(noteId);
+        }
+      } catch (syncErr) {
+        console.warn('Direct Google Drive chat history deletion deferred:', syncErr);
+      }
     } catch (err) {
       console.error('Failed to clear conversation history:', err);
     }

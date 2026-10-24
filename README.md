@@ -50,11 +50,11 @@ SynapseSync solves the study friction experienced by self-directed learners, stu
 ## Key Features
 
 - 📁 **Google Drive Integration & Multi-User Context:** Authenticate via Google OAuth 2.0 with full read and write capabilities (`https://www.googleapis.com/auth/drive`). Pre-registered users (`SC`, `DB`) select their identity from a combobox beside the connect button, which dynamically binds their specific `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. Connecting to Google Drive acts as the user's primary login—switching the entire context of the app and restoring all notes, quizzes, flashcards, preferences, cards due today, and study streaks (today & yesterday). Continuous online sync and an automatic pre-logout flush (`forceSync`) ensure your work is committed before local IndexedDB is purged for data isolation.
-- 💾 **Full Cloud State Persistence (`app_state.json`):** Persists complete learning state (daily review streak, yesterday's streak, cards due today, mastery counts, preferences, and AI chat histories) directly to your personal Google Drive folder (`SynapseSync/`). Unauthenticated users see default zero metrics (`Daily Streak: 0`).
+- 💾 **Full Cloud State Persistence (`app_state.json`):** Persists complete learning state (daily review streak, yesterday's streak, cards due today, mastery counts, and preferences) directly to your personal Google Drive folder (`SynapseSync/`). Unauthenticated users see default zero metrics (`Daily Streak: 0`).
 - 🎬 **Local YouTube Lecture Processing:** Ingest entire multi-video playlists via a Python CLI tool. Generates complete, structured Markdown notes for every lecture.
 - 🤖 **Structured AI Quizzing:** One-click generation of 5 multiple-choice questions (with explanations) and 5 flashcards per note, using Gemini 3.8 Flash (`gemini-3.8-flash`) structured outputs.
 - 🧠 **SuperMemo SM-2 Spaced Repetition:** Scientifically schedules daily card reviews based on your recall quality (ratings 0–5), with an interactive review queue, today's streak, and yesterday's streak tracking.
-- 💬 **Context-Aware Study Chat:** Scoped AI assistant for every note with specialized modes (*Default*, *ELI5 / Explain to a 5-Year-Old*, and *Quiz Me*). Conversations persist locally in IndexedDB and synchronize automatically to Google Drive (`SynapseSync/app_state.json`).
+- 💬 **Context-Aware Study Chat:** Scoped AI assistant for every note with specialized modes (*Default*, *ELI5 / Explain to a 5-Year-Old*, and *Quiz Me*). Conversations persist locally in IndexedDB and synchronize note-by-note to Google Drive (`SynapseSync/chats/chat_<noteId>.json`), keeping files lightweight and isolated.
 - 📱 **Installable PWA:** Installs to desktop and mobile home screens with app-shell caching, smooth dark/light theme, and offline capability.
 
 ---
@@ -285,7 +285,7 @@ python -m tools.youtube_cli.main process --url "https://www.youtube.com/playlist
    - **Default:** Precise answers grounded strictly in the note text.
    - **Explain (ELI5):** Analogies and simple explanations for beginners.
    - **Quiz Me:** AI asks follow-up questions to test your understanding.
-3. Conversation histories persist locally per note in IndexedDB for instant offline access and automatically synchronize to Google Drive (`SynapseSync/app_state.json`) across sessions and devices.
+3. Conversation histories persist locally per note in IndexedDB for instant offline access and automatically synchronize to dedicated note files in Google Drive (`SynapseSync/chats/chat_<noteId>.json`) across sessions and devices.
 
 ---
 

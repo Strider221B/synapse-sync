@@ -6,6 +6,7 @@ import type { AuthService } from '../../auth/auth_service';
 import type { SyncQueueService } from './sync_queue_service';
 import { PreferencesService } from './preferences_service';
 import { AppStateSyncService } from './app_state_sync_service';
+import { ChatSyncService } from './chat_sync_service';
 
 export interface SyncResult {
   success: boolean;
@@ -16,6 +17,8 @@ export interface SyncResult {
   pulledQuizzes: number;
   pushedNotebooks: number;
   pulledNotebooks: number;
+  pushedChats?: number;
+  pulledChats?: number;
   timestamp: string;
 }
 
@@ -48,6 +51,7 @@ export class GoogleDriveSyncService {
   private readonly _syncQueueService?: SyncQueueService;
   private readonly _preferencesService: PreferencesService;
   private readonly _appStateSyncService: AppStateSyncService;
+  private readonly _chatSyncService: ChatSyncService;
 
   private _appFolderId: string | null = null;
   private _notesFolderId: string | null = null;
@@ -60,7 +64,8 @@ export class GoogleDriveSyncService {
     authService: AuthService,
     syncQueueService?: SyncQueueService,
     preferencesService?: PreferencesService,
-    appStateSyncService?: AppStateSyncService
+    appStateSyncService?: AppStateSyncService,
+    chatSyncService?: ChatSyncService
   ) {
     this._dbService = databaseService;
     this._gdriveClient = googleDriveClient;
@@ -70,6 +75,9 @@ export class GoogleDriveSyncService {
     this._appStateSyncService =
       appStateSyncService ??
       new AppStateSyncService(databaseService, googleDriveClient, this._preferencesService);
+    this._chatSyncService =
+      chatSyncService ??
+      new ChatSyncService(databaseService, googleDriveClient);
   }
 
   /**
@@ -124,7 +132,7 @@ export class GoogleDriveSyncService {
   }
 
   /**
-   * Removes a note file from Google Drive when deleted locally.
+   * Removes a note file and its chat history from Google Drive when deleted locally.
    */
   public async deleteRemoteNote(noteId: string): Promise<void> {
     const folderId = await this._getNotesFolderId();
@@ -133,6 +141,21 @@ export class GoogleDriveSyncService {
     if (file) {
       await this._gdriveClient.deleteFile(file.id);
     }
+    await this._chatSyncService.deleteRemoteChat(noteId);
+  }
+
+  /**
+   * Pushes all chat messages associated with a note to its dedicated file on Google Drive.
+   */
+  public async pushChat(noteId: string): Promise<void> {
+    await this._chatSyncService.pushChat(noteId);
+  }
+
+  /**
+   * Removes a chat history file from Google Drive when chat is cleared or note is deleted.
+   */
+  public async deleteRemoteChat(noteId: string): Promise<void> {
+    await this._chatSyncService.deleteRemoteChat(noteId);
   }
 
   /**
@@ -198,6 +221,13 @@ export class GoogleDriveSyncService {
   }
 
   /**
+   * Pulls all note chat histories from Google Drive into local IndexedDB.
+   */
+  public async pullChats(): Promise<number> {
+    return this._chatSyncService.pullChats();
+  }
+
+  /**
    * Replays a single queued mutation entry to Google Drive.
    */
   public async replaySyncEntry(entry: SyncEntry): Promise<void> {
@@ -238,12 +268,14 @@ export class GoogleDriveSyncService {
     const pushedNotes = await this._pushUnsyncedNotes();
     const pushedNotebooks = await this._pushUnsyncedNotebooks();
     const pushedQuizzes = await this._pushUnsyncedQuizzes();
+    const pushedChats = await this._chatSyncService.pushAllChats();
     await this._replayQueueEntries();
     await this.pushAppState();
 
     const pulledNotebooks = await this.pullNotebooks();
     const pulledNotes = await this.pullNotes();
     const pulledQuizzes = await this.pullQuizzes();
+    const pulledChats = await this._chatSyncService.pullChats();
     await this.pullAppState();
 
     await this._preferencesService.set(GoogleDriveSyncService._PREF_LAST_SYNC, nowIso);
@@ -255,6 +287,8 @@ export class GoogleDriveSyncService {
       pulledQuizzes,
       pushedNotebooks,
       pulledNotebooks,
+      pushedChats,
+      pulledChats,
       timestamp: nowIso,
     };
     this._notifySyncCompleted(result);
@@ -445,6 +479,8 @@ export class GoogleDriveSyncService {
       pulledQuizzes: 0,
       pushedNotebooks: 0,
       pulledNotebooks: 0,
+      pushedChats: 0,
+      pulledChats: 0,
       timestamp,
     };
   }

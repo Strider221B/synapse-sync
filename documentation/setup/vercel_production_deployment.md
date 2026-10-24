@@ -224,7 +224,7 @@ https://<your-project-name>.vercel.app/api/health
 ### 6. AI Note Chat & Chat Persistence
 1. In the note view or at `/chat`, send a question to the AI tutor (e.g., *"Summarize the main concepts"*).
 2. Verify Gemini 3.8 Flash responds with context-grounded Markdown answers.
-3. Check Google Drive: `SynapseSync/app_state.json` updates with the conversation history under `chatMessages`, ensuring your chats persist across devices.
+3. Check Google Drive: `SynapseSync/chats/chat_<noteId>.json` is created with the conversation history for that specific note, ensuring isolated and lightweight cloud persistence.
 
 ---
 
