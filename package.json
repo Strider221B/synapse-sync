@@ -7,7 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test"
+    "test": "node --import tsx --test \"src/__tests__/**/*.test.ts\""
   },
   "dependencies": {
     "@serwist/next": "^9.5.13",

@@ -27,45 +27,17 @@ export function AppLayout({ children }: AppLayoutProps) {
         {/* Main Content Area */}
         <div className="app-main">
           {/* Top Header */}
-          <header
-            style={{
-              height: 'var(--header-height)',
-              borderBottom: '1px solid var(--color-surface-border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '0 var(--space-6)',
-              background: 'var(--glass-bg)',
-              backdropFilter: 'blur(12px)',
-              WebkitBackdropFilter: 'blur(12px)',
-              position: 'sticky',
-              top: 0,
-              zIndex: 30,
-            }}
-          >
-            <div
-              style={{
-                fontSize: '0.875rem',
-                color: 'var(--color-text-secondary)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-              }}
-            >
-              <span>SynapseSync</span>
-              <span style={{ color: 'var(--color-text-muted)' }}>/</span>
-              <strong style={{ color: 'var(--color-text-primary)' }}>Knowledge Hub</strong>
+          <header className="app-header">
+            <div className="app-header-brand">
+              <span className="app-header-brand-icon" aria-hidden="true">⚡</span>
+              <span className="app-header-brand-title">SynapseSync</span>
+              <span className="app-header-breadcrumb-sep">/</span>
+              <strong className="app-header-section-title">Knowledge Hub</strong>
             </div>
 
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.875rem',
-              }}
-            >
+            <div className="app-header-actions">
               <GoogleDriveConnectButton compact />
-              <ThemeToggle id="header-theme-toggle" />
+              <ThemeToggle id="header-theme-toggle" variant="compact" />
               <ConnectionStatus />
             </div>
           </header>

@@ -93,14 +93,53 @@ export function ThemeToggle({
         className={className}
         style={{
           display: 'inline-flex',
-          height: '36px',
-          width: '120px',
+          height: '34px',
+          width: variant === 'compact' ? '34px' : '120px',
           borderRadius: 'var(--radius-full)',
           backgroundColor: 'var(--color-surface)',
           border: '1px solid var(--color-surface-border)',
+          flexShrink: 0,
         }}
         aria-hidden="true"
       />
+    );
+  }
+
+  if (variant === 'compact') {
+    const currentOpt = THEME_OPTIONS.find((opt) => opt.value === currentTheme) ?? THEME_OPTIONS[0];
+    const handleToggleNext = () => {
+      const nextTheme: ThemeMode =
+        currentTheme === 'dark' ? 'light' : currentTheme === 'light' ? 'system' : 'dark';
+      void handleThemeChange(nextTheme);
+    };
+
+    return (
+      <button
+        id={id}
+        type="button"
+        onClick={handleToggleNext}
+        className={`btn-interactive ${className}`}
+        aria-label={`Current theme: ${currentOpt.label}. Tap to switch theme.`}
+        title={`Current theme: ${currentOpt.label}. Tap to switch theme.`}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '34px',
+          height: '34px',
+          borderRadius: 'var(--radius-full)',
+          backgroundColor: 'var(--color-surface-raised)',
+          border: '1px solid var(--color-surface-border)',
+          color: 'var(--color-text-primary)',
+          fontSize: '0.95rem',
+          cursor: 'pointer',
+          transition: 'all var(--transition-fast)',
+          boxShadow: 'var(--shadow-sm)',
+          flexShrink: 0,
+        }}
+      >
+        <span aria-hidden="true">{currentOpt.icon}</span>
+      </button>
     );
   }
 

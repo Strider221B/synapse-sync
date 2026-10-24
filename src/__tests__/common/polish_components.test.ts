@@ -68,6 +68,14 @@ describe('Epic 9 Polish & Enhancements Components Test Suite', () => {
       const markup = renderToStaticMarkup(React.createElement(ThemeToggle));
       assert.ok(markup.includes('theme-toggle'));
     });
+
+    it('renders compact variant toggle button with appropriate id and dimensions', () => {
+      const markup = renderToStaticMarkup(
+        React.createElement(ThemeToggle, { variant: 'compact', id: 'header-theme-toggle' })
+      );
+      assert.ok(markup.includes('header-theme-toggle'));
+      assert.ok(markup.includes('34px'));
+    });
   });
 
   describe('Settings Form Components', () => {
