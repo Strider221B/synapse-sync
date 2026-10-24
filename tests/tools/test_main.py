@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
@@ -187,4 +188,33 @@ class TestYouTubeCli:
                 drive_folder="CustomDriveFolder",
             )
             mock_pusher.push.assert_called_once()
+
+    def test_load_env_file_populates_unset_variables(self, tmp_path: Path) -> None:
+        """Verify _load_env_file parses key-value pairs into os.environ."""
+        env_file = tmp_path / ".env.test"
+        env_file.write_text("TEST_KEY=test_value\n", encoding="utf-8")
+        cli, _, _, _, _ = self._create_mock_cli(tmp_path)
+        with patch.dict("os.environ", {}, clear=True):
+            cli._load_env_file(env_file)
+            assert os.environ.get("TEST_KEY") == "test_value"
+
+    def test_load_env_file_does_not_override_existing_variables(self, tmp_path: Path) -> None:
+        """Verify _load_env_file does not overwrite active environment variables."""
+        env_file = tmp_path / ".env.test"
+        env_file.write_text("EXISTING_KEY=new_value\n", encoding="utf-8")
+        cli, _, _, _, _ = self._create_mock_cli(tmp_path)
+        with patch.dict("os.environ", {"EXISTING_KEY": "original_value"}, clear=True):
+            cli._load_env_file(env_file)
+            assert os.environ.get("EXISTING_KEY") == "original_value"
+
+    def test_load_env_file_skips_comments_and_invalid_lines(self, tmp_path: Path) -> None:
+        """Verify _load_env_file safely ignores comments and malformed lines."""
+        env_file = tmp_path / ".env.test"
+        content = "# Comment line\n\nINVALID_LINE_NO_EQUALS\nVALID_KEY=\"quoted_value\"\n"
+        env_file.write_text(content, encoding="utf-8")
+        cli, _, _, _, _ = self._create_mock_cli(tmp_path)
+        with patch.dict("os.environ", {}, clear=True):
+            cli._load_env_file(env_file)
+            assert os.environ.get("VALID_KEY") == "quoted_value"
+            assert "INVALID_LINE_NO_EQUALS" not in os.environ
 
