@@ -230,7 +230,9 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
 
     setIsDeleting(true);
     const dbService = new DatabaseService();
-    const noteService = new NoteService(dbService);
+    const { SyncQueueService } = await import('@/lib/db/services/sync_queue_service');
+    const syncQueueService = new SyncQueueService(dbService);
+    const noteService = new NoteService(dbService, syncQueueService);
 
     await noteService.delete(note.id);
     router.push('/notes');

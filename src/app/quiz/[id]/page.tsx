@@ -11,6 +11,7 @@ import { NoteService } from '@/lib/db/services/note_service';
 import { QuizService } from '@/lib/db/services/quiz_service';
 import { SRSCardService } from '@/lib/db/services/srs_card_service';
 import { PreferencesService } from '@/lib/db/services/preferences_service';
+import { SyncQueueService } from '@/lib/db/services/sync_queue_service';
 import { MCQCard as MCQCardComponent } from '@/components/quiz/MCQCard';
 import { QuizResults } from '@/components/quiz/QuizResults';
 import { FlashCard as FlashCardComponent } from '@/components/quiz/FlashCard';
@@ -313,7 +314,8 @@ function QuizContent({ params }: QuizPageProps) {
     if (!confirmed) return;
 
     const dbService = new DatabaseService();
-    const quizService = new QuizService(dbService);
+    const syncQueueService = new SyncQueueService(dbService);
+    const quizService = new QuizService(dbService, syncQueueService);
     await quizService.deleteMCQCard(currentCard.id);
 
     const updated = mcqCards.filter((_, idx) => idx !== currentMcqIndex);
@@ -332,7 +334,8 @@ function QuizContent({ params }: QuizPageProps) {
     if (!confirmed) return;
 
     const dbService = new DatabaseService();
-    const quizService = new QuizService(dbService);
+    const syncQueueService = new SyncQueueService(dbService);
+    const quizService = new QuizService(dbService, syncQueueService);
     await quizService.deleteFlashcard(currentCard.id);
 
     const updated = flashcards.filter((_, idx) => idx !== currentFlashIndex);

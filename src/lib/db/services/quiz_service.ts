@@ -98,6 +98,8 @@ export class QuizService {
    */
   public async deleteMCQCard(cardId: string): Promise<void> {
     const db = await this._databaseService.getDB();
+    const card = await db.get(DB_STORES.MCQ_CARDS, cardId);
+    const quizId = card?.quizId;
     const tx = db.transaction([DB_STORES.MCQ_CARDS, DB_STORES.SRS_CARDS], 'readwrite');
     const srsIndex = tx.objectStore(DB_STORES.SRS_CARDS).index(DB_INDEXES.BY_CARD);
     const srsCard = await srsIndex.get(cardId);
@@ -106,7 +108,9 @@ export class QuizService {
     }
     await tx.objectStore(DB_STORES.MCQ_CARDS).delete(cardId);
     await tx.done;
-    await this._enqueueIfOffline(cardId, { id: cardId, entity: QuizService._ENTITY_MCQ, op: QuizService._OP_DELETE });
+    if (quizId && this._syncQueueService) {
+      await this._syncQueueService.enqueue(QuizService._ENTITY_TYPE, quizId, QuizService._OP_CREATE, { quizId });
+    }
   }
 
   /**
@@ -114,6 +118,8 @@ export class QuizService {
    */
   public async deleteFlashcard(cardId: string): Promise<void> {
     const db = await this._databaseService.getDB();
+    const card = await db.get(DB_STORES.FLASHCARDS, cardId);
+    const quizId = card?.quizId;
     const tx = db.transaction([DB_STORES.FLASHCARDS, DB_STORES.SRS_CARDS], 'readwrite');
     const srsIndex = tx.objectStore(DB_STORES.SRS_CARDS).index(DB_INDEXES.BY_CARD);
     const srsCard = await srsIndex.get(cardId);
@@ -122,7 +128,9 @@ export class QuizService {
     }
     await tx.objectStore(DB_STORES.FLASHCARDS).delete(cardId);
     await tx.done;
-    await this._enqueueIfOffline(cardId, { id: cardId, entity: QuizService._ENTITY_FLASHCARD, op: QuizService._OP_DELETE });
+    if (quizId && this._syncQueueService) {
+      await this._syncQueueService.enqueue(QuizService._ENTITY_TYPE, quizId, QuizService._OP_CREATE, { quizId });
+    }
   }
 
   /**

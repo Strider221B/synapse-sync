@@ -65,7 +65,9 @@ export class NoteService {
   public async delete(id: string): Promise<void> {
     const db = await this._databaseService.getDB();
     await db.delete(DB_STORES.NOTES, id);
-    await this._enqueueIfOffline(id, NoteService._OP_DELETE, { id });
+    if (this._syncQueueService) {
+      await this._syncQueueService.enqueue(NoteService._ENTITY_TYPE, id, NoteService._OP_DELETE, { id });
+    }
   }
 
   /**
