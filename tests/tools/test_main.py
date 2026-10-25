@@ -76,20 +76,40 @@ class TestYouTubeCli:
         )
         return cli, mock_fetcher, mock_resolver, mock_generator, mock_pusher
 
-    def test_process_single_video_pipeline(self, tmp_path: Path) -> None:
-        """Verify pipeline for single video fetches transcript, generates notes, and pushes."""
+    def test_process_single_video_default_downloads_transcript_only(self, tmp_path: Path) -> None:
+        """Verify default process on single video fetches and caches transcript without notes."""
         cli, mock_fetch, _, mock_gen, mock_push = self._create_mock_cli(tmp_path)
         exit_code = cli.run(["process", "--url", self._VIDEO_URL])
+
+        assert exit_code == 0
+        mock_fetch.fetch.assert_called_once_with(self._VIDEO_URL)
+        mock_gen.generate.assert_not_called()
+        mock_push.push.assert_not_called()
+
+    def test_process_single_video_pipeline_with_generate_notes(self, tmp_path: Path) -> None:
+        """Verify process with --generate-notes fetches transcript, generates notes, and pushes."""
+        cli, mock_fetch, _, mock_gen, mock_push = self._create_mock_cli(tmp_path)
+        exit_code = cli.run(["process", "--url", self._VIDEO_URL, "--generate-notes"])
 
         assert exit_code == 0
         mock_fetch.fetch.assert_called_once_with(self._VIDEO_URL)
         mock_gen.generate.assert_called_once()
         mock_push.push.assert_called_once()
 
-    def test_process_playlist_pipeline(self, tmp_path: Path) -> None:
-        """Verify process pipeline for playlist resolves playlist and iterates through videos."""
+    def test_process_playlist_default_downloads_transcripts_only(self, tmp_path: Path) -> None:
+        """Verify default process on playlist downloads transcripts without generating notes."""
         cli, _, mock_resolve, mock_gen, mock_push = self._create_mock_cli(tmp_path)
         exit_code = cli.run(["process", "--url", self._PLAYLIST_URL])
+
+        assert exit_code == 0
+        mock_resolve.resolve.assert_called_once_with(self._PLAYLIST_URL)
+        mock_gen.generate.assert_not_called()
+        mock_push.push.assert_not_called()
+
+    def test_process_playlist_pipeline_with_generate_notes(self, tmp_path: Path) -> None:
+        """Verify process pipeline with --generate-notes resolves playlist and generates notes."""
+        cli, _, mock_resolve, mock_gen, mock_push = self._create_mock_cli(tmp_path)
+        exit_code = cli.run(["process", "--url", self._PLAYLIST_URL, "--generate-notes"])
 
         assert exit_code == 0
         mock_resolve.resolve.assert_called_once_with(self._PLAYLIST_URL)
@@ -99,7 +119,9 @@ class TestYouTubeCli:
     def test_process_local_only_skips_push(self, tmp_path: Path) -> None:
         """Verify --local-only flag prevents server push from occurring."""
         cli, _, _, _, mock_push = self._create_mock_cli(tmp_path)
-        exit_code = cli.run(["process", "--url", self._VIDEO_URL, "--local-only"])
+        exit_code = cli.run(
+            ["process", "--url", self._VIDEO_URL, "--generate-notes", "--local-only"]
+        )
 
         assert exit_code == 0
         mock_push.push.assert_not_called()
@@ -190,7 +212,9 @@ class TestYouTubeCli:
             p_dir, notebook, note, {"videoId": "jGwO_UgTS7I", "url": self._VIDEO_URL}
         )
 
-        exit_code = cli.run(["process", "--url", self._PLAYLIST_URL, "--force"])
+        exit_code = cli.run(
+            ["process", "--url", self._PLAYLIST_URL, "--generate-notes", "--force"]
+        )
         assert exit_code == 0
         mock_gen.generate.assert_called_once()
 
@@ -228,6 +252,7 @@ class TestYouTubeCli:
                 "process",
                 "--url",
                 self._VIDEO_URL,
+                "--generate-notes",
                 "--drive-folder",
                 "CustomDriveFolder",
                 "--drive-token",
