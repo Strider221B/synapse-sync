@@ -211,7 +211,7 @@ graph TD
 |:------------------------|:------------------------------|:--------------------------------|:--------------------------------------|:--------|:---------|
 | Fetch transcript        | `youtube-transcript-api` (Python) | YouTube video URL              | Raw transcript text                   | No      | None (local) |
 | Resolve playlist        | `youtube-transcript-api` / HTTP | YouTube playlist URL            | List of `{ videoId, title, url }`     | No      | None (local) |
-| Generate detailed notes | `google-generativeai` (Python)  | Raw transcript text             | Detailed markdown notes               | Yes     | None (local) |
+| Generate detailed notes | `google-genai` (Python)       | Raw transcript text             | Detailed markdown notes               | Yes     | None (local) |
 | Upload to Google Drive  | `GoogleDrivePusher` / Drive API v3 | Notebook + notes payload        | Uploads to `SynapseSync/notebooks` & `SynapseSync/notes` | No | None (local) |
 
 > [!NOTE]
@@ -237,11 +237,11 @@ graph TB
 
     subgraph "IndexedDB Schema"
         direction TB
-        NOTEBOOKS[("notebooks<br/>id, name, source, createdAt")]
+        NOTEBOOKS[("notebooks<br/>id, name, parentId, source,<br/>createdAt, updatedAt, isSynced")]
         NOTES_TBL[("notes<br/>id, notebookId, title, content,<br/>sourceUrl, updatedAt, isSynced")]
         QUIZZES[("quizzes<br/>id, noteId, mcqs[], flashcards[],<br/>generatedAt")]
         SRS_STATE[("srs_cards<br/>id, quizId, cardType, front, back,<br/>repetitions, ef, interval,<br/>nextReview, lastReview")]
-        SYNC_QUEUE_TBL[("sync_queue<br/>id, operation, payload,<br/>createdAt, status")]
+        SYNC_QUEUE_TBL[("sync_queue<br/>id, entityType, entityId,<br/>operation, payload, createdAt, status")]
         CHAT_HIST[("chat_history<br/>id, noteId, messages[],<br/>updatedAt")]
     end
 
@@ -257,6 +257,29 @@ graph TB
 SynapseSync leverages Google Drive authentication as its primary user identity and storage boundary. Multiple pre-registered users (e.g. `SC`, `DB`) can use the same application instance. Selecting a user from the combobox dynamically configures the corresponding OAuth Client ID. When authenticating, all remote state (notes, quizzes, flashcards, chat, streak today, streak yesterday, and cards due) is pulled from that user's Google Drive. 
 
 While online, the app automatically synchronizes via periodic timers (every 5 min), network reconnection events (`online`), and tab visibility changes (`visibilitychange`). Furthermore, **when logging out or switching users, the application automatically triggers a pre-logout sync (`forceSync()`) before purging the local IndexedDB stores**, guaranteeing that all latest study streaks, cards due, and notes are committed to Google Drive without requiring manual user intervention.
+
+### 4.1 Google Drive Sync Architecture & Storage Hierarchy
+
+Google Drive serves as the central cloud store for cross-device synchronization. Files are arranged inside a top-level dedicated folder:
+
+```
+Google Drive: SynapseSync/
+├── app_state.json                 # Global snapshot (streaks today/yesterday, cards due, preferences)
+├── notebooks/
+│   └── notebook_<id>.json         # Notebook entities including parentId for hierarchical folders
+├── notes/
+│   └── note_<id>.json             # Individual note Markdown, wordCount, tags, and timestamps
+├── quizzes/
+│   └── quiz_<quizId>.json         # Full quiz bundle: { quiz, mcqCards, flashcards, srsCards }
+└── chats/
+    └── chat_<noteId>.json         # Scoped AI study assistant chat history
+```
+
+#### Sync Lifecycle & Deletion Propagation
+1. **Hierarchical Subfolders**: Notebooks maintain `parentId` referencing their parent folder. Both `pushNotebook` and `pullNotebooks` serialize this field, maintaining folder trees seamlessly across devices.
+2. **Note Deletions**: Deleting a note in the UI writes a `delete` mutation to `sync_queue`. During the normal sync cycle, `GoogleDriveSyncService._replayQueueEntries` triggers `deleteRemoteNote(noteId)`, removing `note_<id>.json` and `chat_<id>.json` from Google Drive.
+3. **MCQ & Flashcard Deletions**: Individual questions deleted in the quiz view cascade to remove local SRS tracking records and enqueue a quiz update. During normal sync, `pushQuiz(quizId)` replaces the remote bundle `quiz_<quizId>.json` without the deleted cards. When other devices pull, `_saveImportedQuizPayload` reconciles local cards and prunes cards removed from Google Drive.
+4. **Non-Blocking Normal Sync**: Operations do not block user interactions with synchronous remote calls; mutations are recorded locally in IndexedDB and replayed naturally during background sync.
 
 ```mermaid
 sequenceDiagram
@@ -534,7 +557,7 @@ synapse-sync/
 | **Local CLI Tool (YouTube)** | Python 3.13 (local machine, `uv pip`) | Transcript fetch + detailed note generation; residential IP avoids blocking |
 | **Doc Parsing**      | Python stdlib (`zipfile` + `xml`) | Zero dependencies; fast; reliable                    |
 | **YouTube Transcripts** | `youtube-transcript-api` 1.2.4 (Python, local) | Runs locally; no cloud IP blocking; no timeout constraints |
-| **AI Model & SDK**   | Google Gemini (Flash) via `google-generativeai` 0.8.6 | Free tier; structured output; fast responses; used both locally (notes) and on Vercel (quiz/chat) |
+| **AI Model & SDK**   | Google Gemini (Flash) via `google-genai` 2.25.0 | Modern Google GenAI SDK; free tier; structured output; fast responses; used both locally (notes) and on Vercel (quiz/chat) |
 | **Deployment**       | Vercel (Hobby tier)         | Free; auto-deploy from Git; edge CDN                       |
 
 ---

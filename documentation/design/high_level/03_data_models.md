@@ -31,6 +31,7 @@ erDiagram
     NOTEBOOK {
         string id PK
         string name
+        string parentId FK
         string source
         string sourceUrl
         string description
@@ -138,6 +139,9 @@ interface Notebook {
   /** Origin of the notebook */
   source: 'google_drive' | 'youtube_playlist' | 'manual';
   
+  /** Parent folder identifier for nested subfolder organization */
+  parentId?: string | null;
+  
   /** Original URL (playlist URL or Google Drive folder path) */
   sourceUrl?: string;
   
@@ -161,6 +165,7 @@ interface Notebook {
 |:---------------|:------------|:-------|:-----------------------------|
 | `by-source`    | `source`    | No     | Filter notebooks by origin   |
 | `by-updated`   | `updatedAt` | No     | Sort by recently modified    |
+| `by-parent`    | `parentId`  | No     | Query subfolders by parent   |
 
 ---
 

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import type { Flashcard } from '@/lib/db/models';
+import { ClipboardService } from '@/lib/utils/clipboard_service';
 
 export interface FlashCardProps {
   card: Flashcard;
@@ -9,6 +10,7 @@ export interface FlashCardProps {
   totalCards: number;
   onRate: (quality: number) => void;
   isRating?: boolean;
+  onDelete?: () => void;
 }
 
 const QUALITY_RATINGS = [
@@ -26,11 +28,24 @@ export const FlashCard: React.FC<FlashCardProps> = ({
   totalCards,
   onRate,
   isRating = false,
+  onDelete,
 }) => {
   const [isFlipped, setIsFlipped] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const handleFlip = () => {
     setIsFlipped((prev) => !prev);
+  };
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const clipboardService = new ClipboardService();
+    const formatted = clipboardService.formatFlashcard(card);
+    const success = await clipboardService.copyToClipboard(formatted);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   return (
@@ -60,7 +75,60 @@ export const FlashCard: React.FC<FlashCardProps> = ({
         <span>
           Flashcard {cardIndex + 1} of {totalCards}
         </span>
-        <span>{isFlipped ? 'Answer (Back)' : 'Question (Front)'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <span>{isFlipped ? 'Answer (Back)' : 'Question (Front)'}</span>
+
+          <button
+            type="button"
+            onClick={handleCopy}
+            title="Copy question and answer to clipboard"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.3rem',
+              padding: '0.3rem 0.6rem',
+              borderRadius: 'var(--radius-sm)',
+              backgroundColor: copied ? 'var(--color-success-bg)' : 'var(--color-surface-raised)',
+              border: `1px solid ${copied ? 'var(--color-success)' : 'var(--color-surface-border)'}`,
+              color: copied ? 'var(--color-success)' : 'var(--color-text-secondary)',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
+            <span>{copied ? '✓' : '📋'}</span>
+            <span>{copied ? 'Copied!' : 'Copy'}</span>
+          </button>
+
+          {onDelete && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              title="Delete this flashcard"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.3rem',
+                padding: '0.3rem 0.6rem',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'transparent',
+                border: '1px solid var(--color-surface-border)',
+                color: 'var(--color-error)',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              <span>🗑️</span>
+              <span>Delete</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 3D Flip Card Container */}

@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import type { MCQCard as MCQCardType } from '@/lib/db/models';
+import { ClipboardService } from '@/lib/utils/clipboard_service';
 
 export interface MCQCardProps {
   card: MCQCardType;
@@ -9,6 +10,7 @@ export interface MCQCardProps {
   totalQuestions: number;
   selectedOption: number | null;
   onSelectOption: (optionIndex: number) => void;
+  onDelete?: () => void;
 }
 
 const OPTION_LABELS = ['A', 'B', 'C', 'D'];
@@ -19,9 +21,22 @@ export const MCQCard: React.FC<MCQCardProps> = ({
   totalQuestions,
   selectedOption,
   onSelectOption,
+  onDelete,
 }) => {
+  const [copied, setCopied] = useState(false);
   const isAnswered = selectedOption !== null;
   const isCorrect = selectedOption === card.correctIndex;
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const clipboardService = new ClipboardService();
+    const formatted = clipboardService.formatMCQ(card);
+    const success = await clipboardService.copyToClipboard(formatted);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   const getOptionStyle = (index: number): React.CSSProperties => {
     const isSelected = selectedOption === index;
@@ -139,20 +154,70 @@ export const MCQCard: React.FC<MCQCardProps> = ({
         <span>
           Question {questionIndex + 1} of {totalQuestions}
         </span>
-        {isAnswered && (
-          <span
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {isAnswered && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                color: isCorrect ? 'var(--color-success)' : 'var(--color-error)',
+                fontWeight: 700,
+                fontSize: '0.85rem',
+              }}
+            >
+              {isCorrect ? '✓ Correct' : '✕ Incorrect'}
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={handleCopy}
+            title="Copy question, options, correct answer and explanation to clipboard"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '0.35rem',
-              color: isCorrect ? 'var(--color-success)' : 'var(--color-error)',
-              fontWeight: 700,
-              fontSize: '0.85rem',
+              gap: '0.3rem',
+              padding: '0.3rem 0.6rem',
+              borderRadius: 'var(--radius-sm)',
+              backgroundColor: copied ? 'var(--color-success-bg)' : 'var(--color-surface-raised)',
+              border: `1px solid ${copied ? 'var(--color-success)' : 'var(--color-surface-border)'}`,
+              color: copied ? 'var(--color-success)' : 'var(--color-text-secondary)',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all var(--transition-fast)',
             }}
           >
-            {isCorrect ? '✓ Correct' : '✕ Incorrect'}
-          </span>
-        )}
+            <span>{copied ? '✓' : '📋'}</span>
+            <span>{copied ? 'Copied!' : 'Copy'}</span>
+          </button>
+
+          {onDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              title="Delete this question"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.3rem',
+                padding: '0.3rem 0.6rem',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'transparent',
+                border: '1px solid var(--color-surface-border)',
+                color: 'var(--color-error)',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              <span>🗑️</span>
+              <span>Delete</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Question prompt */}

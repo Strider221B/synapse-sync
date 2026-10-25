@@ -11,10 +11,12 @@ import { NoteService } from '@/lib/db/services/note_service';
 import { QuizService } from '@/lib/db/services/quiz_service';
 import { SRSCardService } from '@/lib/db/services/srs_card_service';
 import { PreferencesService } from '@/lib/db/services/preferences_service';
+import { SyncQueueService } from '@/lib/db/services/sync_queue_service';
 import { MCQCard as MCQCardComponent } from '@/components/quiz/MCQCard';
 import { QuizResults } from '@/components/quiz/QuizResults';
 import { FlashCard as FlashCardComponent } from '@/components/quiz/FlashCard';
 import { SM2Engine } from '@/lib/srs/sm2';
+import { ClipboardService } from '@/lib/utils/clipboard_service';
 
 interface QuizPageProps {
   params: Promise<{ id: string }>;
@@ -74,6 +76,7 @@ function QuizContent({ params }: QuizPageProps) {
   } | null>(null);
   const [availableQuizzes, setAvailableQuizzes] = useState<Quiz[]>([]);
   const [rerollError, setRerollError] = useState<string | null>(null);
+  const [copiedAll, setCopiedAll] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -284,6 +287,61 @@ function QuizContent({ params }: QuizPageProps) {
     } finally {
       setIsRerolling(false);
       setRerollProgress(null);
+    }
+  };
+
+  const handleCopyAll = async () => {
+    const clipboardService = new ClipboardService();
+    let text = '';
+    if (activeMode === 'mcq') {
+      text = clipboardService.formatQuizMCQs(mcqCards, note?.title);
+    } else {
+      text = flashcards
+        .map((fc, idx) => `--- Flashcard ${idx + 1} ---\n${clipboardService.formatFlashcard(fc)}`)
+        .join('\n\n');
+    }
+    const success = await clipboardService.copyToClipboard(text);
+    if (success) {
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 2000);
+    }
+  };
+
+  const handleDeleteCurrentMcq = async () => {
+    const currentCard = mcqCards[currentMcqIndex];
+    if (!currentCard) return;
+    const confirmed = window.confirm(`Delete Question ${currentMcqIndex + 1}? This action cannot be undone.`);
+    if (!confirmed) return;
+
+    const dbService = new DatabaseService();
+    const syncQueueService = new SyncQueueService(dbService);
+    const quizService = new QuizService(dbService, syncQueueService);
+    await quizService.deleteMCQCard(currentCard.id);
+
+    const updated = mcqCards.filter((_, idx) => idx !== currentMcqIndex);
+    const updatedAnswers = userAnswers.filter((_, idx) => idx !== currentMcqIndex);
+    setMcqCards(updated);
+    setUserAnswers(updatedAnswers);
+    if (currentMcqIndex >= updated.length) {
+      setCurrentMcqIndex(Math.max(0, updated.length - 1));
+    }
+  };
+
+  const handleDeleteCurrentFlashcard = async () => {
+    const currentCard = flashcards[currentFlashIndex];
+    if (!currentCard) return;
+    const confirmed = window.confirm(`Delete Flashcard ${currentFlashIndex + 1}? This action cannot be undone.`);
+    if (!confirmed) return;
+
+    const dbService = new DatabaseService();
+    const syncQueueService = new SyncQueueService(dbService);
+    const quizService = new QuizService(dbService, syncQueueService);
+    await quizService.deleteFlashcard(currentCard.id);
+
+    const updated = flashcards.filter((_, idx) => idx !== currentFlashIndex);
+    setFlashcards(updated);
+    if (currentFlashIndex >= updated.length) {
+      setCurrentFlashIndex(Math.max(0, updated.length - 1));
     }
   };
 
@@ -501,6 +559,25 @@ function QuizContent({ params }: QuizPageProps) {
 
           <button
             type="button"
+            onClick={handleCopyAll}
+            style={{
+              padding: '0.4rem 0.85rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: copiedAll ? 'var(--color-success-bg)' : 'var(--color-surface-raised)',
+              border: `1px solid ${copiedAll ? 'var(--color-success)' : 'var(--color-surface-border)'}`,
+              color: copiedAll ? 'var(--color-success)' : 'var(--color-text-secondary)',
+              fontSize: '0.825rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+            title={activeMode === 'mcq' ? 'Copy all MCQs to clipboard' : 'Copy all flashcards to clipboard'}
+          >
+            <span>{copiedAll ? '✓' : '📋'}</span> {copiedAll ? 'Copied!' : activeMode === 'mcq' ? 'Copy Quiz' : 'Copy Cards'}
+          </button>
+
+          <button
+            type="button"
             onClick={handleRerollQuiz}
             disabled={isRerolling}
             style={{
@@ -638,13 +715,18 @@ function QuizContent({ params }: QuizPageProps) {
                 </div>
               </div>
 
-              {mcqCards[currentMcqIndex] && (
+              {mcqCards.length === 0 ? (
+                <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: '2rem' }}>
+                  No questions left in this quiz.
+                </div>
+              ) : mcqCards[currentMcqIndex] && (
                 <MCQCardComponent
                   card={mcqCards[currentMcqIndex]}
                   questionIndex={currentMcqIndex}
                   totalQuestions={mcqCards.length}
                   selectedOption={userAnswers[currentMcqIndex]}
                   onSelectOption={handleSelectOption}
+                  onDelete={handleDeleteCurrentMcq}
                 />
               )}
 
@@ -741,6 +823,7 @@ function QuizContent({ params }: QuizPageProps) {
                   totalCards={flashcards.length}
                   onRate={handleRateFlashcard}
                   isRating={isSavingRating}
+                  onDelete={handleDeleteCurrentFlashcard}
                 />
               ) : (
                 <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: '2rem' }}>

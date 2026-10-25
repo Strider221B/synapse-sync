@@ -178,4 +178,78 @@ describe('QuizService', () => {
     assert.equal(quizzes.length, 1);
     assert.equal(quizzes[0].id, 'mock-quiz-1');
   });
+
+  it('deletes a single MCQ card and cascades its SRS card removal', async () => {
+    const dbService = new DatabaseService('synapse-delete-mcq-test');
+    const service = new QuizService(dbService);
+
+    const created = await service.create(
+      NOTE_ID_A,
+      [
+        {
+          question: 'Q1',
+          options: ['A', 'B', 'C', 'D'],
+          correctIndex: 0,
+          explanation: 'Exp',
+        },
+        {
+          question: 'Q2',
+          options: ['A', 'B', 'C', 'D'],
+          correctIndex: 1,
+          explanation: 'Exp2',
+        },
+      ],
+      [],
+      MODEL_NAME
+    );
+
+    const db = await dbService.getDB();
+    assert.equal((await db.getAll(DB_STORES.MCQ_CARDS)).length, 2);
+    assert.equal((await db.getAll(DB_STORES.SRS_CARDS)).length, 2);
+
+    const targetCardId = created.mcqCards[0].id;
+    await service.deleteMCQCard(targetCardId);
+
+    const remainingMCQs = await db.getAll(DB_STORES.MCQ_CARDS);
+    assert.equal(remainingMCQs.length, 1);
+    assert.equal(remainingMCQs[0].id, created.mcqCards[1].id);
+
+    const remainingSRS = await db.getAll(DB_STORES.SRS_CARDS);
+    assert.equal(remainingSRS.length, 1);
+    assert.equal(remainingSRS[0].cardId, created.mcqCards[1].id);
+
+    await dbService.close();
+  });
+
+  it('deletes a single flashcard and cascades its SRS card removal', async () => {
+    const dbService = new DatabaseService('synapse-delete-flashcard-test');
+    const service = new QuizService(dbService);
+
+    const created = await service.create(
+      NOTE_ID_A,
+      [],
+      [
+        { front: 'F1', back: 'B1', tags: [] },
+        { front: 'F2', back: 'B2', tags: [] },
+      ],
+      MODEL_NAME
+    );
+
+    const db = await dbService.getDB();
+    assert.equal((await db.getAll(DB_STORES.FLASHCARDS)).length, 2);
+    assert.equal((await db.getAll(DB_STORES.SRS_CARDS)).length, 2);
+
+    const targetCardId = created.flashcards[0].id;
+    await service.deleteFlashcard(targetCardId);
+
+    const remainingFlashcards = await db.getAll(DB_STORES.FLASHCARDS);
+    assert.equal(remainingFlashcards.length, 1);
+    assert.equal(remainingFlashcards[0].id, created.flashcards[1].id);
+
+    const remainingSRS = await db.getAll(DB_STORES.SRS_CARDS);
+    assert.equal(remainingSRS.length, 1);
+    assert.equal(remainingSRS[0].cardId, created.flashcards[1].id);
+
+    await dbService.close();
+  });
 });

@@ -677,3 +677,114 @@ button {
   background: var(--color-surface-raised);
 }
 
+/* ==========================================================================
+   Notes Screen & Folder Tree Responsive Styles
+   ========================================================================== */
+
+.notes-page-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  width: 100%;
+  max-width: 100%;
+}
+
+.notes-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.notes-page-title {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.notes-main-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1.75rem;
+  align-items: start;
+  width: 100%;
+}
+
+.notes-sidebar {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-surface-border);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  width: 100%;
+}
+
+.notes-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+  width: 100%;
+}
+
+.notes-subfolders-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.875rem;
+  width: 100%;
+}
+
+.folder-tree-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.folder-tree-item:hover {
+  background-color: var(--color-surface-raised);
+}
+
+@media (max-width: 768px) {
+  .notes-main-grid {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+
+  .notes-page-header {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 0.85rem !important;
+  }
+
+  .notes-page-title {
+    font-size: 1.4rem !important;
+  }
+
+  .notes-cards-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+  }
+
+  .notes-subfolders-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 0.65rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .notes-subfolders-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .notes-sidebar {
+    padding: 1rem;
+  }
+}
+

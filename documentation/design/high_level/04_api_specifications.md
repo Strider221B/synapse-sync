@@ -591,10 +591,10 @@ google-generativeai==0.8.0
 ```txt
 # tools/youtube_cli/requirements.txt
 youtube-transcript-api>=0.6.0
-google-generativeai>=0.8.0
+google-genai>=0.1.0
 httpx>=0.27.0
 rich>=13.0.0      # CLI progress display
 ```
 
 > [!TIP]
-> The local CLI tool uses `youtube-transcript-api` for transcript fetching (Python, runs locally with residential IP — no cloud blocking), `google-generativeai` for detailed note generation, `httpx` for pushing results to the Vercel API, and `rich` for beautiful CLI progress output.
+> The local CLI tool uses `youtube-transcript-api` for transcript fetching (Python, runs locally with residential IP — no cloud blocking), `google-genai` (modern Google GenAI SDK) for detailed note generation, `httpx` for pushing results to the Vercel API, and `rich` for beautiful CLI progress output.

@@ -33,7 +33,10 @@ export class QuizService {
   private static readonly _VERSION_INCREMENT = 1;
   private static readonly _INITIAL_VERSION = 1;
   private static readonly _ENTITY_TYPE = 'quiz';
+  private static readonly _ENTITY_MCQ = 'mcq_card';
+  private static readonly _ENTITY_FLASHCARD = 'flashcard';
   private static readonly _OP_CREATE = 'create';
+  private static readonly _OP_DELETE = 'delete';
 
   private readonly _databaseService: DatabaseService;
   private readonly _syncQueueService?: SyncQueueService;
@@ -88,6 +91,46 @@ export class QuizService {
     await this._cascadeDeleteFlashcards(tx, quizId);
     await tx.objectStore(DB_STORES.QUIZZES).delete(quizId);
     await tx.done;
+  }
+
+  /**
+   * Deletes a single MCQ card and its associated SRS state.
+   */
+  public async deleteMCQCard(cardId: string): Promise<void> {
+    const db = await this._databaseService.getDB();
+    const card = await db.get(DB_STORES.MCQ_CARDS, cardId);
+    const quizId = card?.quizId;
+    const tx = db.transaction([DB_STORES.MCQ_CARDS, DB_STORES.SRS_CARDS], 'readwrite');
+    const srsIndex = tx.objectStore(DB_STORES.SRS_CARDS).index(DB_INDEXES.BY_CARD);
+    const srsCard = await srsIndex.get(cardId);
+    if (srsCard) {
+      await tx.objectStore(DB_STORES.SRS_CARDS).delete(srsCard.id);
+    }
+    await tx.objectStore(DB_STORES.MCQ_CARDS).delete(cardId);
+    await tx.done;
+    if (quizId && this._syncQueueService) {
+      await this._syncQueueService.enqueue(QuizService._ENTITY_TYPE, quizId, QuizService._OP_CREATE, { quizId });
+    }
+  }
+
+  /**
+   * Deletes a single flashcard and its associated SRS state.
+   */
+  public async deleteFlashcard(cardId: string): Promise<void> {
+    const db = await this._databaseService.getDB();
+    const card = await db.get(DB_STORES.FLASHCARDS, cardId);
+    const quizId = card?.quizId;
+    const tx = db.transaction([DB_STORES.FLASHCARDS, DB_STORES.SRS_CARDS], 'readwrite');
+    const srsIndex = tx.objectStore(DB_STORES.SRS_CARDS).index(DB_INDEXES.BY_CARD);
+    const srsCard = await srsIndex.get(cardId);
+    if (srsCard) {
+      await tx.objectStore(DB_STORES.SRS_CARDS).delete(srsCard.id);
+    }
+    await tx.objectStore(DB_STORES.FLASHCARDS).delete(cardId);
+    await tx.done;
+    if (quizId && this._syncQueueService) {
+      await this._syncQueueService.enqueue(QuizService._ENTITY_TYPE, quizId, QuizService._OP_CREATE, { quizId });
+    }
   }
 
   /**

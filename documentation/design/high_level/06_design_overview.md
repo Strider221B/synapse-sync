@@ -150,6 +150,15 @@ graph TB
 | **Rationale**| Eliminates server-side user data storage completely. Guarantees 100% data isolation on shared devices. Provides instant multi-user switching without backend maintenance overhead. Automatic background sync (periodic, visibility, reconnect) and pre-logout flushing ensure users never need to manually force sync before disconnecting. |
 | **Tradeoff**| Requires remote pull when reconnecting after a user switch or logout due to the security purge. |
 
+### ADR-10: Hierarchical Folder Organization, Clipboard Export & Normal Sync Deletions
+
+| Aspect     | Decision                                                                  |
+|:-----------|:--------------------------------------------------------------------------|
+| **Context**| Notes were previously organized in a flat list without folder nesting. Users required subfolder grouping, clipboard export for notes and questions, and the ability to delete irrelevant/incorrect questions and notes without synchronous network latency. |
+| **Decision**| 1. **Hierarchical Folders**: Modeled via `parentId` on the `Notebook` entity, supporting arbitrary nesting with collapsible folder tree UI, breadcrumb paths, and a "Move Note" modal dialog. Parent-child relationships sync automatically via `notebook_<id>.json` on Google Drive.<br/>2. **Clipboard Export**: Dedicated `ClipboardService` formats open notes, individual MCQs (complete with options, correct answer, and explanation), and flashcards (front/back) with fallback copying.<br/>3. **Normal Sync Deletions**: Deleting notes or individual quiz cards takes effect immediately in local IndexedDB (with cascading SRS removal) and records mutations in `sync_queue`. The normal background sync cycle re-saves updated quiz bundles to Google Drive (`pushQuiz`), purges deleted notes (`deleteRemoteNote`), and prunes cards on remote pull without blocking user interactions. |
+| **Rationale**| Eliminates UI blocking on remote network round-trips; supports fully offline card/note deletion; maintains strict cross-device consistency through Google Drive quiz bundles and folder structures; provides quick export utilities for learners. |
+| **Tradeoff**| Multi-device deletion propagation relies on the next normal sync cycle or reconnection rather than immediate blocking calls. |
+
 ---
 
 ## 4. Component Interaction Flows

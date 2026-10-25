@@ -143,4 +143,67 @@ describe('NotebookService', () => {
     const result = await service.getById('mock-id-1');
     assert.equal(result?.name, 'Mock Notebook');
   });
+
+  it('creates sub-folders and retrieves them using getByParent', async () => {
+    const dbService = new DatabaseService('synapse-notebook-parent-test');
+    const service = new NotebookService(dbService);
+
+    const rootFolder = await service.create({
+      name: 'Computer Science',
+      source: 'manual',
+      tags: [],
+    });
+
+    const subFolder = await service.create({
+      name: 'Algorithms',
+      parentId: rootFolder.id,
+      source: 'manual',
+      tags: [],
+    });
+
+    assert.equal(subFolder.parentId, rootFolder.id);
+
+    const rootChildren = await service.getByParent(rootFolder.id);
+    assert.equal(rootChildren.length, 1);
+    assert.equal(rootChildren[0].id, subFolder.id);
+
+    const topLevel = await service.getByParent(null);
+    assert.ok(topLevel.some((f) => f.id === rootFolder.id));
+    assert.ok(!topLevel.some((f) => f.id === subFolder.id));
+
+    await dbService.close();
+  });
+
+  it('computes hierarchical folder path using getFolderPath', async () => {
+    const dbService = new DatabaseService('synapse-notebook-path-test');
+    const service = new NotebookService(dbService);
+
+    const grandParent = await service.create({
+      name: 'Level 1',
+      source: 'manual',
+      tags: [],
+    });
+
+    const parent = await service.create({
+      name: 'Level 2',
+      parentId: grandParent.id,
+      source: 'manual',
+      tags: [],
+    });
+
+    const child = await service.create({
+      name: 'Level 3',
+      parentId: parent.id,
+      source: 'manual',
+      tags: [],
+    });
+
+    const path = await service.getFolderPath(child.id);
+    assert.equal(path.length, 3);
+    assert.equal(path[0].name, 'Level 1');
+    assert.equal(path[1].name, 'Level 2');
+    assert.equal(path[2].name, 'Level 3');
+
+    await dbService.close();
+  });
 });

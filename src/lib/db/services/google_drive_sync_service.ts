@@ -1,5 +1,7 @@
+import type { IDBPTransaction } from 'idb';
 import { DB_INDEXES, DB_STORES } from '../constants';
 import type { DatabaseService } from '../database_service';
+import type { SynapseSyncDB } from '../schema';
 import type { Flashcard, MCQCard, Note, Notebook, Quiz, SRSCard, SyncEntry } from '../models';
 import type { GoogleDriveApiClient } from '../../api/google_drive_client';
 import type { AuthService } from '../../auth/auth_service';
@@ -9,18 +11,15 @@ import { AppStateSyncService } from './app_state_sync_service';
 import { ChatSyncService } from './chat_sync_service';
 
 export interface SyncResult {
-  success: boolean;
-  reason?: string;
-  pushedNotes: number;
-  pulledNotes: number;
-  pushedQuizzes: number;
-  pulledQuizzes: number;
-  pushedNotebooks: number;
-  pulledNotebooks: number;
-  pushedChats?: number;
-  pulledChats?: number;
+  success: boolean; reason?: string;
+  pushedNotes: number; pulledNotes: number;
+  pushedQuizzes: number; pulledQuizzes: number;
+  pushedNotebooks: number; pulledNotebooks: number;
+  pushedChats?: number; pulledChats?: number;
   timestamp: string;
 }
+
+type QuizSyncTx = IDBPTransaction<SynapseSyncDB, ('quizzes' | 'mcq_cards' | 'flashcards' | 'srs_cards')[], 'readwrite'>;
 
 export interface QuizDrivePayload {
   quiz: Quiz;
@@ -323,6 +322,7 @@ export class GoogleDriveSyncService {
     );
 
     await tx.objectStore(DB_STORES.QUIZZES).put(payload.quiz);
+    await this._pruneMissingCards(tx, payload);
     for (const mcq of payload.mcqCards) await tx.objectStore(DB_STORES.MCQ_CARDS).put(mcq);
     for (const card of payload.flashcards) await tx.objectStore(DB_STORES.FLASHCARDS).put(card);
     for (const srs of payload.srsCards) await tx.objectStore(DB_STORES.SRS_CARDS).put(srs);
@@ -469,18 +469,26 @@ export class GoogleDriveSyncService {
     return name.startsWith(GoogleDriveSyncService._PREFIX_NOTEBOOK) && name.endsWith(GoogleDriveSyncService._JSON_EXT);
   }
 
+  private async _pruneMissingCards(
+    tx: QuizSyncTx,
+    payload: QuizDrivePayload
+  ): Promise<void> {
+    const mcqStore = tx.objectStore(DB_STORES.MCQ_CARDS);
+    const localMcqs: MCQCard[] = await mcqStore.index(DB_INDEXES.BY_QUIZ).getAll(payload.quiz.id);
+    const remoteMcqIds = new Set(payload.mcqCards.map((m) => m.id));
+    for (const m of localMcqs) if (!remoteMcqIds.has(m.id)) await mcqStore.delete(m.id);
+
+    const flashStore = tx.objectStore(DB_STORES.FLASHCARDS);
+    const localCards: Flashcard[] = await flashStore.index(DB_INDEXES.BY_QUIZ).getAll(payload.quiz.id);
+    const remoteCardIds = new Set(payload.flashcards.map((f) => f.id));
+    for (const f of localCards) if (!remoteCardIds.has(f.id)) await flashStore.delete(f.id);
+  }
+
   private _buildSkippedResult(timestamp: string): SyncResult {
     return {
-      success: false,
-      reason: 'not_authenticated',
-      pushedNotes: 0,
-      pulledNotes: 0,
-      pushedQuizzes: 0,
-      pulledQuizzes: 0,
-      pushedNotebooks: 0,
-      pulledNotebooks: 0,
-      pushedChats: 0,
-      pulledChats: 0,
+      success: false, reason: 'not_authenticated',
+      pushedNotes: 0, pulledNotes: 0, pushedQuizzes: 0, pulledQuizzes: 0,
+      pushedNotebooks: 0, pulledNotebooks: 0, pushedChats: 0, pulledChats: 0,
       timestamp,
     };
   }
