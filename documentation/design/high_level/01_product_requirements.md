@@ -40,12 +40,16 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 | NM-09 | Pre-registered user identity combobox (e.g., `SC`, `DB`) with per-user `NEXT_PUBLIC_GOOGLE_CLIENT_ID` resolution beside login | P0 |
 | NM-10 | Full application state persistence on Google Drive (`app_state.json`) including cards due today, streak today, streak yesterday, and user preferences | P0 |
 | NM-11 | Zero-backend multi-user context switching: auto-flush state to Google Drive on logout/switch, wipe local IndexedDB, and show default 0 metrics when unauthenticated | P0 |
+| NM-12 | Hierarchical Folder & Sub-Folder organization (`parentId`), collapsible folder tree, breadcrumb navigation, and "Move Note" modal dialog | P1 |
+| NM-13 | Fully responsive mobile reader layout eliminating fixed-width clipping on narrow viewports | P0 |
+| NM-14 | One-click clipboard export for full open notes (`ClipboardService.formatNote`) | P1 |
+| NM-15 | Bidirectional Google Drive sync for subfolder hierarchies and deleted notes (`note_<id>.json` and `chat_<id>.json`) during normal background sync | P0 |
 
 ### 3.2 YouTube Transcript Ingestion (Local-First Pipeline)
 
 | ID    | Requirement                                                                                     | Priority |
 |:------|:------------------------------------------------------------------------------------------------|:---------|
-| YT-01 | **Local processing:** Transcript fetching and note generation run on the developer's local machine via a Python CLI tool using `youtube-transcript-api` | P0       |
+| YT-01 | **Local processing:** Transcript fetching and note generation run on the developer's local machine via a Python CLI tool using `youtube-transcript-api` and modern `google-genai` SDK | P0       |
 | YT-02 | **Local Gemini note generation:** Gemini generates **detailed, comprehensive notes** (not summaries) from each transcript locally — capturing every concept, example, definition, and explanation from the video | P0       |
 | YT-03 | **Server push:** After local processing completes, the final notes (notebooks + individual notes) are pushed to the Vercel server via a REST API endpoint for storage and access by the PWA | P0       |
 | YT-04 | Accept a YouTube playlist URL → resolve individual video URLs locally                           | P0       |
@@ -65,6 +69,9 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 | QZ-03 | User can manually create / edit / delete flashcards and MCQs                                    | P1       |
 | QZ-04 | MCQ interface: show question → 4 options → immediate feedback with explanation                  | P0       |
 | QZ-05 | Flashcard interface: show front → tap to reveal back → self-rate recall quality (0-5)           | P0       |
+| QZ-06 | Delete individual irrelevant or incorrect MCQ questions and flashcards with cascading SRS deletion | P1 |
+| QZ-07 | One-click clipboard copy for individual MCQs (with options, answer, explanation) and flashcards (front/back) | P1 |
+| QZ-08 | Google Drive quiz bundle sync: card deletions update remote `quiz_<quizId>.json` and prune removed cards on pull | P0 |
 
 ### 3.4 Spaced Repetition System (SM-2)
 

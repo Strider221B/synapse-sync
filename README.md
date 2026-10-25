@@ -51,12 +51,15 @@ SynapseSync solves the study friction experienced by self-directed learners, stu
 ## Key Features
 
 - 📁 **Google Drive Integration & Multi-User Context:** Authenticate via Google OAuth 2.0 with full read and write capabilities (`https://www.googleapis.com/auth/drive`). Pre-registered users (`SC`, `DB`) select their identity from a combobox beside the connect button, which dynamically binds their specific `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. Connecting to Google Drive acts as the user's primary login—switching the entire context of the app and restoring all notes, quizzes, flashcards, preferences, cards due today, and study streaks (today & yesterday). Continuous online sync and an automatic pre-logout flush (`forceSync`) ensure your work is committed before local IndexedDB is purged for data isolation.
+- 📂 **Hierarchical Folders & Sub-Folders:** Group notes into nested folders and sub-folders with a collapsible tree sidebar, depth indentation, parent folder selection, and modal note moving. Folder parent-child hierarchies (`parentId`) persist in IndexedDB and sync seamlessly with Google Drive.
 - 💾 **Full Cloud State Persistence (`app_state.json`):** Persists complete learning state (daily review streak, yesterday's streak, cards due today, mastery counts, and preferences) directly to your personal Google Drive folder (`SynapseSync/`). Unauthenticated users see default zero metrics (`Daily Streak: 0`).
-- 🎬 **Local YouTube Lecture Processing:** Ingest entire multi-video playlists via a Python CLI tool. Generates complete, structured Markdown notes for every lecture.
-- 🤖 **Structured AI Quizzing:** One-click generation of 5 multiple-choice questions (with explanations) and 5 flashcards per note, using Gemini 3.8 Flash (`gemini-3.8-flash`) structured outputs.
+- 🎬 **Local YouTube Lecture Processing:** Ingest entire multi-video playlists via a Python CLI tool using the modern `google-genai` SDK. Generates complete, structured Markdown notes for every lecture and uploads directly to Google Drive.
+- 🤖 **Structured AI Quizzing & Card Management:** One-click generation of 5 multiple-choice questions (with explanations) and 5 flashcards per note, using Gemini 3.8 Flash (`gemini-3.8-flash`) structured outputs. Irrelevant or incorrect questions/flashcards can be deleted directly with cascading removal of spaced repetition records.
+- 📋 **One-Click Clipboard Export:** Copy open notes, individual MCQs (complete with question, options, correct answer, and explanation), individual flashcards (prompt and answer), or full quiz sets directly to the clipboard.
 - 🧠 **SuperMemo SM-2 Spaced Repetition:** Scientifically schedules daily card reviews based on your recall quality (ratings 0–5), with an interactive review queue, today's streak, and yesterday's streak tracking.
 - 💬 **Context-Aware Study Chat:** Scoped AI assistant for every note with specialized modes (*Default*, *ELI5 / Explain to a 5-Year-Old*, and *Quiz Me*). Conversations persist locally in IndexedDB and synchronize note-by-note to Google Drive (`SynapseSync/chats/chat_<noteId>.json`), keeping files lightweight and isolated.
-- 📱 **Installable PWA:** Installs to desktop and mobile home screens with app-shell caching, smooth dark/light theme, and offline capability.
+- 🔄 **Offline-First Synchronization Engine:** A local mutation queue (`sync_queue`) transparently captures creates, updates, and deletes (such as deleting notes or pruning individual quiz questions). When online, `SyncManager` replays mutations against Google Drive (`SynapseSync/`) during normal background cycles without blocking the user.
+- 📱 **Installable PWA & Responsive UI:** Fully responsive layout with mobile drawer navigation, responsive cards, and app-shell caching for complete offline functionality.
 
 ---
 
@@ -67,12 +70,24 @@ graph TB
     subgraph "Developer Machine (Local-First Pipeline)"
         CLI["YouTube CLI Tool (Python)"]
         YTApi["YouTube Transcript API (Residential IP)"]
-        GeminiLocal["Gemini API (No Timeout Constraints)"]
+        GeminiLocal["Gemini API (google-genai SDK)"]
         LocalCache["Local Disk Cache (~/.synapse-sync/)"]
+        Pusher["GoogleDrivePusher / API Client"]
 
         CLI --> YTApi
         CLI --> GeminiLocal
         CLI --> LocalCache
+        CLI --> Pusher
+    end
+
+    subgraph "Google Drive Cloud Storage (Sole Source of Truth)"
+        subgraph "SynapseSync Folder"
+            DRIVE_NB["notebooks/ (notebook_<id>.json with parentId)"]
+            DRIVE_NOTES["notes/ (note_<id>.json)"]
+            DRIVE_QUIZ["quizzes/ (quiz_<id>.json with cards)"]
+            DRIVE_CHAT["chats/ (chat_<noteId>.json)"]
+            DRIVE_STATE["app_state.json (streaks, stats, prefs)"]
+        end
     end
 
     subgraph "Local Dev / Vercel Serverless"
@@ -84,18 +99,42 @@ graph TB
     end
 
     subgraph "Client PWA (Browser / Mobile)"
-        UI["Next.js App Router (PWA)"]
-        IDB[("IndexedDB (Offline Storage)")]
-        GAUTH["Google OAuth 2.0 (Drive API)"]
+        UI["Next.js App Router (PWA UI)"]
+        CLIPBOARD["ClipboardService (Notes / MCQs / Cards)"]
+        
+        subgraph "Client Sync Engine"
+            SYNC_MGR["SyncManager (Periodic & Event Sync)"]
+            SYNC_QUEUE["SyncQueueService (Offline Replay)"]
+            GDRIVE_SYNC["GoogleDriveSyncService (Bidirectional)"]
+            APP_STATE_SYNC["AppStateSyncService"]
+            CHAT_SYNC["ChatSyncService"]
+        end
+
+        IDB[("IndexedDB (Offline Storage)<br/>• notebooks (hierarchical)<br/>• notes<br/>• quizzes & mcq_cards<br/>• flashcards & srs_cards<br/>• sync_queue & chat_history")]
     end
 
-    CLI -->|Pushes Processed Notes| API_YT
-    UI <-->|Fetch Pushed Notes| API_YT
+    %% Data Flows
+    Pusher -->|"Direct Upload (Notebooks & Notes)"| DRIVE_NB
+    Pusher -->|"Direct Upload"| DRIVE_NOTES
+    CLI -.->|"Legacy Push"| API_YT
+
     UI <-->|Local Read/Write| IDB
-    UI -->|Import Files| GAUTH
+    UI --> CLIPBOARD
+    UI -->|Mutation Queue| SYNC_QUEUE
+    SYNC_MGR --> SYNC_QUEUE
+    SYNC_MGR --> GDRIVE_SYNC
+    GDRIVE_SYNC --> APP_STATE_SYNC
+    GDRIVE_SYNC --> CHAT_SYNC
+
+    GDRIVE_SYNC <==>|"Bidirectional Sync (Notes, Quizzes, Deletions)"| DRIVE_NOTES
+    GDRIVE_SYNC <==>|"Sync Folders & Sub-folders"| DRIVE_NB
+    GDRIVE_SYNC <==>|"Sync Quiz Bundles & Pruning"| DRIVE_QUIZ
+    CHAT_SYNC <==>|"Sync Chat Histories"| DRIVE_CHAT
+    APP_STATE_SYNC <==>|"Sync Streak & App State"| DRIVE_STATE
+
     UI -->|Parse Word Docs| API_PARSE
-    UI -->|Generate Quizzes| API_QUIZ
-    UI -->|Ask Questions| API_CHAT
+    UI -->|Generate Quizzes (Gemini)| API_QUIZ
+    UI -->|Ask Questions (Gemini)| API_CHAT
 ```
 
 - **Strict OOP Architecture:** Modular services, single-responsibility classes, typed schemas, and no magic strings.
@@ -367,7 +406,7 @@ synapse-sync/
 | **Local Offline Storage**| [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) via [`idb@8.0.4`](https://github.com/jakearchibald/idb) |
 | **PWA & Caching** | Serwist 9.5.13 ([`@serwist/next@9.5.13`](https://serwist.pages.dev/)), Web App Manifest, Cache-First & Network-First strategies |
 | **Backend Runtime** | Python 3.13 Serverless Functions (Vercel) |
-| **AI Engine** | [Google Gemini 3.8 Flash](https://aistudio.google.com/) (`gemini-3.8-flash`) via `google-generativeai==0.8.6` with Structured Output |
+| **AI Engine** | [Google Gemini 3.8 Flash](https://aistudio.google.com/) (`gemini-3.8-flash`) via `google-genai==2.25.0` (Modern Google GenAI SDK) with Structured Output |
 | **Cloud Authentication**| Google OAuth 2.0 with Google Drive API v3 |
 | **Local CLI Pipeline** | Python 3.13 (`uv pip`), `youtube-transcript-api==1.2.4`, `rich==15.0.0`, `requests==2.34.2` |
 | **Code Quality** | ESLint, TypeScript (`tsc`), Ruff 0.16.9, Pytest 9.1.1 |
