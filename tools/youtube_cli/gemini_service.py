@@ -18,8 +18,19 @@ class GeminiService:
     _INITIAL_BACKOFF_SECONDS: ClassVar[float] = 2.0
     _BACKOFF_FACTOR: ClassVar[float] = 2.0
     _RATE_LIMIT_MARKER_429: ClassVar[str] = "429"
-    _RATE_LIMIT_MARKER_RESOURCE: ClassVar[str] = "ResourceExhausted"
+    _RATE_LIMIT_MARKER_RESOURCE: ClassVar[str] = "resourceexhausted"
     _RATE_LIMIT_MARKER_QUOTA: ClassVar[str] = "quota"
+    _ERR_MARKER_500: ClassVar[str] = "500"
+    _ERR_MARKER_502: ClassVar[str] = "502"
+    _ERR_MARKER_503: ClassVar[str] = "503"
+    _ERR_MARKER_504: ClassVar[str] = "504"
+    _ERR_MARKER_UNAVAILABLE: ClassVar[str] = "unavailable"
+    _ERR_MARKER_HIGH_DEMAND: ClassVar[str] = "high demand"
+    _ERR_MARKER_SERVER_ERROR: ClassVar[str] = "server error"
+    _ERR_MARKER_OVERLOADED: ClassVar[str] = "overloaded"
+    _ERR_MARKER_PER_DAY: ClassVar[str] = "per day"
+    _ERR_MARKER_FREE_TIER: ClassVar[str] = "free tier"
+    _ERR_MARKER_DAILY: ClassVar[str] = "daily"
     _ERR_MISSING_API_KEY: ClassVar[str] = "GEMINI_API_KEY environment variable is not set."
     _ERR_MAX_RETRIES: ClassVar[str] = "Maximum retry attempts exceeded for Gemini API call."
     _ERR_UNSUPPORTED_CLIENT: ClassVar[str] = (
@@ -57,6 +68,7 @@ class GeminiService:
         prompt: str | list[Any],
         config: Any = None,
         max_retries: int = 3,
+        on_retry: Any = None,
     ) -> Any:
         """Call Gemini model with rate-limit delay and exponential backoff retry."""
         client = self.configure()
@@ -69,26 +81,14 @@ class GeminiService:
                 self._last_call_timestamp = time.time()
                 return response
             except Exception as err:
-                if attempt >= max_retries or not self._is_rate_limit_error(err):
+                if attempt >= max_retries or not self._is_retryable_error(err):
                     raise
+                if on_retry is not None and callable(on_retry):
+                    on_retry(attempt + 1, err, backoff)
                 time.sleep(backoff)
                 backoff *= self._BACKOFF_FACTOR
 
         raise RuntimeError(self._ERR_MAX_RETRIES)
-
-    def _generate_content(
-        self, client: Any, model_name: str, prompt: str | list[Any], config: Any
-    ) -> Any:
-        """Execute content generation via modern genai Client or legacy GenerativeModel."""
-        if hasattr(client, "models") and hasattr(client.models, "generate_content"):
-            gen_config = self._build_generate_content_config(config)
-            return client.models.generate_content(
-                model=model_name, contents=prompt, config=gen_config
-            )
-        if hasattr(client, "GenerativeModel"):
-            model = client.GenerativeModel(model_name=model_name)
-            return model.generate_content(prompt, generation_config=config)
-        raise AttributeError(self._ERR_UNSUPPORTED_CLIENT)
 
     def _build_generate_content_config(self, config: Any) -> types.GenerateContentConfig:
         """Construct GenerateContentConfig with AFC disabled by default to suppress warnings."""
@@ -105,18 +105,61 @@ class GeminiService:
             )
         return gen_config
 
-    def _throttle_requests(self) -> None:
-        """Sleep if required to preserve configured inter-request delay interval."""
-        if self._last_call_timestamp > 0 and self._delay_seconds > 0:
-            elapsed = time.time() - self._last_call_timestamp
-            if elapsed < self._delay_seconds:
-                time.sleep(self._delay_seconds - elapsed)
+    def _generate_content(
+        self, client: Any, model_name: str, prompt: str | list[Any], config: Any
+    ) -> Any:
+        """Execute content generation via modern genai Client or legacy GenerativeModel."""
+        if hasattr(client, "models") and hasattr(client.models, "generate_content"):
+            gen_config = self._build_generate_content_config(config)
+            return client.models.generate_content(
+                model=model_name, contents=prompt, config=gen_config
+            )
+        if hasattr(client, "GenerativeModel"):
+            model = client.GenerativeModel(model_name=model_name)
+            return model.generate_content(prompt, generation_config=config)
+        raise AttributeError(self._ERR_UNSUPPORTED_CLIENT)
+
+    def _is_daily_quota_error(self, err: Exception) -> bool:
+        """Determine if an error represents daily quota exhaustion."""
+        error_msg = str(err).lower()
+        return (
+            self._ERR_MARKER_PER_DAY in error_msg
+            or self._ERR_MARKER_FREE_TIER in error_msg
+            or self._ERR_MARKER_DAILY in error_msg
+        )
 
     def _is_rate_limit_error(self, err: Exception) -> bool:
         """Determine if an exception represents a 429 or quota exhaustion error."""
         error_msg = str(err).lower()
         return (
             self._RATE_LIMIT_MARKER_429 in error_msg
-            or self._RATE_LIMIT_MARKER_RESOURCE.lower() in error_msg
+            or self._RATE_LIMIT_MARKER_RESOURCE in error_msg
             or self._RATE_LIMIT_MARKER_QUOTA in error_msg
         )
+
+    def _is_retryable_error(self, err: Exception) -> bool:
+        """Determine if exception is safe to auto-retry (transient 5xx or rate limit)."""
+        if self._is_daily_quota_error(err):
+            return False
+        return self._is_server_5xx_error(err) or self._is_rate_limit_error(err)
+
+    def _is_server_5xx_error(self, err: Exception) -> bool:
+        """Determine if an exception represents a 5xx or unavailable server error."""
+        error_msg = str(err).lower()
+        return (
+            self._ERR_MARKER_500 in error_msg
+            or self._ERR_MARKER_502 in error_msg
+            or self._ERR_MARKER_503 in error_msg
+            or self._ERR_MARKER_504 in error_msg
+            or self._ERR_MARKER_UNAVAILABLE in error_msg
+            or self._ERR_MARKER_HIGH_DEMAND in error_msg
+            or self._ERR_MARKER_SERVER_ERROR in error_msg
+            or self._ERR_MARKER_OVERLOADED in error_msg
+        )
+
+    def _throttle_requests(self) -> None:
+        """Sleep if required to preserve configured inter-request delay interval."""
+        if self._last_call_timestamp > 0 and self._delay_seconds > 0:
+            elapsed = time.time() - self._last_call_timestamp
+            if elapsed < self._delay_seconds:
+                time.sleep(self._delay_seconds - elapsed)
