@@ -7,6 +7,7 @@ interface NoteCardProps {
   note: Note;
   notebookName?: string;
   onClick?: (id: string) => void;
+  onMove?: (note: Note) => void;
 }
 
 function getSourceIcon(sourceType: Note['sourceType']): { icon: string; label: string; color: string } {
@@ -27,7 +28,7 @@ function getSourceIcon(sourceType: Note['sourceType']): { icon: string; label: s
 /**
  * Reusable card displaying note summary, source metadata, and metrics.
  */
-export function NoteCard({ note, notebookName, onClick }: NoteCardProps) {
+export function NoteCard({ note, notebookName, onClick, onMove }: NoteCardProps) {
   const sourceInfo = getSourceIcon(note.sourceType);
   const readTimeMinutes = Math.max(1, Math.round(note.wordCount / 250));
   const formattedDate = new Date(note.updatedAt).toLocaleDateString(undefined, {
@@ -68,6 +69,9 @@ export function NoteCard({ note, notebookName, onClick }: NoteCardProps) {
         flexDirection: 'column',
         gap: '0.75rem',
         boxShadow: 'var(--shadow-sm)',
+        width: '100%',
+        minWidth: 0,
+        overflow: 'hidden',
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.borderColor = 'var(--color-primary-glow)';
@@ -108,7 +112,12 @@ export function NoteCard({ note, notebookName, onClick }: NoteCardProps) {
               padding: '0.15rem 0.5rem',
               borderRadius: 'var(--radius-sm)',
               fontWeight: 500,
+              maxWidth: '160px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}
+            title={notebookName}
           >
             📁 {notebookName}
           </span>
@@ -122,6 +131,7 @@ export function NoteCard({ note, notebookName, onClick }: NoteCardProps) {
           color: 'var(--color-text-primary)',
           lineHeight: 1.4,
           margin: 0,
+          wordBreak: 'break-word',
         }}
       >
         {note.title}
@@ -138,6 +148,7 @@ export function NoteCard({ note, notebookName, onClick }: NoteCardProps) {
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
+            wordBreak: 'break-word',
           }}
         >
           {previewSnippet}...
@@ -153,13 +164,39 @@ export function NoteCard({ note, notebookName, onClick }: NoteCardProps) {
           color: 'var(--color-text-muted)',
           marginTop: 'auto',
           paddingTop: '0.5rem',
-          borderTop: '1px solid var(--color-surface-border-subtle)',
+          borderTop: '1px solid var(--color-surface-border)',
+          gap: '0.5rem',
+          flexWrap: 'wrap',
         }}
       >
         <span>
           {note.wordCount.toLocaleString()} words • {readTimeMinutes} min
         </span>
-        <span>{formattedDate}</span>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span>{formattedDate}</span>
+          {onMove && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMove(note);
+              }}
+              title="Move note to another folder"
+              style={{
+                background: 'none',
+                border: '1px solid var(--color-surface-border)',
+                borderRadius: 'var(--radius-xs)',
+                color: 'var(--color-text-secondary)',
+                fontSize: '0.725rem',
+                padding: '0.15rem 0.4rem',
+                cursor: 'pointer',
+              }}
+            >
+              📂 Move
+            </button>
+          )}
+        </div>
       </div>
     </article>
   );

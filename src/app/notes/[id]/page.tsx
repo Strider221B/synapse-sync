@@ -14,6 +14,7 @@ import { NoteService } from '@/lib/db/services/note_service';
 import { NotebookService } from '@/lib/db/services/notebook_service';
 import { QuizService } from '@/lib/db/services/quiz_service';
 import { PreferencesService } from '@/lib/db/services/preferences_service';
+import { ClipboardService } from '@/lib/utils/clipboard_service';
 
 interface NoteReaderPageProps {
   params: Promise<{ id: string }>;
@@ -56,6 +57,8 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
     throttleSpeed?: string;
   } | null>(null);
   const [quizError, setQuizError] = useState<string | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
+  const [folderPath, setFolderPath] = useState<Notebook[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -73,8 +76,14 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
       }
       setNote(foundNote);
       if (foundNote.notebookId) {
-        const foundNb = await nbService.getById(foundNote.notebookId);
-        if (active) setNotebook(foundNb ?? null);
+        const [foundNb, path] = await Promise.all([
+          nbService.getById(foundNote.notebookId),
+          nbService.getFolderPath(foundNote.notebookId),
+        ]);
+        if (active) {
+          setNotebook(foundNb ?? null);
+          setFolderPath(path);
+        }
       }
 
       const foundQuizzes = await quizService.getByNote(noteId);
@@ -225,6 +234,17 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
 
     await noteService.delete(note.id);
     router.push('/notes');
+  };
+
+  const handleCopyNote = async () => {
+    if (!note) return;
+    const clipboardService = new ClipboardService();
+    const formatted = clipboardService.formatNote(note);
+    const success = await clipboardService.copyToClipboard(formatted);
+    if (success) {
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    }
   };
 
   if (isLoading) {
@@ -388,6 +408,29 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
           >
             <span>💬</span> Ask AI Tutor
           </Link>
+
+          <button
+            type="button"
+            onClick={handleCopyNote}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              padding: '0.5rem 0.875rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: isCopied ? 'var(--color-success-bg)' : 'var(--color-surface-raised)',
+              border: `1px solid ${isCopied ? 'var(--color-success)' : 'var(--color-surface-border)'}`,
+              color: isCopied ? 'var(--color-success)' : 'var(--color-text-primary)',
+              fontSize: '0.825rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+            title="Copy note content to clipboard"
+          >
+            <span>{isCopied ? '✓' : '📋'}</span>
+            <span>{isCopied ? 'Copied!' : 'Copy Note'}</span>
+          </button>
 
           <button
             type="button"
@@ -614,7 +657,26 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
               : '✍️ Manual'}
           </span>
 
-          {notebook && (
+          {folderPath.length > 0 ? (
+            folderPath.map((folder, idx) => (
+              <React.Fragment key={folder.id}>
+                {idx > 0 && <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>/</span>}
+                <Link
+                  href={`/notes/notebook/${folder.id}`}
+                  style={{
+                    fontSize: '0.75rem',
+                    color: 'var(--color-primary)',
+                    backgroundColor: 'var(--color-primary-light)',
+                    padding: '0.2rem 0.6rem',
+                    borderRadius: 'var(--radius-full)',
+                    fontWeight: 500,
+                  }}
+                >
+                  📁 {folder.name}
+                </Link>
+              </React.Fragment>
+            ))
+          ) : notebook ? (
             <Link
               href={`/notes/notebook/${notebook.id}`}
               style={{
@@ -628,7 +690,7 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
             >
               📁 {notebook.name}
             </Link>
-          )}
+          ) : null}
 
           {note.sourceUrl && (
             <a

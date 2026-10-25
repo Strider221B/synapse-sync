@@ -23,7 +23,8 @@ class TestPlaylistResolver:
     def test_resolve_parses_playlist_html_successfully(self) -> None:
         """Verify resolve extracts title, video count, and legacy video items."""
         mock_data = self._create_mock_data("Stanford CS229", ["12345678901", "12345678902"])
-        html = f"<html><body><script>var ytInitialData = {json.dumps(mock_data)};</script></body></html>"
+        json_data = json.dumps(mock_data)
+        html = f"<html><body><script>var ytInitialData = {json_data};</script></body></html>"
         mock_session = MagicMock()
         mock_session.get.return_value = MagicMock(status_code=200, text=html)
 
@@ -352,7 +353,9 @@ class TestPlaylistResolver:
     ) -> dict[str, Any]:
         """Wrap a list of items into standard tabs and section list structure."""
         renderer_name = (
-            "singleColumnBrowseResultsRenderer" if single_column else "twoColumnBrowseResultsRenderer"
+            "singleColumnBrowseResultsRenderer"
+            if single_column
+            else "twoColumnBrowseResultsRenderer"
         )
         return {
             renderer_name: {

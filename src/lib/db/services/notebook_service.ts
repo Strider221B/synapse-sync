@@ -30,6 +30,7 @@ export class NotebookService {
     const notebook: Notebook = {
       id: uuidv4(),
       name: input.name,
+      parentId: input.parentId ?? null,
       source: input.source,
       sourceUrl: input.sourceUrl,
       description: input.description,
@@ -74,6 +75,29 @@ export class NotebookService {
   public async getBySource(source: Notebook['source']): Promise<Notebook[]> {
     const db = await this._databaseService.getDB();
     return db.getAllFromIndex(DB_STORES.NOTEBOOKS, DB_INDEXES.BY_SOURCE, source);
+  }
+
+  /**
+   * Retrieves notebooks/folders with a specific parent folder ID.
+   */
+  public async getByParent(parentId: string | null): Promise<Notebook[]> {
+    const all = await this.getAll();
+    return all.filter((item) => (item.parentId ?? null) === (parentId ?? null));
+  }
+
+  /**
+   * Computes the breadcrumb path of folders from root down to the target notebook.
+   */
+  public async getFolderPath(notebookId: string): Promise<Notebook[]> {
+    const all = await this.getAll();
+    const map = new Map<string, Notebook>(all.map((item) => [item.id, item]));
+    const path: Notebook[] = [];
+    let current = map.get(notebookId);
+    while (current) {
+      path.unshift(current);
+      current = current.parentId ? map.get(current.parentId) : undefined;
+    }
+    return path;
   }
 
   /**

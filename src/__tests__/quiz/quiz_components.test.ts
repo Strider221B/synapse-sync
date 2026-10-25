@@ -30,34 +30,44 @@ describe('Quiz Components Test Suite', () => {
   };
 
   describe('MCQCard Component', () => {
-    it('renders unanswered question prompt and options', () => {
+    it('renders unanswered question prompt and options', async () => {
+      const { renderToStaticMarkup } = await import('react-dom/server');
       let selected: number | null = null;
-      const element = MCQCard({
-        card: mockMCQ,
-        questionIndex: 0,
-        totalQuestions: 5,
-        selectedOption: null,
-        onSelectOption: (idx) => {
-          selected = idx;
-        },
-      });
+      const html = renderToStaticMarkup(
+        React.createElement(MCQCard, {
+          card: mockMCQ,
+          questionIndex: 0,
+          totalQuestions: 5,
+          selectedOption: null,
+          onSelectOption: (idx) => {
+            selected = idx;
+          },
+          onDelete: () => {},
+        })
+      );
 
-      assert.ok(React.isValidElement(element), 'MCQCard must return a React element');
-      assert.equal(element.type, 'div');
+      assert.ok(html.includes('What is supervised learning?'), 'HTML must include question prompt');
+      assert.ok(html.includes('Learning from labeled training data'), 'HTML must include option text');
+      assert.ok(html.includes('Copy'), 'HTML must include Copy button');
+      assert.ok(html.includes('Delete'), 'HTML must include Delete button');
       assert.equal(selected, null);
     });
 
-    it('renders answered state with feedback and explanation', () => {
-      const element = MCQCard({
-        card: mockMCQ,
-        questionIndex: 2,
-        totalQuestions: 5,
-        selectedOption: 0,
-        onSelectOption: () => {},
-      });
+    it('renders answered state with feedback and explanation', async () => {
+      const { renderToStaticMarkup } = await import('react-dom/server');
+      const html = renderToStaticMarkup(
+        React.createElement(MCQCard, {
+          card: mockMCQ,
+          questionIndex: 2,
+          totalQuestions: 5,
+          selectedOption: 0,
+          onSelectOption: () => {},
+        })
+      );
 
-      assert.ok(React.isValidElement(element), 'MCQCard must render in answered state');
-      assert.ok((element.props as Record<string, unknown>).children, 'MCQCard has child elements');
+      assert.ok(html.includes('Correct'), 'HTML must include Correct badge');
+      assert.ok(html.includes('Explanation'), 'HTML must include Explanation');
+      assert.ok(html.includes('Supervised learning uses labeled training pairs.'), 'HTML has explanation text');
     });
   });
 
@@ -104,7 +114,7 @@ describe('Quiz Components Test Suite', () => {
   });
 
   describe('FlashCard Component', () => {
-    it('renders front side prompt', async () => {
+    it('renders front side prompt with copy and delete buttons', async () => {
       const { renderToStaticMarkup } = await import('react-dom/server');
       let ratedScore = -1;
       const html = renderToStaticMarkup(
@@ -115,11 +125,14 @@ describe('Quiz Components Test Suite', () => {
           onRate: (score) => {
             ratedScore = score;
           },
+          onDelete: () => {},
         })
       );
 
       assert.ok(html.includes('What is the bias-variance tradeoff?'), 'HTML should contain front text');
       assert.ok(html.includes('The balance between underfitting and overfitting.'), 'HTML should contain back text');
+      assert.ok(html.includes('Copy'), 'HTML should contain Copy button');
+      assert.ok(html.includes('Delete'), 'HTML should contain Delete button');
       assert.equal(ratedScore, -1);
     });
   });

@@ -33,7 +33,10 @@ export class QuizService {
   private static readonly _VERSION_INCREMENT = 1;
   private static readonly _INITIAL_VERSION = 1;
   private static readonly _ENTITY_TYPE = 'quiz';
+  private static readonly _ENTITY_MCQ = 'mcq_card';
+  private static readonly _ENTITY_FLASHCARD = 'flashcard';
   private static readonly _OP_CREATE = 'create';
+  private static readonly _OP_DELETE = 'delete';
 
   private readonly _databaseService: DatabaseService;
   private readonly _syncQueueService?: SyncQueueService;
@@ -88,6 +91,38 @@ export class QuizService {
     await this._cascadeDeleteFlashcards(tx, quizId);
     await tx.objectStore(DB_STORES.QUIZZES).delete(quizId);
     await tx.done;
+  }
+
+  /**
+   * Deletes a single MCQ card and its associated SRS state.
+   */
+  public async deleteMCQCard(cardId: string): Promise<void> {
+    const db = await this._databaseService.getDB();
+    const tx = db.transaction([DB_STORES.MCQ_CARDS, DB_STORES.SRS_CARDS], 'readwrite');
+    const srsIndex = tx.objectStore(DB_STORES.SRS_CARDS).index(DB_INDEXES.BY_CARD);
+    const srsCard = await srsIndex.get(cardId);
+    if (srsCard) {
+      await tx.objectStore(DB_STORES.SRS_CARDS).delete(srsCard.id);
+    }
+    await tx.objectStore(DB_STORES.MCQ_CARDS).delete(cardId);
+    await tx.done;
+    await this._enqueueIfOffline(cardId, { id: cardId, entity: QuizService._ENTITY_MCQ, op: QuizService._OP_DELETE });
+  }
+
+  /**
+   * Deletes a single flashcard and its associated SRS state.
+   */
+  public async deleteFlashcard(cardId: string): Promise<void> {
+    const db = await this._databaseService.getDB();
+    const tx = db.transaction([DB_STORES.FLASHCARDS, DB_STORES.SRS_CARDS], 'readwrite');
+    const srsIndex = tx.objectStore(DB_STORES.SRS_CARDS).index(DB_INDEXES.BY_CARD);
+    const srsCard = await srsIndex.get(cardId);
+    if (srsCard) {
+      await tx.objectStore(DB_STORES.SRS_CARDS).delete(srsCard.id);
+    }
+    await tx.objectStore(DB_STORES.FLASHCARDS).delete(cardId);
+    await tx.done;
+    await this._enqueueIfOffline(cardId, { id: cardId, entity: QuizService._ENTITY_FLASHCARD, op: QuizService._OP_DELETE });
   }
 
   /**
