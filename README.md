@@ -2,8 +2,6 @@
 
 > **An AI-powered, offline-first study companion that transforms Google Drive documents and YouTube lecture playlists into exhaustively detailed Markdown notes, adaptive quizzes, and SM-2 spaced repetition flashcards.**
 
-🌐 **Live Application:** [SynapseSync — AI Study Companion](https://synapse-sync-sc.vercel.app/)
-
 [![Live App](https://img.shields.io/badge/live--app-online-brightgreen?logo=vercel)](https://synapse-sync-sc.vercel.app/)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
