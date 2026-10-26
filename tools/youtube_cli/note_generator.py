@@ -37,32 +37,41 @@ class NoteGenerator:
         self._gemini_service = gemini_service if gemini_service is not None else GeminiService()
         self._model_name = model_name or Config.get_default_model()
 
-    def generate(self, transcript: str, video_title: str) -> dict[str, Any]:
+    def generate(
+        self, transcript: str, video_title: str, on_retry: Any = None
+    ) -> dict[str, Any]:
         """Generate comprehensive notes from full transcript text and video title."""
         if not transcript or not transcript.strip():
             raise ValueError("Transcript text cannot be empty")
 
         words = transcript.split()
         if len(words) <= self._MAX_CHUNK_WORDS:
-            return self._generate_single_chunk(transcript, video_title)
-        return self._generate_chunked(words, video_title)
+            return self._generate_single_chunk(transcript, video_title, on_retry)
+        return self._generate_chunked(words, video_title, on_retry)
 
-    def _generate_single_chunk(self, transcript: str, video_title: str) -> dict[str, Any]:
+    def _generate_single_chunk(
+        self, transcript: str, video_title: str, on_retry: Any = None
+    ) -> dict[str, Any]:
         """Execute single Gemini structured generation for transcripts within limit."""
         prompt = self._build_prompt(transcript, video_title)
         config = self._build_generation_config()
-        response = self._gemini_service.call_with_retry(self._model_name, prompt, config=config)
+        response = self._gemini_service.call_with_retry(
+            self._model_name, prompt, config=config, on_retry=on_retry
+        )
         parsed = self._parse_response_json(response)
         metadata = self._extract_token_usage(response)
         return self._format_result_payload(parsed, video_title, metadata)
 
-    def _generate_chunked(self, words: list[str], video_title: str) -> dict[str, Any]:
+    def _generate_chunked(
+        self, words: list[str], video_title: str, on_retry: Any = None
+    ) -> dict[str, Any]:
         """Split oversized transcripts, generate notes per segment, and stitch results."""
         chunks = self._chunk_words(words, self._MAX_CHUNK_WORDS)
         results = [
             self._generate_single_chunk(
                 " ".join(chunk),
                 f"{video_title} (Part {idx + 1}/{len(chunks)})",
+                on_retry,
             )
             for idx, chunk in enumerate(chunks)
         ]

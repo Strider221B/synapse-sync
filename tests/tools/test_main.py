@@ -76,20 +76,40 @@ class TestYouTubeCli:
         )
         return cli, mock_fetcher, mock_resolver, mock_generator, mock_pusher
 
-    def test_process_single_video_pipeline(self, tmp_path: Path) -> None:
-        """Verify pipeline for single video fetches transcript, generates notes, and pushes."""
+    def test_process_single_video_default_downloads_transcript_only(self, tmp_path: Path) -> None:
+        """Verify default process on single video fetches and caches transcript without notes."""
         cli, mock_fetch, _, mock_gen, mock_push = self._create_mock_cli(tmp_path)
         exit_code = cli.run(["process", "--url", self._VIDEO_URL])
+
+        assert exit_code == 0
+        mock_fetch.fetch.assert_called_once_with(self._VIDEO_URL)
+        mock_gen.generate.assert_not_called()
+        mock_push.push.assert_not_called()
+
+    def test_process_single_video_pipeline_with_generate_notes(self, tmp_path: Path) -> None:
+        """Verify process with --generate-notes fetches transcript, generates notes, and pushes."""
+        cli, mock_fetch, _, mock_gen, mock_push = self._create_mock_cli(tmp_path)
+        exit_code = cli.run(["process", "--url", self._VIDEO_URL, "--generate-notes"])
 
         assert exit_code == 0
         mock_fetch.fetch.assert_called_once_with(self._VIDEO_URL)
         mock_gen.generate.assert_called_once()
         mock_push.push.assert_called_once()
 
-    def test_process_playlist_pipeline(self, tmp_path: Path) -> None:
-        """Verify process pipeline for playlist resolves playlist and iterates through videos."""
+    def test_process_playlist_default_downloads_transcripts_only(self, tmp_path: Path) -> None:
+        """Verify default process on playlist downloads transcripts without generating notes."""
         cli, _, mock_resolve, mock_gen, mock_push = self._create_mock_cli(tmp_path)
         exit_code = cli.run(["process", "--url", self._PLAYLIST_URL])
+
+        assert exit_code == 0
+        mock_resolve.resolve.assert_called_once_with(self._PLAYLIST_URL)
+        mock_gen.generate.assert_not_called()
+        mock_push.push.assert_not_called()
+
+    def test_process_playlist_pipeline_with_generate_notes(self, tmp_path: Path) -> None:
+        """Verify process pipeline with --generate-notes resolves playlist and generates notes."""
+        cli, _, mock_resolve, mock_gen, mock_push = self._create_mock_cli(tmp_path)
+        exit_code = cli.run(["process", "--url", self._PLAYLIST_URL, "--generate-notes"])
 
         assert exit_code == 0
         mock_resolve.resolve.assert_called_once_with(self._PLAYLIST_URL)
@@ -99,7 +119,9 @@ class TestYouTubeCli:
     def test_process_local_only_skips_push(self, tmp_path: Path) -> None:
         """Verify --local-only flag prevents server push from occurring."""
         cli, _, _, _, mock_push = self._create_mock_cli(tmp_path)
-        exit_code = cli.run(["process", "--url", self._VIDEO_URL, "--local-only"])
+        exit_code = cli.run(
+            ["process", "--url", self._VIDEO_URL, "--generate-notes", "--local-only"]
+        )
 
         assert exit_code == 0
         mock_push.push.assert_not_called()
@@ -161,9 +183,62 @@ class TestYouTubeCli:
         """Verify _fetch_or_cache_transcript returns cached transcript without re-fetching."""
         cli, mock_fetch, _, _, _ = self._create_mock_cli(tmp_path)
         cli._cache.put("jGwO_UgTS7I", "Cached transcript text")
-        result = cli._fetch_or_cache_transcript(self._VIDEO_URL, "jGwO_UgTS7I")
+        result, cache_path = cli._fetch_or_cache_transcript(self._VIDEO_URL, "jGwO_UgTS7I")
         assert result["transcript"] == "Cached transcript text"
+        assert cache_path.is_file()
         mock_fetch.fetch.assert_not_called()
+
+    def test_process_playlist_skips_already_completed_videos(self, tmp_path: Path) -> None:
+        """Verify process skips already generated video notes when force is False."""
+        cli, _, mock_resolve, mock_gen, _ = self._create_mock_cli(tmp_path)
+        p_dir = cli._state_manager.get_playlist_dir("Stanford CS229")
+        notebook = {"name": "Stanford CS229"}
+        note = {"videoId": "jGwO_UgTS7I", "title": "Lecture 1", "content": "Existing note"}
+        cli._state_manager.record_video_success(
+            p_dir, notebook, note, {"videoId": "jGwO_UgTS7I", "url": self._VIDEO_URL}
+        )
+
+        exit_code = cli.run(["process", "--url", self._PLAYLIST_URL])
+        assert exit_code == 0
+        mock_gen.generate.assert_not_called()
+
+    def test_process_playlist_force_regenerates_completed_videos(self, tmp_path: Path) -> None:
+        """Verify --force flag forces re-generation of already completed notes."""
+        cli, _, mock_resolve, mock_gen, _ = self._create_mock_cli(tmp_path)
+        p_dir = cli._state_manager.get_playlist_dir("Stanford CS229")
+        notebook = {"name": "Stanford CS229"}
+        note = {"videoId": "jGwO_UgTS7I", "title": "Lecture 1", "content": "Existing note"}
+        cli._state_manager.record_video_success(
+            p_dir, notebook, note, {"videoId": "jGwO_UgTS7I", "url": self._VIDEO_URL}
+        )
+
+        exit_code = cli.run(
+            ["process", "--url", self._PLAYLIST_URL, "--generate-notes", "--force"]
+        )
+        assert exit_code == 0
+        mock_gen.generate.assert_called_once()
+
+    def test_retry_command_with_notebook_dir(self, tmp_path: Path) -> None:
+        """Verify retry command reads playlistUrl from state.json and executes retry."""
+        cli, _, mock_resolve, mock_gen, _ = self._create_mock_cli(tmp_path)
+        p_dir = cli._state_manager.get_playlist_dir("Stanford CS229")
+        state = {
+            "playlistTitle": "Stanford CS229",
+            "playlistUrl": self._PLAYLIST_URL,
+            "videos": {
+                "jGwO_UgTS7I": {
+                    "videoId": "jGwO_UgTS7I",
+                    "status": "failed",
+                    "error": "503 UNAVAILABLE",
+                }
+            },
+        }
+        cli._state_manager._write_json(p_dir / "state.json", state)
+
+        exit_code = cli.run(["retry", "--notebook-dir", str(p_dir)])
+        assert exit_code == 0
+        mock_gen.generate.assert_called_once()
+
 
     def test_process_with_drive_folder_and_token_options(self, tmp_path: Path) -> None:
         """Verify process pipeline forwards drive-folder and drive-token CLI parameters."""
@@ -177,6 +252,7 @@ class TestYouTubeCli:
                 "process",
                 "--url",
                 self._VIDEO_URL,
+                "--generate-notes",
                 "--drive-folder",
                 "CustomDriveFolder",
                 "--drive-token",

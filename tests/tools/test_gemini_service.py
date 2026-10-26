@@ -114,3 +114,58 @@ class TestGeminiService:
         assert cfg_dict.automatic_function_calling is not None
         assert cfg_dict.automatic_function_calling.disable is True
 
+    def test_call_with_retry_retries_on_503_unavailable_and_succeeds(self) -> None:
+        """Verify call_with_retry auto-retries on 503 unavailable temporary demand errors."""
+        mock_client = MagicMock()
+        mock_response = MagicMock(text='{"result": "ok"}')
+        mock_client.models.generate_content.side_effect = [
+            Exception("503 UNAVAILABLE. {'error': {'message': 'High demand'}}"),
+            mock_response,
+        ]
+
+        service = GeminiService(api_key="key", delay_seconds=0.0, client=mock_client)
+        model = Config.get_default_model()
+        with patch("time.sleep"):
+            res = service.call_with_retry(model, "prompt", max_retries=2)
+
+        assert res.text == '{"result": "ok"}'
+        assert mock_client.models.generate_content.call_count == 2
+
+    def test_call_with_retry_does_not_retry_daily_quota_error(self) -> None:
+        """Verify daily quota exhaustion errors are NOT auto-retried."""
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = Exception(
+            "429 RESOURCE_EXHAUSTED. requests per day limit exceeded on Free Tier"
+        )
+
+        service = GeminiService(api_key="key", delay_seconds=0.0, client=mock_client)
+        model = Config.get_default_model()
+        with pytest.raises(Exception, match="limit exceeded on Free Tier"):
+            service.call_with_retry(model, "prompt", max_retries=3)
+
+        assert mock_client.models.generate_content.call_count == 1
+
+    def test_call_with_retry_triggers_on_retry_callback(self) -> None:
+        """Verify on_retry callback receives attempt count, error object, and backoff delay."""
+        mock_client = MagicMock()
+        mock_response = MagicMock(text='{"result": "ok"}')
+        mock_client.models.generate_content.side_effect = [
+            Exception("503 UNAVAILABLE"),
+            mock_response,
+        ]
+
+        service = GeminiService(api_key="key", delay_seconds=0.0, client=mock_client)
+        model = Config.get_default_model()
+        retry_events = []
+
+        def callback(attempt: int, err: Exception, backoff: float) -> None:
+            retry_events.append((attempt, str(err), backoff))
+
+        with patch("time.sleep"):
+            service.call_with_retry(model, "prompt", max_retries=2, on_retry=callback)
+
+        assert len(retry_events) == 1
+        assert retry_events[0][0] == 1
+        assert "503 UNAVAILABLE" in retry_events[0][1]
+
+

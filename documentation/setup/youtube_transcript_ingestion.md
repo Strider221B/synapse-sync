@@ -3,37 +3,48 @@
 > **Target Audience:** Developers, students, and self-hosters ingesting YouTube lectures into SynapseSync.  
 > **Last Updated:** October 2026  
 > **Python Environment:** `~/python_envs/p313_llm` (Python 3.13)  
-> **Destination:** Google Drive (`SynapseSync/`) & Local Offline IndexedDB  
+> **Destination:** Google Drive (`SynapseSync/`), Local Markdown Files, & Offline IndexedDB  
 
 ---
 
 ## 1. Overview & Architecture
 
-SynapseSync uses a **local-first ingestion pipeline** for YouTube lectures and playlists. This design solves the two major limitations of cloud-based ingestion:
+SynapseSync uses an **incremental, local-first ingestion pipeline** for YouTube lectures and playlists. This design solves the major limitations of cloud-based ingestion:
 1. **Zero IP Blocking:** YouTube aggressively throttles or blocks cloud datacenter IPs (such as Vercel or AWS). Running transcript fetching locally uses your residential machine IP, which is not blocked.
-2. **No Timeout Constraints:** Vercel serverless functions have a 60-second execution limit. Ingesting an entire 20-lecture playlist with detailed, exhaustive note generation takes several minutes, which runs unimpeded on your local machine.
-3. **Google Drive as the Sole Source of Truth:** The application server does **not** store any notes, notebooks, or quizzes. The CLI uploads generated notes directly to your dedicated Google Drive folder (`SynapseSync/`). The PWA then synchronizes them directly into your browser's IndexedDB for **100% offline** studying.
+2. **Fast Transcript Download by Default (Zero Quota):** By default, running `process` downloads and caches raw YouTube transcripts locally at high speed without making Gemini API calls or consuming rate limits.
+3. **Optional Gemini Note Generation (`--generate-notes`):** Pass `--generate-notes` (or `--with-gemini`) to transform transcripts into comprehensive Markdown notes.
+4. **Immediate Incremental Persistence:** Notes are **not** accumulated in-memory to be dumped at the end. After **each individual video** finishes note generation, it is immediately written to disk (in `notes.json`, `notebook.json`, and human-readable `.md` files), recorded in `state.json`, and pushed to Google Drive. Even if you press `Ctrl+C` or lose power midway through a 30-lecture series, zero completed work is lost.
+5. **Resilient Auto-Retries (5xx vs 4xx):** Transient Gemini server errors (`503 UNAVAILABLE`, `High demand`, `500`) are automatically retried with exponential backoff. Non-transient errors (such as daily `429` quota limits) fail gracefully, save state, and allow you to resume later.
+6. **Intelligent Resuming:** Re-running the tool on the same playlist automatically detects previously completed lectures and skips them (`⏩ Skipped`), preserving your daily Gemini API quota.
+7. **Google Drive as Cloud Source of Truth:** The application server does **not** store any notes or notebooks. The CLI uploads generated notes directly to your dedicated Google Drive folder (`SynapseSync/`). The PWA then synchronizes them directly into your browser's IndexedDB for **100% offline** studying.
 
 ```
       YouTube Playlist / Video
                  │
                  ▼ (youtube-transcript-api from residential IP)
-      Local Transcript Fetcher (~/.synapse-sync/transcript_cache/)
+      Local Transcript Fetcher (~/.synapse-sync/transcript_cache/<video_id>.json)
                  │
-                 ▼ (Gemini AI with GEMINI_API_KEY — no 60s timeout)
-      Note Generator (Exhaustive Study Notes)
-                 │
-                 ├──► Local Disk Backup (~/.synapse-sync/processed_notes/)
-                 │
-                 ▼ (GoogleDrivePusher with GOOGLE_DRIVE_ACCESS_TOKEN)
-      Google Drive (⭐ Sole Cloud Source of Truth)
-      └── SynapseSync/
-          ├── notebooks/notebook_<id>.json
-          └── notes/note_<id>.json
-                 │
-                 ▼ (GoogleDriveSyncService via PWA)
-      PWA IndexedDB (Local Offline DB)
-      └── Full offline reading, quizzes, and Spaced Repetition (SRS)
+                 ├─────────────────────────────────────────────────┐
+                 ▼ [DEFAULT MODE]                                  ▼ [WITH --generate-notes]
+      Fast Local Transcript Cache                       Gemini AI Note Generation
+      (No API key or quota needed)                      (5xx auto-retry & backoff)
+                                                                   │
+       ┌───────────────────────────────────────────────────────────┴────────────────────────┐
+       │  IMMEDIATELY AFTER EACH VIDEO COMPLETION:                                          │
+       │                                                                                    │
+       ├──► Local Disk (~/.synapse-sync/processed_notes/<Playlist>/)                        │
+       │    ├── state.json                 (Video status: completed/fail)                   │
+       │    ├── notebook.json              (Playlist metadata)                              │
+       │    ├── notes.json                 (All notes JSON collection)                      │
+       │    └── notes/<Lecture_Title>.md   (Readable Markdown files)                        │
+       │                                                                                    │
+       └──► Google Drive (~/SynapseSync/)                                                   │
+            ├── notebooks/notebook_<id>.json                                                │
+            └── notes/note_<id>.json                                                        │
+                                                                                            │
+                 ▼ (GoogleDriveSyncService via PWA)                                        │
+      PWA IndexedDB (Local Offline DB)                                                     │
+      └── Full offline reading, quizzes, and Spaced Repetition (SRS)                       │
 ```
 
 ---
@@ -77,11 +88,17 @@ Key dependencies included in `requirements.txt`:
 * `google-genai>=0.1.0` — Modern Google GenAI SDK for Gemini note generation.
 * `pydantic>=2.0.0` — Validates study note schemas and structured outputs.
 * `requests>=2.31.0` — Handles Drive REST API v3 file search, folder creation, and multipart uploads.
+* `rich>=13.0.0` — Formatted terminal progress, status icons, and clickable `file://` URIs.
 
 ### 3.3 Gemini API Key
-Obtain a free API key from [Google AI Studio](https://aistudio.google.com/):
+Obtain an API key from [Google AI Studio](https://aistudio.google.com/):
 ```bash
 export GEMINI_API_KEY="AIzaSy..."
+```
+You can also configure this in `.env.local`:
+```bash
+GEMINI_API_KEY="AIzaSy..."
+GEMINI_MODEL="gemini-3.8-flash"  # Or gemini-2.5-flash
 ```
 
 ---
@@ -112,48 +129,94 @@ If you want to generate notes immediately on your machine without connecting to 
 
 ## 5. Running the YouTube Ingestion CLI
 
-### 5.1 Ingest a Single Video
+### 5.1 Default Mode: Fast Transcript Download (Zero Quota)
+By default, the `process` command fetches and caches raw video/playlist transcripts locally without calling Gemini. This is extremely fast, does not require a `GEMINI_API_KEY`, and never consumes LLM quota:
+
 ```bash
+# Ingest transcripts for a single video:
 python tools/youtube_cli/main.py process --url "https://www.youtube.com/watch?v=jGwO_UgTS7I"
+
+# Ingest transcripts for an entire playlist:
+python tools/youtube_cli/main.py process --url "https://www.youtube.com/playlist?list=PLoROMvodv4rMeDqwS1yFl3j3sR_-MQNEN"
 ```
 
-### 5.2 Ingest an Entire Playlist
-To process a multi-lecture series (e.g. Stanford CS229):
-```bash
-python tools/youtube_cli/main.py process --url "https://www.youtube.com/playlist?list=PLoROMvodv4rMiGQp3WXShtMGgzqpfVfbU"
+Console Output:
 ```
-The CLI displays real-time sequential progress with a summary table upon completion:
-```
-Resolving playlist: https://www.youtube.com/playlist?list=PLoROMvodv4rMiGQp3WXShtMGgzqpfVfbU
-[1/20] ⏳ In progress: Lecture 1 - Welcome | Stanford CS229
-[1/20] ✅ Completed: Lecture 1 - Welcome | Stanford CS229
-[2/20] ⏳ In progress: Lecture 2 - Linear Regression
-[2/20] ✅ Completed: Lecture 2 - Linear Regression
+Resolving playlist: https://www.youtube.com/playlist?list=PLoROMvodv4rMeDqwS1yFl3j3sR_-MQNEN
+Playlist directory: file:///home/somesh/.synapse-sync/processed_notes/Stanford_CS221___Autumn_2025
+[1/20] 📥 Transcript cached: file:///home/somesh/.synapse-sync/transcript_cache/4Iu4KPVbnAY.json
+[2/20] 📥 Transcript cached: file:///home/somesh/.synapse-sync/transcript_cache/ec2rCf4iIqU.json
 ...
-Saved to Google Drive: 20 notes stored.
+✨ Transcripts downloaded and cached locally!
 ```
 
-### 5.3 Local-Only Execution
-Skip remote upload and store notes solely on your local filesystem:
-```bash
-python tools/youtube_cli/main.py process --url "https://www.youtube.com/watch?v=..." --local-only
-```
-Notes are saved to: `~/.synapse-sync/processed_notes/<Notebook_Name>/`
+### 5.2 Note Generation with Gemini (`--generate-notes` / `--with-gemini`)
+To generate full study notes using Gemini and incrementally push them to Google Drive (or local disk), add `--generate-notes` (or `--with-gemini`):
 
-### 5.4 Push a Previously Processed Notebook
-To upload a previously generated local notebook directory to Google Drive:
 ```bash
-python tools/youtube_cli/main.py push --notebook-dir ~/.synapse-sync/processed_notes/Stanford_CS229
+python tools/youtube_cli/main.py process \
+  --url "https://www.youtube.com/playlist?list=PLoROMvodv4rMeDqwS1yFl3j3sR_-MQNEN" \
+  --generate-notes
 ```
 
-### 5.5 Custom Dedicated Folder Name
-By default, notes are uploaded to `SynapseSync/` in your Google Drive root. You can specify a custom dedicated folder:
-```bash
-python tools/youtube_cli/main.py process --url "<url>" --drive-folder "Stanford_AI_Notes"
+Output:
 ```
-or via environment variable:
+Resolving playlist: https://www.youtube.com/playlist?list=PLoROMvodv4rMeDqwS1yFl3j3sR_-MQNEN
+Playlist directory: file:///home/somesh/.synapse-sync/processed_notes/Stanford_CS221___Autumn_2025
+[1/20] ⏳ In progress: Stanford CS221 | Autumn 2025 | Lecture 1: Course Overview and AI Foundations
+  Transcript cached: file:///home/somesh/.synapse-sync/transcript_cache/4Iu4KPVbnAY.json
+  Saved note locally: file:///home/somesh/.synapse-sync/processed_notes/Stanford_CS221___Autumn_2025/notes/Stanford_CS221___Autumn_2025___Lecture_1.md
+  Notes collection: file:///home/somesh/.synapse-sync/processed_notes/Stanford_CS221___Autumn_2025/notes.json
+  Saved to Google Drive: 1 note(s) stored.
+[1/20] ✅ Completed: Stanford CS221 | Autumn 2025 | Lecture 1: Course Overview and AI Foundations
+[2/20] ⏳ In progress: Stanford CS221 | Autumn 2025 | Lecture 2: Learning I
+  ⚠️ Transient server error: 503 UNAVAILABLE. Retrying in 2.0s (attempt 1/3)...
+  Transcript cached: file:///home/somesh/.synapse-sync/transcript_cache/ec2rCf4iIqU.json
+  Saved note locally: file:///home/somesh/.synapse-sync/processed_notes/Stanford_CS221___Autumn_2025/notes/Stanford_CS221___Autumn_2025___Lecture_2.md
+  Saved to Google Drive: 1 note(s) stored.
+[2/20] ✅ Completed: Stanford CS221 | Autumn 2025 | Lecture 2: Learning I
+```
+
+### 5.3 Resuming & Retrying Failed Videos
+
+#### Automatic Resume
+If an earlier note generation run was stopped (e.g. Ctrl+C or daily quota reached), running `process --generate-notes` again automatically skips already completed videos:
 ```bash
-export GOOGLE_DRIVE_FOLDER_NAME="Stanford_AI_Notes"
+python tools/youtube_cli/main.py process --url "<playlist_url>" --generate-notes
+```
+Output:
+```
+[1/20] ⏩ Skipped: Stanford CS221 | Autumn 2025 | Lecture 1
+[2/20] ⏩ Skipped: Stanford CS221 | Autumn 2025 | Lecture 2
+[3/20] ⏳ In progress: Stanford CS221 | Autumn 2025 | Lecture 3
+```
+
+#### Dedicated `retry` Subcommand
+To retry only videos that previously failed:
+```bash
+# Using the playlist URL:
+python tools/youtube_cli/main.py retry --url "https://www.youtube.com/playlist?list=..."
+
+# Or referencing the local notebook directory directly:
+python tools/youtube_cli/main.py retry --notebook-dir ~/.synapse-sync/processed_notes/Stanford_CS221___Autumn_2025
+```
+
+#### Force Re-generation (`--force`)
+If you want to re-generate all lecture notes even if they already exist locally:
+```bash
+python tools/youtube_cli/main.py process --url "<playlist_url>" --generate-notes --force
+```
+
+### 5.4 Local-Only Execution
+Skip remote Google Drive upload and store notes solely on your local filesystem:
+```bash
+python tools/youtube_cli/main.py process --url "https://www.youtube.com/watch?v=..." --generate-notes --local-only
+```
+
+### 5.5 Push a Local Notebook (or Manually Edited Notes)
+To upload an entire local notebook directory (including any Markdown files you manually added or edited) to Google Drive:
+```bash
+python tools/youtube_cli/main.py push --notebook-dir ~/.synapse-sync/processed_notes/Stanford_CS221___Autumn_2025
 ```
 
 ### 5.6 CLI Reference & Options Table
@@ -162,12 +225,22 @@ export GOOGLE_DRIVE_FOLDER_NAME="Stanford_AI_Notes"
 | Option / Flag | Environment Variable | Default | Description |
 |:---|:---|:---|:---|
 | `--url <url>` | — | *(Required)* | YouTube video URL or playlist URL to ingest. |
+| `--generate-notes` / `--with-gemini` | — | `False` | Run Gemini note generation (default is transcript download only). |
+| `--force` | — | `False` | Force regenerate notes even if already completed locally. |
+| `--retry-failed` | — | `False` | Only process videos that previously failed. |
+| `--local-only` | — | `False` | Skip Drive upload; save solely to local disk. |
 | `--drive-token <token>` | `GOOGLE_DRIVE_ACCESS_TOKEN` | `""` | Google OAuth Bearer access token. |
 | `--drive-folder <name>` | `GOOGLE_DRIVE_FOLDER_NAME` | `SynapseSync` | Target folder name in Google Drive root. |
+| `--server-url <url>` | `SYNAPSE_SERVER_URL` | `None` | Optional target backend server URL (legacy). |
+
+#### `retry` Command Options
+| Option / Flag | Environment Variable | Default | Description |
+|:---|:---|:---|:---|
+| `--url <url>` | — | `None` | YouTube playlist URL to retry. |
+| `--notebook-dir <path>` | — | `None` | Path to local notebook directory (reads playlist URL from `state.json`). |
 | `--local-only` | — | `False` | Skip Drive upload; save solely to local disk. |
-| `--output-dir <path>` | — | `~/.synapse-sync/processed_notes` | Local directory for note JSON backups. |
-| `--cache-dir <path>` | — | `~/.synapse-sync/transcript_cache` | Local directory for raw transcript cache. |
-| `--model <name>` | — | `gemini-3.8-flash` | Gemini model used for note generation. |
+| `--drive-token <token>` | `GOOGLE_DRIVE_ACCESS_TOKEN` | `""` | Google OAuth Bearer access token. |
+| `--drive-folder <name>` | `GOOGLE_DRIVE_FOLDER_NAME` | `SynapseSync` | Target folder name in Google Drive root. |
 
 #### `push` Command Options
 | Option / Flag | Environment Variable | Default | Description |
@@ -175,41 +248,39 @@ export GOOGLE_DRIVE_FOLDER_NAME="Stanford_AI_Notes"
 | `--notebook-dir <path>` | — | *(Required)* | Path to directory containing `notebook.json` and `notes.json`. |
 | `--drive-token <token>` | `GOOGLE_DRIVE_ACCESS_TOKEN` | `""` | Google OAuth Bearer access token. |
 | `--drive-folder <name>` | `GOOGLE_DRIVE_FOLDER_NAME` | `SynapseSync` | Target folder name in Google Drive root. |
+| `--server-url <url>` | `SYNAPSE_SERVER_URL` | `None` | Optional target backend server URL (legacy). |
 
 ---
 
-## 6. Google Drive Storage Layout
+## 6. Local Storage & Google Drive Layout
 
+### 6.1 Local Storage Layout (`~/.synapse-sync/`)
+```
+~/.synapse-sync/
+├── transcript_cache/
+│   ├── 4Iu4KPVbnAY.json              # Raw cached YouTube captions
+│   └── ec2rCf4iIqU.json
+└── processed_notes/
+    └── Stanford_CS221___Autumn_2025/
+        ├── state.json                 # Progress tracking (completed/failed videos)
+        ├── notebook.json              # Notebook metadata schema
+        ├── notes.json                 # JSON array of all notes for PWA/Drive sync
+        └── notes/                     # Human-readable Markdown notes
+            ├── 01_Course_Overview.md
+            └── 02_Learning_I.md
+```
+
+### 6.2 Google Drive Storage Layout
 The `GoogleDrivePusher` organizes files in Google Drive so they are automatically detected by the PWA's `GoogleDriveSyncService`:
 
 ```
 My Google Drive/
 └── SynapseSync/                  # Target folder (default)
     ├── notebooks/
-    │   ├── notebook_nb_101.json  # Playlist / course metadata
-    │   └── notebook_nb_102.json
+    │   └── notebook_nb_101.json  # Playlist / course metadata
     └── notes/
-        ├── note_n_201.json       # Individual lecture detailed notes
-        ├── note_n_202.json
-        └── note_n_203.json
-```
-
-### Note Record JSON Structure
-Each `note_<id>.json` contains the full lecture study note matching the application schema:
-```json
-{
-  "id": "note_550e8400-e29b-41d4-a716-446655440000",
-  "notebookId": "nb_12345678-abcd-1234-abcd-123456789abc",
-  "title": "Stanford CS229: Lecture 1 - Machine Learning Introduction",
-  "content": "# Lecture 1: Machine Learning Introduction\n\n## 1. What is Machine Learning?\n...",
-  "contentFormat": "markdown",
-  "sourceType": "youtube_transcript",
-  "sourceUrl": "https://www.youtube.com/watch?v=jGwO_UgTS7I",
-  "wordCount": 8540,
-  "createdAt": "2026-10-22T04:30:00.000Z",
-  "updatedAt": "2026-10-22T04:30:00.000Z",
-  "isSynced": true
-}
+        ├── note_4Iu4KPVbnAY.json # Individual lecture detailed notes
+        └── note_ec2rCf4iIqU.json
 ```
 
 ---
@@ -236,31 +307,159 @@ Once notes are synced into IndexedDB, you can verify offline functionality:
 
 ---
 
-## 8. Manual Transcript Paste Fallback (In-App)
+## 8. Note Generation Prompts & Manual / External LLM Workflow
 
-For one-off videos where running the CLI is unnecessary:
-1. In the PWA, visit `/youtube`.
-2. Click the **📝 Manual Transcript Paste** tab.
-3. Paste the raw transcript text and optional video URL/title.
-4. Click **✨ Generate Detailed Study Notes**.
-5. The web app calls the `/api/summarize` Gemini endpoint, formats the study note, saves it to IndexedDB, and queues it to sync to your Google Drive automatically.
+If you reach your daily Gemini API quota or prefer using another model (e.g. Claude 3.5 Sonnet, ChatGPT GPT-4o, DeepSeek, or a local Ollama model), you can generate notes externally and sync them into SynapseSync.
+
+### 8.1 How SynapseSync Uses Notes: JSON vs. Markdown Files
+
+To understand how note files relate:
+* **The Structured Storage (`notes.json`):** SynapseSync and Google Drive sync notes using structured JSON records (`id`, `title`, `content`, `wordCount`). Under the hood, Gemini returns JSON containing `title`, `summary`, `keyPoints`, and `markdownNotes`.
+* **The Human-Readable Markdown (`notes/*.md`):** For your convenience, the CLI also saves the lecture text as individual `.md` files in `notes/<Lecture_Title>.md`. You can read or edit these files in Obsidian, VS Code, or any text editor.
+* **Automatic Synchronization on Push:** When you run `main.py push`, the CLI automatically scans `notes/*.md`. Any edits you made or new `.md` files you added are automatically merged into `notes.json` and uploaded to Google Drive!
+
+Depending on how you generate notes externally, choose between **Direct Markdown** (e.g., in a browser chat) or **Structured JSON** (e.g., via an API).
+
+---
+
+### 8.2 Option 1: Direct Markdown Prompt (Recommended for Web Chat: ChatGPT / Claude / DeepSeek)
+
+When interacting with an LLM in a web browser, requesting JSON output is inconvenient because you would have to extract the markdown text manually. Instead, use this **Direct Markdown prompt** to get formatted notes directly:
+
+#### Prompt Template for Web Chat
+```text
+You are a meticulous note-taker, not a summarizer. Capture EVERY concept, definition, example, analogy, formula, and explanation from this lecture transcript. The notes should be detailed enough that someone reading only these notes would have a thorough understanding of the topic without needing to watch the original video.
+
+Formatting Guidelines:
+- Begin with a single top-level title: # [Lecture Title]
+- Use clear markdown sections: ## Headings, ### Subheadings
+- Use bullet points, numbered lists, and bold/italic for key terms
+- Format mathematical formulas in LaTeX ($...$ and $$...$$)
+- Include code blocks for technical examples
+- Output pure Markdown only (no JSON wrappers, no conversational filler).
+
+Lecture Title: {video_title}
+
+Transcript:
+{transcript_text}
+```
+
+#### Saving the Output
+Simply copy the generated Markdown text and save it directly as:
+```text
+~/.synapse-sync/processed_notes/<playlist_title>/notes/<Lecture_Title>.md
+```
+
+---
+
+### 8.3 Option 2: Structured JSON Mode (For Scripts & LLM API Calls)
+
+If you are calling an external LLM programmatically via an API (e.g., OpenAI API, Anthropic API, or Ollama) with structured output mode enabled, use the exact schema used by SynapseSync's `NoteGenerator`:
+
+#### System Prompt
+```text
+You are a meticulous note-taker, not a summarizer. Capture EVERY concept, definition, example, analogy, formula, and explanation. The notes should be detailed enough that someone reading only these notes would have a thorough understanding of the topic without needing to watch the original video. Use headings, subheadings, bullet points, numbered lists, bold/italic, and code blocks. Include specific examples, numbers, and data points mentioned in the lecture. Output MUST adhere strictly to the JSON schema.
+```
+
+#### User Prompt Template
+```text
+Video Title: {video_title}
+
+Transcript:
+{transcript_text}
+
+Produce exhaustively detailed notes in JSON format.
+```
+
+#### JSON Output Schema
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Clean video lecture title"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Comprehensive high-level summary of the entire lecture"
+    },
+    "keyPoints": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Key takeaways, core definitions, and pivotal concepts"
+    },
+    "markdownNotes": {
+      "type": "string",
+      "description": "Exhaustively detailed Markdown notes formatted with headings, LaTeX formulas, bold terms, bullet points, and code examples"
+    }
+  },
+  "required": ["title", "summary", "keyPoints", "markdownNotes"]
+}
+```
+
+* The `markdownNotes` string contains the full lecture text that renders in the SynapseSync reading interface.
+* The `title`, `summary`, and `keyPoints` fields are used for notebook indexing, flashcards, and search.
+
+---
+
+### 8.4 Step-by-Step Manual Ingestion Workflow
+
+1. **Download Transcripts with CLI:**
+   ```bash
+   python tools/youtube_cli/main.py process --url "https://www.youtube.com/playlist?list=..."
+   ```
+   This downloads and caches transcripts in `~/.synapse-sync/transcript_cache/<video_id>.json` without using any LLM quota.
+
+2. **Extract Transcript Text:**
+   Extract the transcript text using a one-line Python command:
+   ```bash
+   python -c "import json; d=json.load(open('$HOME/.synapse-sync/transcript_cache/<video_id>.json')); print(' '.join(s['text'] for s in d['transcript']))" > /tmp/transcript.txt
+   ```
+
+3. **Generate Notes via Web Chat or API:**
+   Paste the transcript into ChatGPT, Claude, or your local model using either the **Direct Markdown Prompt** (Option 1) or the **JSON Schema Prompt** (Option 2).
+
+4. **Save the Markdown File:**
+   Save the note as a `.md` file in the playlist's `notes/` folder:
+   ```bash
+   ~/.synapse-sync/processed_notes/<playlist_title>/notes/<Lecture_Title>.md
+   ```
+
+5. **Push to Google Drive & SynapseSync:**
+   Upload your newly created or edited notes:
+   ```bash
+   python tools/youtube_cli/main.py push --notebook-dir ~/.synapse-sync/processed_notes/<playlist_title>
+   ```
+   The CLI automatically reads the markdown files in `notes/`, syncs them into `notes.json`, and uploads them to Google Drive!
+
+6. **Sync in SynapseSync PWA:**
+   Open SynapseSync in your browser and click **🔄 Sync from Google Drive**. All notes are loaded into your offline IndexedDB for instant reading, active recall quizzes, and SRS reviews.
 
 ---
 
 ## 9. Troubleshooting & FAQ
 
+### "503 UNAVAILABLE: This model is currently experiencing high demand"
+* **Behavior:** The CLI automatically catches this transient server error and retries up to 3 times with exponential backoff (2s, 4s, 8s).
+* **Fix:** Usually succeeds on the second attempt. If Google's API remains overloaded across all retries, the video is marked as `failed` in `state.json` and you can re-run `python tools/youtube_cli/main.py retry --url "<url>"` a few minutes later.
+
+### "429 RESOURCE_EXHAUSTED: Generate content requests per day limit exceeded on Free Tier"
+* **Cause:** The Gemini Free Tier has a daily limit of 20 requests/day for `gemini-3.8-flash`.
+* **Fix:**
+  1. Wait until the daily quota resets (the error log displays the exact reset duration, e.g. `retryDelay: 10436s`), then run `main.py retry ...`.
+  2. Or switch to a different model in `.env.local`:
+     ```bash
+     GEMINI_MODEL=gemini-2.5-flash
+     ```
+  3. Or use a paid Gemini API tier key with higher quotas.
+
+### "I pressed Ctrl+C during processing. Did I lose my progress?"
+* **Transcripts:** Saved immediately in `~/.synapse-sync/transcript_cache/<video_id>.json`. Zero transcripts are lost.
+* **Notes:** Saved immediately on disk and Google Drive after each individual video completes. Any lecture that showed `[x/20] ✅ Completed` is already safely saved on your computer and in your Google Drive.
+* Simply run the command again to continue from the first unfinished lecture.
+
 ### "Authentication failed (401 Unauthorized)"
-* **Cause:** Your Google Drive access token has expired (Google access tokens usually expire after 60 minutes).
+* **Cause:** Your Google Drive access token has expired (Google access tokens expire after 60 minutes).
 * **Fix:** Refresh the PWA page, ensure you are signed in, run `localStorage.getItem('synapse_gdrive_token')` in DevTools, and re-export `GOOGLE_DRIVE_ACCESS_TOKEN`.
 
-### "TranscriptsDisabledError: Subtitles are disabled for this video"
-* **Cause:** The YouTube video creator did not enable English subtitles or auto-captions.
-* **Fix:** Use the **Manual Transcript Paste** tab in the PWA by copying captions from an external transcript tool or course syllabus.
-
-### Where are transcripts cached locally?
-* Transcripts are cached at `~/.synapse-sync/transcript_cache/<video_id>.json`.
-* If you want to force a re-fetch of captions from YouTube, delete the corresponding JSON file from that directory.
-
-### Where are local notes stored?
-* Local notes are stored at `~/.synapse-sync/processed_notes/<Notebook_Name>/`.
-* Each folder contains `notebook.json` and `notes.json`.
