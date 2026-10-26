@@ -6,7 +6,7 @@ import json
 from http.server import BaseHTTPRequestHandler
 from typing import Any, ClassVar
 
-from google.generativeai.types import GenerationConfig
+from google.genai import types
 
 from tools.youtube_cli.config import Config
 from tools.youtube_cli.gemini_service import GeminiService
@@ -151,9 +151,9 @@ class GenerateQuiz(BaseHTTPRequestHandler):
             words, difficulty, mcq_count, flashcard_count, gemini_svc, active_model, chunk_size
         )
 
-    def _build_generation_config(self) -> Any:
-        """Construct GenerationConfig enforcing structured JSON schema output."""
-        return GenerationConfig(
+    def _build_generation_config(self) -> types.GenerateContentConfig:
+        """Construct GenerateContentConfig enforcing structured JSON schema output."""
+        return types.GenerateContentConfig(
             response_mime_type=self._MIME_JSON,
             response_schema=self._QUIZ_SCHEMA,
             temperature=self._TEMPERATURE,

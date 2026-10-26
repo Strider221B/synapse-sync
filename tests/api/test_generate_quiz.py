@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from api.generate_quiz import GenerateQuiz
 from tools.youtube_cli.config import Config
+from tools.youtube_cli.gemini_service import GeminiService
 
 
 class TestGenerateQuiz:
@@ -43,26 +44,6 @@ class TestGenerateQuiz:
             }
         ],
     }
-
-    def _create_handler(self, body_data: dict[str, Any] | None = None) -> GenerateQuiz:
-        """Construct mock GenerateQuiz instance with rfile, wfile, and headers."""
-        instance = GenerateQuiz.__new__(GenerateQuiz)
-        instance.wfile = io.BytesIO()
-
-        body_bytes = json.dumps(body_data).encode(self._ENCODING) if body_data is not None else b""
-        instance.rfile = io.BytesIO(body_bytes)
-
-        headers = Message()
-        headers["Content-Length"] = str(len(body_bytes))
-        headers["Content-Type"] = "application/json"
-        instance.headers = headers
-        return instance
-
-    def _get_response_json(self, handler: GenerateQuiz) -> dict[str, Any]:
-        """Read and decode JSON response from handler wfile."""
-        assert isinstance(handler.wfile, io.BytesIO)
-        result: dict[str, Any] = json.loads(handler.wfile.getvalue().decode(self._ENCODING))
-        return result
 
     def test_do_post_successful_generates_quiz(self) -> None:
         """Verify do_POST delegates to generate_quiz and returns 200 with result."""
@@ -283,5 +264,44 @@ class TestGenerateQuiz:
                 chunk_size=2500,
                 delay_seconds=4.0,
             )
+
+    def test_build_generation_config(self) -> None:
+        """Verify _build_generation_config returns GenerateContentConfig with JSON schema."""
+        handler = self._create_handler()
+        config = handler._build_generation_config()
+        assert config.response_mime_type == "application/json"
+        assert config.temperature == 0.7
+        assert config.response_schema is not None
+
+    def test_build_generation_config_compatible_with_gemini_service(self) -> None:
+        """Verify generated config integrates with GeminiService content configuration."""
+        handler = self._create_handler()
+        config = handler._build_generation_config()
+        gemini_svc = GeminiService()
+        content_config = gemini_svc._build_generate_content_config(config)
+        assert content_config.response_mime_type == "application/json"
+        assert content_config.automatic_function_calling is not None
+        assert content_config.automatic_function_calling.disable is True
+
+    def _create_handler(self, body_data: dict[str, Any] | None = None) -> GenerateQuiz:
+        """Construct mock GenerateQuiz instance with rfile, wfile, and headers."""
+        instance = GenerateQuiz.__new__(GenerateQuiz)
+        instance.wfile = io.BytesIO()
+
+        body_bytes = json.dumps(body_data).encode(self._ENCODING) if body_data is not None else b""
+        instance.rfile = io.BytesIO(body_bytes)
+
+        headers = Message()
+        headers["Content-Length"] = str(len(body_bytes))
+        headers["Content-Type"] = "application/json"
+        instance.headers = headers
+        return instance
+
+    def _get_response_json(self, handler: GenerateQuiz) -> dict[str, Any]:
+        """Read and decode JSON response from handler wfile."""
+        assert isinstance(handler.wfile, io.BytesIO)
+        result: dict[str, Any] = json.loads(handler.wfile.getvalue().decode(self._ENCODING))
+        return result
+
 
 
