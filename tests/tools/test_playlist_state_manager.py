@@ -137,3 +137,29 @@ class TestPlaylistStateManager:
 
         failed = manager.get_failed_video_ids(p_dir)
         assert "vid_fail" in failed
+
+    def test_load_notes_syncs_edited_and_new_markdown_files(
+        self, manager: PlaylistStateManager
+    ) -> None:
+        """Verify load_notes automatically updates and adds notes from notes/ markdown files."""
+        p_dir = manager.get_playlist_dir("Sync Course")
+        notebook = {"name": "Sync Course"}
+        note = {"videoId": "v1", "title": "Lecture 1", "content": "Original content"}
+        manager.record_video_success(
+            p_dir, notebook, note, {"videoId": "v1", "url": "https://yt.com/v1"}
+        )
+
+        notes_dir = p_dir / "notes"
+        md_file = notes_dir / "Lecture_1.md"
+        md_file.write_text("# Lecture 1\n\nUpdated markdown content here.")
+
+        new_md = notes_dir / "Lecture_2_Manual.md"
+        new_md.write_text("# Lecture 2: Manual\n\nManual note content.")
+
+        _, synced = manager.load_notes(p_dir)
+        by_title = {n["title"]: n for n in synced}
+
+        assert by_title["Lecture 1"]["content"] == "Updated markdown content here."
+        assert "Lecture 2: Manual" in by_title
+        assert by_title["Lecture 2: Manual"]["content"] == "Manual note content."
+        assert by_title["Lecture 2: Manual"]["sourceType"] == "manual"

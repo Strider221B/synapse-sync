@@ -309,9 +309,52 @@ Once notes are synced into IndexedDB, you can verify offline functionality:
 
 ## 8. Note Generation Prompts & Manual / External LLM Workflow
 
-If Gemini encounters a daily quota limit, or if you prefer to use your own LLM (such as Claude 3.5 Sonnet, ChatGPT GPT-4o, DeepSeek, or a local Ollama model like Llama 3), you can generate notes manually from the cached transcripts using the exact prompt and JSON schema used by SynapseSync.
+If you reach your daily Gemini API quota or prefer using another model (e.g. Claude 3.5 Sonnet, ChatGPT GPT-4o, DeepSeek, or a local Ollama model), you can generate notes externally and sync them into SynapseSync.
 
-### 8.1 The Note Generation Prompt
+### 8.1 How SynapseSync Uses Notes: JSON vs. Markdown Files
+
+To understand how note files relate:
+* **The Structured Storage (`notes.json`):** SynapseSync and Google Drive sync notes using structured JSON records (`id`, `title`, `content`, `wordCount`). Under the hood, Gemini returns JSON containing `title`, `summary`, `keyPoints`, and `markdownNotes`.
+* **The Human-Readable Markdown (`notes/*.md`):** For your convenience, the CLI also saves the lecture text as individual `.md` files in `notes/<Lecture_Title>.md`. You can read or edit these files in Obsidian, VS Code, or any text editor.
+* **Automatic Synchronization on Push:** When you run `main.py push`, the CLI automatically scans `notes/*.md`. Any edits you made or new `.md` files you added are automatically merged into `notes.json` and uploaded to Google Drive!
+
+Depending on how you generate notes externally, choose between **Direct Markdown** (e.g., in a browser chat) or **Structured JSON** (e.g., via an API).
+
+---
+
+### 8.2 Option 1: Direct Markdown Prompt (Recommended for Web Chat: ChatGPT / Claude / DeepSeek)
+
+When interacting with an LLM in a web browser, requesting JSON output is inconvenient because you would have to extract the markdown text manually. Instead, use this **Direct Markdown prompt** to get formatted notes directly:
+
+#### Prompt Template for Web Chat
+```text
+You are a meticulous note-taker, not a summarizer. Capture EVERY concept, definition, example, analogy, formula, and explanation from this lecture transcript. The notes should be detailed enough that someone reading only these notes would have a thorough understanding of the topic without needing to watch the original video.
+
+Formatting Guidelines:
+- Begin with a single top-level title: # [Lecture Title]
+- Use clear markdown sections: ## Headings, ### Subheadings
+- Use bullet points, numbered lists, and bold/italic for key terms
+- Format mathematical formulas in LaTeX ($...$ and $$...$$)
+- Include code blocks for technical examples
+- Output pure Markdown only (no JSON wrappers, no conversational filler).
+
+Lecture Title: {video_title}
+
+Transcript:
+{transcript_text}
+```
+
+#### Saving the Output
+Simply copy the generated Markdown text and save it directly as:
+```text
+~/.synapse-sync/processed_notes/<playlist_title>/notes/<Lecture_Title>.md
+```
+
+---
+
+### 8.3 Option 2: Structured JSON Mode (For Scripts & LLM API Calls)
+
+If you are calling an external LLM programmatically via an API (e.g., OpenAI API, Anthropic API, or Ollama) with structured output mode enabled, use the exact schema used by SynapseSync's `NoteGenerator`:
 
 #### System Prompt
 ```text
@@ -328,9 +371,7 @@ Transcript:
 Produce exhaustively detailed notes in JSON format.
 ```
 
-### 8.2 JSON Output Schema
-When running external models or API calls, enforce or prompt for this structured JSON schema:
-
+#### JSON Output Schema
 ```json
 {
   "type": "object",
@@ -350,42 +391,50 @@ When running external models or API calls, enforce or prompt for this structured
     },
     "markdownNotes": {
       "type": "string",
-      "description": "Exhaustively detailed Markdown notes formatted with headings, LaTeX formulas ($...$), bold terms, bullet points, and code examples"
+      "description": "Exhaustively detailed Markdown notes formatted with headings, LaTeX formulas, bold terms, bullet points, and code examples"
     }
   },
   "required": ["title", "summary", "keyPoints", "markdownNotes"]
 }
 ```
 
-### 8.3 Step-by-Step Manual Generation Workflow
+* The `markdownNotes` string contains the full lecture text that renders in the SynapseSync reading interface.
+* The `title`, `summary`, and `keyPoints` fields are used for notebook indexing, flashcards, and search.
+
+---
+
+### 8.4 Step-by-Step Manual Ingestion Workflow
 
 1. **Download Transcripts with CLI:**
    ```bash
    python tools/youtube_cli/main.py process --url "https://www.youtube.com/playlist?list=..."
    ```
-   This downloads and caches transcripts in `~/.synapse-sync/transcript_cache/<video_id>.json`.
+   This downloads and caches transcripts in `~/.synapse-sync/transcript_cache/<video_id>.json` without using any LLM quota.
 
 2. **Extract Transcript Text:**
-   You can read the `text` fields from the JSON cache file, or use Python:
+   Extract the transcript text using a one-line Python command:
    ```bash
    python -c "import json; d=json.load(open('$HOME/.synapse-sync/transcript_cache/<video_id>.json')); print(' '.join(s['text'] for s in d['transcript']))" > /tmp/transcript.txt
    ```
 
-3. **Run Through Your Preferred LLM:**
-   Paste the System Prompt and User Prompt (with transcript text) into Claude, ChatGPT, or your local model.
+3. **Generate Notes via Web Chat or API:**
+   Paste the transcript into ChatGPT, Claude, or your local model using either the **Direct Markdown Prompt** (Option 1) or the **JSON Schema Prompt** (Option 2).
 
-4. **Save the Markdown Note:**
-   Save the `markdownNotes` content as a `.md` file in the playlist's notes directory:
+4. **Save the Markdown File:**
+   Save the note as a `.md` file in the playlist's `notes/` folder:
    ```bash
    ~/.synapse-sync/processed_notes/<playlist_title>/notes/<Lecture_Title>.md
    ```
 
 5. **Push to Google Drive & SynapseSync:**
-   Upload your manually generated or edited notes directly to Google Drive:
+   Upload your newly created or edited notes:
    ```bash
    python tools/youtube_cli/main.py push --notebook-dir ~/.synapse-sync/processed_notes/<playlist_title>
    ```
-   Once pushed, open the SynapseSync PWA and click **🔄 Sync from Google Drive** to enjoy full offline study, quizzes, and SRS cards!
+   The CLI automatically reads the markdown files in `notes/`, syncs them into `notes.json`, and uploads them to Google Drive!
+
+6. **Sync in SynapseSync PWA:**
+   Open SynapseSync in your browser and click **🔄 Sync from Google Drive**. All notes are loaded into your offline IndexedDB for instant reading, active recall quizzes, and SRS reviews.
 
 ---
 

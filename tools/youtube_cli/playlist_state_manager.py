@@ -34,6 +34,7 @@ class PlaylistStateManager:
     _KEY_COMPLETED_VIDEOS: ClassVar[str] = "completedVideos"
     _KEY_FAILED_VIDEOS: ClassVar[str] = "failedVideos"
     _KEY_CONTENT: ClassVar[str] = "content"
+    _KEY_WORD_COUNT: ClassVar[str] = "wordCount"
     _EXT_MD: ClassVar[str] = ".md"
     _ENCODING_UTF8: ClassVar[str] = "utf-8"
 
@@ -114,7 +115,8 @@ class PlaylistStateManager:
             if notes_file.is_file()
             else []
         )
-        return nb_data, notes_data
+        synced_notes = self._sync_markdown_files(playlist_dir, notes_data)
+        return nb_data, synced_notes
 
     def get_completed_ids(self, playlist_dir: Path) -> set[str]:
         """Return set of video IDs that have completed notes stored."""
@@ -216,6 +218,11 @@ class PlaylistStateManager:
         state = self.load_state(playlist_dir)
         vid_id = video_info.get(self._KEY_VIDEO_ID, note.get(self._KEY_VIDEO_ID, "unknown"))
         videos = state.setdefault(self._KEY_VIDEOS, {})
+        old_rec = videos.get(vid_id)
+        if old_rec and old_rec.get(self._KEY_MARKDOWN_PATH):
+            old_p = Path(old_rec[self._KEY_MARKDOWN_PATH])
+            if old_p != md_path and old_p.is_file():
+                old_p.unlink()
         videos[vid_id] = {
             self._KEY_VIDEO_ID: vid_id,
             self._KEY_TITLE: note.get(self._KEY_TITLE, video_info.get(self._KEY_TITLE, "")),
@@ -262,3 +269,58 @@ class PlaylistStateManager:
     def _sanitize_filename(self, name: str) -> str:
         """Replace non-alphanumeric characters with underscore to form safe filenames."""
         return "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in name)
+
+    def _sync_markdown_files(
+        self, playlist_dir: Path, notes: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Synchronize markdown note files from notes subdirectory into notes data."""
+        notes_dir = playlist_dir / self._DIR_NOTES_MD
+        if not notes_dir.is_dir():
+            return notes
+        changed = False
+        by_title = {n.get(self._KEY_TITLE): n for n in notes if n.get(self._KEY_TITLE)}
+        for md_path in sorted(notes_dir.glob(f"*{self._EXT_MD}")):
+            raw_text = md_path.read_text(encoding=self._ENCODING_UTF8)
+            title, body = self._extract_title_and_body(md_path, raw_text)
+            existing = by_title.get(title)
+            if existing is not None:
+                if existing.get(self._KEY_CONTENT) != body:
+                    existing[self._KEY_CONTENT] = body
+                    existing[self._KEY_WORD_COUNT] = len(body.split())
+                    changed = True
+            else:
+                new_n = self._build_manual_note(title, body)
+                notes.append(new_n)
+                by_title[title] = new_n
+                changed = True
+        if changed:
+            self._write_json(playlist_dir / self._FILE_NOTES, notes)
+        return notes
+
+    def _extract_title_and_body(self, path: Path, text: str) -> tuple[str, str]:
+        """Extract title from markdown h1 header or filename, returning stripped body."""
+        lines = [line.rstrip() for line in text.splitlines()]
+        title = path.stem.replace("_", " ")
+        start_idx = 0
+        if lines and lines[0].startswith("# "):
+            title = lines[0][2:].strip()
+            start_idx = 1
+        while start_idx < len(lines) and not lines[start_idx].strip():
+            start_idx += 1
+        if start_idx < len(lines) and lines[start_idx].startswith("**Source**:"):
+            start_idx += 1
+        while start_idx < len(lines) and not lines[start_idx].strip():
+            start_idx += 1
+        body = "\n".join(lines[start_idx:]).strip()
+        return title, body
+
+    def _build_manual_note(self, title: str, body: str) -> dict[str, Any]:
+        """Construct dictionary for manually created markdown note."""
+        return {
+            "id": f"note_{self._sanitize_filename(title)}",
+            "title": title,
+            "content": body,
+            "contentFormat": "markdown",
+            "sourceType": "manual",
+            "wordCount": len(body.split()),
+        }
