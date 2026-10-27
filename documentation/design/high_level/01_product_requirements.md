@@ -64,14 +64,15 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 
 | ID    | Requirement                                                                                     | Priority |
 |:------|:------------------------------------------------------------------------------------------------|:---------|
-| QZ-01 | Generate 5 MCQs + 5 flashcards from a note's text using Gemini structured output (JSON schema) | P0       |
-| QZ-02 | User can regenerate quizzes on demand (re-roll)                                                 | P1       |
+| QZ-01 | Generate 5 scenario-based tricky MCQs (real-life practical scenarios with plausible distractors) + 5 flashcards from note text using Gemini structured output | P0 |
+| QZ-02 | User can regenerate quizzes on demand (re-roll) with deduplication context ensuring newly generated questions/flashcards do not duplicate previous sets | P1 |
 | QZ-03 | User can manually create / edit / delete flashcards and MCQs                                    | P1       |
 | QZ-04 | MCQ interface: show question → 4 options → immediate feedback with explanation                  | P0       |
 | QZ-05 | Flashcard interface: show front → tap to reveal back → self-rate recall quality (0-5)           | P0       |
 | QZ-06 | Delete individual irrelevant or incorrect MCQ questions and flashcards with cascading SRS deletion | P1 |
 | QZ-07 | One-click clipboard copy for individual MCQs (with options, answer, explanation) and flashcards (front/back) | P1 |
 | QZ-08 | Google Drive quiz bundle sync: card deletions update remote `quiz_<quizId>.json` and prune removed cards on pull | P0 |
+| QZ-09 | Multi-key Gemini API fallback: automatic rotation to backup key(s) (`GEMINI_API_KEY_BACKUP`) on 4xx request limit or quota exhaustion errors | P0 |
 
 ### 3.4 Spaced Repetition System (SM-2)
 

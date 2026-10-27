@@ -201,7 +201,7 @@ graph TD
 |:----------------------|:----------|:-------|:-------------------------------------------------|:--------------------------------|:--------|:---------|
 | `/api/parse-docx`     | Python    | POST   | `.docx` file (multipart)                         | `{ text: string }`             | No      | ~5s      |
 | `/api/youtube-notes`  | Python    | POST   | `{ notebook, notes[] }` (legacy compatibility)   | `{ notebookId, noteIds[] }`    | No      | ~10s     |
-| `/api/generate-quiz`  | Python    | POST   | `{ text: string }`                               | `{ mcqs: [], flashcards: [] }` | Yes     | ~20s     |
+| `/api/generate-quiz`  | Python    | POST   | `{ text, difficulty?, mcqCount?, flashcardCount?, previousContext? }` | `{ mcqs: [scenario], flashcards: [] }` | Yes (multi-key failover) | ~20s |
 | `/api/summarize`      | Python    | POST   | `{ text: string }`                               | `{ notes: string }`            | Yes     | ~15s     |
 | `/api/chat`           | Python    | POST   | `{ context, question, history }`                 | `{ answer: string }`           | Yes     | ~10s     |
 

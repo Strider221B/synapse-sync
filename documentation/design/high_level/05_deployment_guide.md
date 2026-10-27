@@ -151,6 +151,7 @@ vercel link
 
 # 4. Set environment variables
 vercel env add GEMINI_API_KEY production
+vercel env add GEMINI_API_KEY_BACKUP production
 vercel env add NEXT_PUBLIC_GOOGLE_CLIENT_ID production
 vercel env add NEXT_PUBLIC_GOOGLE_REDIRECT_URI production
 vercel env add NEXT_PUBLIC_API_URL production
@@ -161,7 +162,8 @@ vercel env add YOUTUBE_NOTES_API_KEY production
 
 | Variable                          | Value (Production)                           | Value (Development)                |
 |:----------------------------------|:---------------------------------------------|:-----------------------------------|
-| `GEMINI_API_KEY`                 | `AIza...` (from Google AI Studio)            | Same                               |
+| `GEMINI_API_KEY`                 | `AIza...` (Primary from Google AI Studio)    | Same                               |
+| `GEMINI_API_KEY_BACKUP`          | `AIza...` (Fallback key for 4xx limit failover)| Optional / Same                   |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID`    | `xxxx.apps.googleusercontent.com`            | Same                               |
 | `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` | `https://synapse-sync.vercel.app`            | `http://localhost:3000`            |
 | `NEXT_PUBLIC_API_URL`           | `https://synapse-sync.vercel.app`            | `http://localhost:3000`            |
@@ -252,6 +254,7 @@ vercel dev
 ```bash
 # .env.local
 GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_API_KEY_BACKUP=your_backup_gemini_api_key_here
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id_here
 NEXT_PUBLIC_GOOGLE_REDIRECT_URI=http://localhost:3000
 NEXT_PUBLIC_API_URL=http://localhost:3000
