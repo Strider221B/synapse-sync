@@ -20,6 +20,8 @@ class Config:
 
     _ENV_GEMINI_MODEL: ClassVar[str] = "GEMINI_MODEL"
     _ENV_GEMINI_KEY: ClassVar[str] = "GEMINI_API_KEY"
+    _ENV_GEMINI_BACKUP_KEY: ClassVar[str] = "GEMINI_API_KEY_BACKUP"
+    _ENV_GEMINI_BACKUP_PREFIX: ClassVar[str] = "GEMINI_API_KEY_BACKUP_"
     _ENV_API_KEY: ClassVar[str] = "YOUTUBE_NOTES_API_KEY"
     _ENV_SERVER_URL: ClassVar[str] = "SYNAPSE_SERVER_URL"
     _ENV_DRIVE_TOKEN: ClassVar[str] = "GOOGLE_DRIVE_ACCESS_TOKEN"
@@ -28,6 +30,9 @@ class Config:
     _THROTTLE_SPEED_HIGH: ClassVar[str] = "high"
     _THROTTLE_DELAY_HIGH: ClassVar[float] = 4.0
     _THROTTLE_DELAY_LOW: ClassVar[float] = 0.0
+    _FALLBACK_DEFAULT_ORDER: ClassVar[int] = 999
+    _DELIMITER_COMMA: ClassVar[str] = ","
+    _DELIMITER_SEMICOLON: ClassVar[str] = ";"
 
     def __init__(self) -> None:
         """Initialize configuration properties from environment variables with fallbacks."""
@@ -42,6 +47,35 @@ class Config:
     def get_default_model(cls) -> str:
         """Return configured default Gemini model name from environment or fallback."""
         return os.getenv(cls._ENV_GEMINI_MODEL) or cls._DEFAULT_MODEL_NAME
+
+    @classmethod
+    def get_backup_api_keys(cls) -> list[str]:
+        """Return configured backup Gemini API keys from environment variables."""
+        keys: list[str] = []
+        primary = os.getenv(cls._ENV_GEMINI_KEY)
+        cls._append_primary_backup_env(keys, primary)
+        cls._append_numbered_backup_envs(keys, primary)
+        return keys
+
+    @classmethod
+    def get_all_gemini_api_keys(cls) -> list[str]:
+        """Return primary and backup Gemini API keys in order of priority."""
+        keys: list[str] = []
+        primary = os.getenv(cls._ENV_GEMINI_KEY)
+        if primary and primary.strip():
+            keys.append(primary.strip())
+        for backup_key in cls.get_backup_api_keys():
+            if backup_key not in keys:
+                keys.append(backup_key)
+        return keys
+
+    def get_all_api_keys(self) -> list[str]:
+        """Return all active and backup Gemini API keys."""
+        return self.get_all_gemini_api_keys()
+
+    def get_gemini_backup_api_keys(self) -> list[str]:
+        """Return backup Gemini API keys."""
+        return self.get_backup_api_keys()
 
     def get_drive_token(self) -> str | None:
         """Return the Google Drive OAuth access token from environment."""
@@ -93,3 +127,29 @@ class Config:
     def get_language(self) -> str:
         """Return preferred transcript language code."""
         return self._language
+
+    @classmethod
+    def _append_primary_backup_env(cls, keys: list[str], primary: str | None) -> None:
+        """Parse GEMINI_API_KEY_BACKUP for single or delimited fallback keys."""
+        raw_backup = os.getenv(cls._ENV_GEMINI_BACKUP_KEY)
+        if not raw_backup:
+            return
+        sanitized = raw_backup.replace(cls._DELIMITER_SEMICOLON, cls._DELIMITER_COMMA)
+        for part in sanitized.split(cls._DELIMITER_COMMA):
+            clean = part.strip()
+            if clean and clean != primary and clean not in keys:
+                keys.append(clean)
+
+    @classmethod
+    def _append_numbered_backup_envs(cls, keys: list[str], primary: str | None) -> None:
+        """Find and append numbered fallback environment variables in sorted order."""
+        numbered: list[tuple[int, str]] = []
+        for name, val in os.environ.items():
+            if name.startswith(cls._ENV_GEMINI_BACKUP_PREFIX):
+                suffix = name[len(cls._ENV_GEMINI_BACKUP_PREFIX) :]
+                order = int(suffix) if suffix.isdigit() else cls._FALLBACK_DEFAULT_ORDER
+                numbered.append((order, val.strip()))
+        numbered.sort(key=lambda item: item[0])
+        for _, key_val in numbered:
+            if key_val and key_val != primary and key_val not in keys:
+                keys.append(key_val)

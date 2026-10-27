@@ -199,6 +199,9 @@ function QuizContent({ params }: QuizPageProps) {
       const throttleSpeed = (await prefs.get<string>('throttleSpeed')) || 'low';
       const delayMs = throttleSpeed === 'high' ? 4000 : 0;
 
+      const existingQuestions = mcqCards.map((c) => c.question);
+      const existingFlashcards = flashcards.map((f) => f.front);
+
       if (words.length <= CHUNK_WORDS) {
         setRerollProgress({ currentChunk: 1, totalChunks: 1, mcqCount: 0, flashcardCount: 0, throttleSpeed });
         const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
@@ -207,6 +210,10 @@ function QuizContent({ params }: QuizPageProps) {
           mcqCount: 5,
           flashcardCount: 5,
           throttleSpeed,
+          previousContext: {
+            questions: existingQuestions,
+            flashcards: existingFlashcards,
+          },
         });
         allMCQs = response.mcqs;
         allFlashcards = response.flashcards;
@@ -228,12 +235,17 @@ function QuizContent({ params }: QuizPageProps) {
             flashcardCount: allFlashcards.length,
             throttleSpeed,
           });
+          const chunkContext = {
+            questions: [...existingQuestions, ...allMCQs.map((q) => q.question)],
+            flashcards: [...existingFlashcards, ...allFlashcards.map((f) => f.front)],
+          };
           const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
             text: chunks[idx],
             difficulty: 'medium',
             mcqCount: 5,
             flashcardCount: 5,
             throttleSpeed,
+            previousContext: chunkContext,
           });
           allMCQs.push(...response.mcqs);
           allFlashcards.push(...response.flashcards);

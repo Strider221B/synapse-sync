@@ -9,17 +9,23 @@ from typing import Any, ClassVar
 from google import genai
 from google.genai import types
 
+from tools.youtube_cli.config import Config
+
 
 class GeminiService:
     """Provides resilient Gemini model invocation with exponential backoff on rate limits."""
 
     _ENV_API_KEY: ClassVar[str] = "GEMINI_API_KEY"
+    _ENV_BACKUP_KEY: ClassVar[str] = "GEMINI_API_KEY_BACKUP"
     _DEFAULT_DELAY_SECONDS: ClassVar[float] = 4.0
     _INITIAL_BACKOFF_SECONDS: ClassVar[float] = 2.0
     _BACKOFF_FACTOR: ClassVar[float] = 2.0
     _RATE_LIMIT_MARKER_429: ClassVar[str] = "429"
     _RATE_LIMIT_MARKER_RESOURCE: ClassVar[str] = "resourceexhausted"
     _RATE_LIMIT_MARKER_QUOTA: ClassVar[str] = "quota"
+    _RATE_LIMIT_MARKER_LIMIT: ClassVar[str] = "rate limit"
+    _RATE_LIMIT_MARKER_REQUEST_LIMIT: ClassVar[str] = "request limit"
+    _ERR_MARKER_403: ClassVar[str] = "403"
     _ERR_MARKER_500: ClassVar[str] = "500"
     _ERR_MARKER_502: ClassVar[str] = "502"
     _ERR_MARKER_503: ClassVar[str] = "503"
@@ -43,23 +49,27 @@ class GeminiService:
         delay_seconds: float = _DEFAULT_DELAY_SECONDS,
         client: Any = None,
         genai_module: Any = None,
+        fallback_api_keys: list[str] | None = None,
     ) -> None:
-        """Initialize the GeminiService with optional API key, delay, and API client."""
-        self._api_key = api_key or os.getenv(self._ENV_API_KEY)
+        """Initialize the GeminiService with optional API keys, delay, and API client."""
         self._delay_seconds = delay_seconds
         self._client = client if client is not None else genai_module
         self._last_call_timestamp: float = 0.0
+        self._active_key_index: int = 0
+        self._api_keys = self._resolve_api_keys(api_key, fallback_api_keys)
+        self._api_key: str | None = (
+            self._api_keys[0] if self._api_keys else (api_key or os.getenv(self._ENV_API_KEY))
+        )
 
     def configure(self) -> Any:
         """Configure the underlying Gemini client with the active API key."""
-        if not self._api_key:
-            self._api_key = os.getenv(self._ENV_API_KEY)
-        if not self._api_key:
+        active_key = self.get_active_api_key()
+        if not active_key:
             raise ValueError(self._ERR_MISSING_API_KEY)
         if self._client is None:
-            self._client = genai.Client(api_key=self._api_key)
+            self._client = genai.Client(api_key=active_key)
         elif hasattr(self._client, "configure"):
-            self._client.configure(api_key=self._api_key)
+            self._client.configure(api_key=active_key)
         return self._client
 
     def call_with_retry(
@@ -70,25 +80,46 @@ class GeminiService:
         max_retries: int = 3,
         on_retry: Any = None,
     ) -> Any:
-        """Call Gemini model with rate-limit delay and exponential backoff retry."""
-        client = self.configure()
-        self._throttle_requests()
-        backoff = self._INITIAL_BACKOFF_SECONDS
-
-        for attempt in range(max_retries + 1):
+        """Call Gemini model with rate-limit delay, fallback failover, and retry."""
+        while True:
+            client = self.configure()
+            self._throttle_requests()
             try:
-                response = self._generate_content(client, model_name, prompt, config)
-                self._last_call_timestamp = time.time()
-                return response
+                return self._execute_call_loop(
+                    client, model_name, prompt, config, max_retries, on_retry
+                )
             except Exception as err:
-                if attempt >= max_retries or not self._is_retryable_error(err):
-                    raise
-                if on_retry is not None and callable(on_retry):
-                    on_retry(attempt + 1, err, backoff)
-                time.sleep(backoff)
-                backoff *= self._BACKOFF_FACTOR
+                if self._is_request_limit_error(err) and self.has_next_fallback_key():
+                    self.switch_to_next_fallback_key()
+                    continue
+                raise
 
-        raise RuntimeError(self._ERR_MAX_RETRIES)
+    def get_active_api_key(self) -> str | None:
+        """Return currently active Gemini API key."""
+        if self._api_keys and 0 <= self._active_key_index < len(self._api_keys):
+            return self._api_keys[self._active_key_index]
+        return self._api_key or os.getenv(self._ENV_API_KEY)
+
+    def get_api_keys(self) -> list[str]:
+        """Return all configured Gemini API keys (primary + fallbacks)."""
+        return list(self._api_keys)
+
+    def has_next_fallback_key(self) -> bool:
+        """Return True if a fallback key is available after the active key."""
+        return self._active_key_index < len(self._api_keys) - 1
+
+    def switch_to_next_fallback_key(self) -> str | None:
+        """Advance to the next fallback API key and reconfigure the client."""
+        if not self.has_next_fallback_key():
+            return None
+        self._active_key_index += 1
+        new_key = self._api_keys[self._active_key_index]
+        self._api_key = new_key
+        if self._client is not None and hasattr(self._client, "configure"):
+            self._client.configure(api_key=new_key)
+        else:
+            self._client = genai.Client(api_key=new_key)
+        return new_key
 
     def _build_generate_content_config(self, config: Any) -> types.GenerateContentConfig:
         """Construct GenerateContentConfig with AFC disabled by default to suppress warnings."""
@@ -104,6 +135,33 @@ class GeminiService:
                 disable=True
             )
         return gen_config
+
+    def _execute_call_loop(
+        self,
+        client: Any,
+        model_name: str,
+        prompt: str | list[Any],
+        config: Any,
+        max_retries: int,
+        on_retry: Any,
+    ) -> Any:
+        """Execute model call with exponential backoff on retryable errors."""
+        backoff = self._INITIAL_BACKOFF_SECONDS
+        for attempt in range(max_retries + 1):
+            try:
+                response = self._generate_content(client, model_name, prompt, config)
+                self._last_call_timestamp = time.time()
+                return response
+            except Exception as err:
+                if self._is_request_limit_error(err) and self.has_next_fallback_key():
+                    raise
+                if attempt >= max_retries or not self._is_retryable_error(err):
+                    raise
+                if on_retry is not None and callable(on_retry):
+                    on_retry(attempt + 1, err, backoff)
+                time.sleep(backoff)
+                backoff *= self._BACKOFF_FACTOR
+        raise RuntimeError(self._ERR_MAX_RETRIES)
 
     def _generate_content(
         self, client: Any, model_name: str, prompt: str | list[Any], config: Any
@@ -137,6 +195,25 @@ class GeminiService:
             or self._RATE_LIMIT_MARKER_QUOTA in error_msg
         )
 
+    def _is_request_limit_error(self, err: Exception) -> bool:
+        """Determine if an exception represents a 4xx request limit or quota error."""
+        code = getattr(err, "code", None) or getattr(err, "status_code", None)
+        if code == 429:
+            return True
+        error_msg = str(err).lower()
+        if (
+            self._RATE_LIMIT_MARKER_429 in error_msg
+            or self._RATE_LIMIT_MARKER_RESOURCE in error_msg
+            or self._RATE_LIMIT_MARKER_QUOTA in error_msg
+            or self._RATE_LIMIT_MARKER_LIMIT in error_msg
+            or self._RATE_LIMIT_MARKER_REQUEST_LIMIT in error_msg
+            or self._ERR_MARKER_PER_DAY in error_msg
+            or self._ERR_MARKER_FREE_TIER in error_msg
+            or self._ERR_MARKER_DAILY in error_msg
+        ):
+            return True
+        return self._ERR_MARKER_403 in error_msg and "quota" in error_msg
+
     def _is_retryable_error(self, err: Exception) -> bool:
         """Determine if exception is safe to auto-retry (transient 5xx or rate limit)."""
         if self._is_daily_quota_error(err):
@@ -156,6 +233,26 @@ class GeminiService:
             or self._ERR_MARKER_SERVER_ERROR in error_msg
             or self._ERR_MARKER_OVERLOADED in error_msg
         )
+
+    def _resolve_api_keys(
+        self, api_key: str | None, fallback_keys: list[str] | None
+    ) -> list[str]:
+        """Compile ordered deduplicated list of active and fallback API keys."""
+        if fallback_keys is not None:
+            primary = api_key or os.getenv(self._ENV_API_KEY)
+            candidates = ([primary] if primary else []) + fallback_keys
+        elif api_key is not None:
+            candidates = [api_key] + Config.get_backup_api_keys()
+        else:
+            candidates = Config.get_all_gemini_api_keys()
+        seen: set[str] = set()
+        resolved: list[str] = []
+        for candidate in candidates:
+            clean = candidate.strip() if candidate else ""
+            if clean and clean not in seen:
+                seen.add(clean)
+                resolved.append(clean)
+        return resolved
 
     def _throttle_requests(self) -> None:
         """Sleep if required to preserve configured inter-request delay interval."""

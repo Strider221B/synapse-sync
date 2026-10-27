@@ -50,14 +50,23 @@ class GenerateQuiz(BaseHTTPRequestHandler):
 
     _SYSTEM_PROMPT: ClassVar[str] = (
         "You are an expert educational content creator. Generate quiz questions "
-        "and flashcards that test deep understanding, not just surface-level recall.\n\n"
-        "Rules:\n"
-        "- MCQ questions should have exactly 4 options with one correct answer\n"
+        "and flashcards that test deep understanding and practical application, "
+        "not just surface-level recall.\n\n"
+        "Rules for Multiple Choice Questions (MCQs):\n"
+        "- EVERY MCQ question MUST be scenario-based: present a concrete, realistic real-life "
+        "scenario or case study where the concept would be useful or applied in practice.\n"
+        "- Make the MCQs tricky: design plausible, tricky distractors that target subtle "
+        "misconceptions, edge cases, and common pitfalls. Avoid simple or obvious choices.\n"
+        "- Each MCQ must have exactly 4 options with one unambiguously correct answer.\n"
+        "- Explanations must clearly justify why the correct option is the best choice in that "
+        "scenario and explain why the tricky distractors are incorrect, referencing specific "
+        "concepts from the text.\n\n"
+        "Rules for Flashcards:\n"
         "- Flashcard fronts should be open-ended questions that require active recall\n"
-        "- Flashcard backs should be concise but complete answers\n"
+        "- Flashcard backs should be concise but complete answers\n\n"
+        "General Rules:\n"
         "- All content must be based STRICTLY on the provided text — "
         "do not add external knowledge\n"
-        "- Explanations should reference specific concepts from the text\n"
         "- Difficulty: {difficulty}"
     )
 
@@ -106,24 +115,9 @@ class GenerateQuiz(BaseHTTPRequestHandler):
             )
             return
 
-        difficulty = self._sanitize_difficulty(body_dict.get("difficulty"))
-        mcq_count = self._clamp_count(body_dict.get("mcqCount", self._DEFAULT_COUNT))
-        flash_count = self._clamp_count(body_dict.get("flashcardCount", self._DEFAULT_COUNT))
-        chunk_size = self._sanitize_chunk_size(body_dict.get("chunkSize"))
-        throttle_speed = self._sanitize_throttle_speed(body_dict.get("throttleSpeed"))
-        delay_sec = (
-            self._THROTTLE_DELAY_HIGH if throttle_speed == "high" else self._THROTTLE_DELAY_LOW
-        )
-
+        args, kwargs = self._extract_post_params(body_dict)
         try:
-            result = self.generate_quiz(
-                text,
-                difficulty,
-                mcq_count,
-                flash_count,
-                chunk_size=chunk_size,
-                delay_seconds=delay_sec,
-            )
+            result = self.generate_quiz(text, *args, **kwargs)
             self._send_json(self._HTTP_OK, result)
         except Exception as err:
             self._handle_generation_error(err)
@@ -138,6 +132,7 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         model_name: str | None = None,
         chunk_size: int = _DEFAULT_CHUNK_WORDS,
         delay_seconds: float = _THROTTLE_DELAY_LOW,
+        previous_context: Any = None,
     ) -> dict[str, Any]:
         """Generate structured MCQs and flashcards with chunking for large texts."""
         active_model = model_name or Config.get_default_model()
@@ -145,11 +140,26 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         words = text.split()
         if len(words) <= chunk_size:
             return self._generate_single_chunk(
-                text, difficulty, mcq_count, flashcard_count, gemini_svc, active_model
+                text, difficulty, mcq_count, flashcard_count, gemini_svc, active_model,
+                previous_context=previous_context,
             )
         return self._generate_chunked(
-            words, difficulty, mcq_count, flashcard_count, gemini_svc, active_model, chunk_size
+            words, difficulty, mcq_count, flashcard_count, gemini_svc, active_model, chunk_size,
+            previous_context=previous_context,
         )
+
+    def _accumulate_chunk_items(
+        self, accumulated: list[str], chunk_result: dict[str, Any]
+    ) -> None:
+        """Collect newly generated questions and flashcard fronts into the exclusion pool."""
+        for mcq in chunk_result.get("mcqs", []):
+            q_text = str(mcq.get("question", "")).strip()
+            if q_text and q_text not in accumulated:
+                accumulated.append(q_text)
+        for flash in chunk_result.get("flashcards", []):
+            f_front = str(flash.get("front", "")).strip()
+            if f_front and f_front not in accumulated:
+                accumulated.append(f_front)
 
     def _build_generation_config(self) -> types.GenerateContentConfig:
         """Construct GenerateContentConfig enforcing structured JSON schema output."""
@@ -160,15 +170,25 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         )
 
     def _build_prompt(
-        self, text: str, diff: str, mcqs: int, flashcards: int, part_info: str = ""
+        self,
+        text: str,
+        diff: str,
+        mcqs: int,
+        flashcards: int,
+        part_info: str = "",
+        previous_context: Any = None,
     ) -> str:
         """Format the system and user prompt with parameter substitutions."""
         header = self._SYSTEM_PROMPT.format(difficulty=diff)
         instructions = (
-            f"Generate exactly {mcqs} multiple-choice questions and {flashcards} "
-            f"active recall flashcards based strictly on the following text{part_info}:\n\n"
+            f"Generate exactly {mcqs} scenario-based tricky multiple-choice questions "
+            f"and {flashcards} active recall flashcards based strictly on the "
+            f"following text{part_info}:\n\n"
             f"---\n{text}\n---"
         )
+        context_block = self._format_previous_context(previous_context)
+        if context_block:
+            return f"{header}\n\n{context_block}\n\n{instructions}"
         return f"{header}\n\n{instructions}"
 
     def _chunk_words(self, words: list[str], chunk_size: int) -> list[list[str]]:
@@ -208,6 +228,65 @@ class GenerateQuiz(BaseHTTPRequestHandler):
             },
         }
 
+    def _extract_context_items(self, context_data: Any) -> list[str]:
+        """Normalize various context representations into a list of prompt strings."""
+        if not context_data:
+            return []
+        if isinstance(context_data, list):
+            return [str(x).strip() for x in context_data if str(x).strip()]
+        if isinstance(context_data, dict):
+            items: list[str] = []
+            for key in ("questions", "mcqs", "flashcards"):
+                val = context_data.get(key)
+                if isinstance(val, list):
+                    items.extend([str(x).strip() for x in val if str(x).strip()])
+            return items
+        if isinstance(context_data, str) and context_data.strip():
+            return [context_data.strip()]
+        return []
+
+    def _extract_post_params(
+        self, body_dict: dict[str, Any]
+    ) -> tuple[tuple[str, int, int], dict[str, Any]]:
+        """Extract and sanitize quiz generation parameters from request body."""
+        difficulty = self._sanitize_difficulty(body_dict.get("difficulty"))
+        mcq_count = self._clamp_count(body_dict.get("mcqCount", self._DEFAULT_COUNT))
+        flash_count = self._clamp_count(body_dict.get("flashcardCount", self._DEFAULT_COUNT))
+        chunk_size = self._sanitize_chunk_size(body_dict.get("chunkSize"))
+        throttle_speed = self._sanitize_throttle_speed(body_dict.get("throttleSpeed"))
+        delay_sec = (
+            self._THROTTLE_DELAY_HIGH if throttle_speed == "high" else self._THROTTLE_DELAY_LOW
+        )
+        prev_ctx = (
+            body_dict.get("previousContext")
+            or body_dict.get("context")
+            or body_dict.get("previous_context")
+        )
+        kwargs: dict[str, Any] = {
+            "chunk_size": chunk_size,
+            "delay_seconds": delay_sec,
+        }
+        if prev_ctx:
+            kwargs["previous_context"] = prev_ctx
+        return (difficulty, mcq_count, flash_count), kwargs
+
+    def _format_previous_context(self, prev_context: Any) -> str:
+        """Format previous questions/flashcards into a prompt constraint section."""
+        items = self._extract_context_items(prev_context)
+        if not items:
+            return ""
+        lines = [
+            "Previous Questions and Flashcards to AVOID "
+            "(Do NOT duplicate, repeat, or rephrase these):"
+        ]
+        for itm in items[:30]:
+            lines.append(f"- {itm}")
+        lines.append(
+            "Ensure all newly generated questions and flashcards explore DIFFERENT concepts, "
+            "different real-life scenarios, and different aspects of the text."
+        )
+        return "\n".join(lines)
+
     def _generate_chunked(
         self,
         words: list[str],
@@ -217,10 +296,12 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         gemini_svc: GeminiService,
         active_model: str,
         chunk_size: int,
+        previous_context: Any = None,
     ) -> dict[str, Any]:
         """Split text into segments, generate quiz items per chunk, and merge."""
         chunks = self._chunk_words(words, chunk_size)
         results: list[dict[str, Any]] = []
+        accumulated = self._extract_context_items(previous_context)
         for idx, chunk in enumerate(chunks):
             part_info = f" (Part {idx + 1} of {len(chunks)})"
             chunk_text = " ".join(chunk)
@@ -231,9 +312,11 @@ class GenerateQuiz(BaseHTTPRequestHandler):
                 flashcard_count,
                 gemini_svc,
                 active_model,
-                part_info,
+                part_info=part_info,
+                previous_context=accumulated,
             )
             results.append(res)
+            self._accumulate_chunk_items(accumulated, res)
         return self._combine_quiz_results(results, active_model)
 
     def _generate_single_chunk(
@@ -245,9 +328,12 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         gemini_svc: GeminiService,
         active_model: str,
         part_info: str = "",
+        previous_context: Any = None,
     ) -> dict[str, Any]:
         """Generate quiz payload for a single chunk of text."""
-        prompt = self._build_prompt(text, difficulty, mcq_count, flashcard_count, part_info)
+        prompt = self._build_prompt(
+            text, difficulty, mcq_count, flashcard_count, part_info, previous_context
+        )
         config = self._build_generation_config()
         response = gemini_svc.call_with_retry(
             model_name=active_model,

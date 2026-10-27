@@ -283,6 +283,70 @@ class TestGenerateQuiz:
         assert content_config.automatic_function_calling is not None
         assert content_config.automatic_function_calling.disable is True
 
+    def test_build_prompt_includes_scenario_based_rules(self) -> None:
+        """Verify _build_prompt instructs model on scenario-based tricky questions."""
+        handler = self._create_handler()
+        prompt = handler._build_prompt("Sample topic text.", "hard", 5, 5)
+        assert "EVERY MCQ question MUST be scenario-based" in prompt
+        assert "Make the MCQs tricky" in prompt
+        assert "Flashcard fronts should be open-ended questions" in prompt
+
+    def test_build_prompt_incorporates_previous_context(self) -> None:
+        """Verify _build_prompt includes previous items in the avoidance block."""
+        handler = self._create_handler()
+        ctx = {"questions": ["Scenario Q1", "Scenario Q2"], "flashcards": ["Front F1"]}
+        prompt = handler._build_prompt("Sample text.", "medium", 3, 3, previous_context=ctx)
+        assert "Previous Questions and Flashcards to AVOID" in prompt
+        assert "- Scenario Q1" in prompt
+        assert "- Scenario Q2" in prompt
+        assert "- Front F1" in prompt
+
+    def test_extract_context_items_from_various_formats(self) -> None:
+        """Verify _extract_context_items handles dicts, lists, and strings."""
+        handler = self._create_handler()
+        assert handler._extract_context_items(None) == []
+        assert handler._extract_context_items("Single question text") == ["Single question text"]
+        assert handler._extract_context_items(["Q1", "Q2"]) == ["Q1", "Q2"]
+        dict_data = {"questions": ["Q1"], "flashcards": ["F1"]}
+        assert handler._extract_context_items(dict_data) == ["Q1", "F1"]
+
+    def test_do_post_parses_previous_context(self) -> None:
+        """Verify do_POST extracts previousContext and forwards it to generate_quiz."""
+        payload = {
+            "text": self._SAMPLE_TEXT,
+            "previousContext": {"questions": ["Previous Q1"]},
+        }
+        handler = self._create_handler(payload)
+        with (
+            patch.object(handler, "generate_quiz") as mock_gen,
+            patch.object(handler, "send_response") as mock_resp,
+            patch.object(handler, "send_header"),
+            patch.object(handler, "end_headers"),
+        ):
+            mock_gen.return_value = {"mcqs": [], "flashcards": []}
+            handler.do_POST()
+            mock_resp.assert_called_once_with(self._HTTP_OK)
+            expected_ctx = {"questions": ["Previous Q1"]}
+            assert mock_gen.call_args.kwargs.get("previous_context") == expected_ctx
+
+    def test_generate_chunked_accumulates_items_across_chunks(self) -> None:
+        """Verify chunked generation passes accumulated items to subsequent chunks."""
+        handler = self._create_handler()
+        mock_svc = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.text = json.dumps(self._SAMPLE_QUIZ_PAYLOAD)
+        mock_resp.usage_metadata = MagicMock(prompt_token_count=10, candidates_token_count=10)
+        mock_svc.call_with_retry.return_value = mock_resp
+
+        result = handler.generate_quiz(
+            text="word " * 600,
+            service=mock_svc,
+            chunk_size=250,
+            previous_context=["Initial Q0"],
+        )
+        assert mock_svc.call_with_retry.call_count == 3
+        assert len(result["mcqs"]) == 3
+
     def _create_handler(self, body_data: dict[str, Any] | None = None) -> GenerateQuiz:
         """Construct mock GenerateQuiz instance with rfile, wfile, and headers."""
         instance = GenerateQuiz.__new__(GenerateQuiz)
