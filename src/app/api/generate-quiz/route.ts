@@ -33,7 +33,10 @@ export async function POST(req: NextRequest) {
       'chunk = body.get("chunkSize", 2500)',
       'throttle = body.get("throttleSpeed", "low")',
       'delay = 4.0 if throttle == "high" else 0.0',
-      'res = g.generate_quiz(text, diff, mcqs, flash, chunk_size=chunk, delay_seconds=delay)',
+      'ctx = body.get("previousContext") or body.get("context") or body.get("previous_context")',
+      'kwargs = {"chunk_size": chunk, "delay_seconds": delay}',
+      'if ctx: kwargs["previous_context"] = ctx',
+      'res = g.generate_quiz(text, diff, mcqs, flash, **kwargs)',
       'print(json.dumps(res))',
     ].join('; ');
 

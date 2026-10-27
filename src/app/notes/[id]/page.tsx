@@ -125,8 +125,21 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
 
       const dbService = new DatabaseService();
       const prefs = new PreferencesService(dbService);
+      const quizService = new QuizService(dbService);
       const throttleSpeed = (await prefs.get<string>('throttleSpeed')) || 'low';
       const delayMs = throttleSpeed === 'high' ? 4000 : 0;
+
+      let existingQuestions: string[] = [];
+      let existingFlashcards: string[] = [];
+      if (quizzes.length > 0) {
+        try {
+          const latest = await quizService.getQuizWithCards(quizzes[quizzes.length - 1].id);
+          existingQuestions = latest?.mcqCards.map((c) => c.question) || [];
+          existingFlashcards = latest?.flashcards.map((f) => f.front) || [];
+        } catch {
+          // Fall back gracefully to empty context
+        }
+      }
 
       if (words.length <= CHUNK_WORDS) {
         setGenerationProgress({ currentChunk: 1, totalChunks: 1, mcqCount: 0, flashcardCount: 0, throttleSpeed });
@@ -136,6 +149,10 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
           mcqCount: 5,
           flashcardCount: 5,
           throttleSpeed,
+          previousContext: {
+            questions: existingQuestions,
+            flashcards: existingFlashcards,
+          },
         });
         allMCQs = response.mcqs;
         allFlashcards = response.flashcards;
@@ -157,12 +174,17 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
             flashcardCount: allFlashcards.length,
             throttleSpeed,
           });
+          const chunkContext = {
+            questions: [...existingQuestions, ...allMCQs.map((q) => q.question)],
+            flashcards: [...existingFlashcards, ...allFlashcards.map((f) => f.front)],
+          };
           const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
             text: chunks[idx],
             difficulty: 'medium',
             mcqCount: 5,
             flashcardCount: 5,
             throttleSpeed,
+            previousContext: chunkContext,
           });
           allMCQs.push(...response.mcqs);
           allFlashcards.push(...response.flashcards);
@@ -183,7 +205,6 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
         tags: [note.title],
       }));
 
-      const quizService = new QuizService(dbService);
       const newQuiz = await quizService.create(
         note.id,
         formattedMCQs,

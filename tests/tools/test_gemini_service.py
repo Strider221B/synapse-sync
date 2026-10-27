@@ -168,4 +168,99 @@ class TestGeminiService:
         assert retry_events[0][0] == 1
         assert "503 UNAVAILABLE" in retry_events[0][1]
 
+    def test_call_with_retry_rotates_to_backup_key_on_429_request_limit(self) -> None:
+        """Verify service switches to fallback API key when primary key hits 429 limit."""
+        mock_client = MagicMock()
+        mock_response = MagicMock(text='{"result": "ok"}')
+        mock_client.models.generate_content.side_effect = [
+            Exception("429 RESOURCE_EXHAUSTED: request limit reached"),
+            mock_response,
+        ]
+
+        service = GeminiService(
+            api_key="primary-key",
+            delay_seconds=0.0,
+            client=mock_client,
+            fallback_api_keys=["backup-key-1"],
+        )
+        assert service.get_active_api_key() == "primary-key"
+        res = service.call_with_retry("gemini-test", "prompt")
+
+        assert res.text == '{"result": "ok"}'
+        assert service.get_active_api_key() == "backup-key-1"
+        assert mock_client.models.generate_content.call_count == 2
+
+    def test_call_with_retry_rotates_to_backup_key_on_daily_quota(self) -> None:
+        """Verify service rotates to backup key immediately when daily quota is reached."""
+        mock_client = MagicMock()
+        mock_response = MagicMock(text='{"result": "ok"}')
+        mock_client.models.generate_content.side_effect = [
+            Exception("429 ResourceExhausted: requests per day limit exceeded on free tier"),
+            mock_response,
+        ]
+
+        service = GeminiService(
+            api_key="primary",
+            delay_seconds=0.0,
+            client=mock_client,
+            fallback_api_keys=["backup-key"],
+        )
+        res = service.call_with_retry("gemini-test", "prompt")
+        assert res.text == '{"result": "ok"}'
+        assert service.get_active_api_key() == "backup-key"
+
+    def test_call_with_retry_rotates_through_multiple_fallback_keys(self) -> None:
+        """Verify service cascades through multiple backup keys until one succeeds."""
+        mock_client = MagicMock()
+        mock_response = MagicMock(text='{"result": "ok"}')
+        mock_client.models.generate_content.side_effect = [
+            Exception("429 rate limit exceeded"),
+            Exception("403 quota reached for project"),
+            mock_response,
+        ]
+
+        service = GeminiService(
+            api_key="key-0",
+            delay_seconds=0.0,
+            client=mock_client,
+            fallback_api_keys=["key-1", "key-2"],
+        )
+        res = service.call_with_retry("gemini-test", "prompt")
+        assert res.text == '{"result": "ok"}'
+        assert service.get_active_api_key() == "key-2"
+        assert mock_client.models.generate_content.call_count == 3
+
+    def test_call_with_retry_raises_when_all_fallback_keys_exhausted(self) -> None:
+        """Verify error is raised when primary and all fallback keys hit request limits."""
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = [
+            Exception("429 rate limit reached key 0"),
+            Exception("429 rate limit reached key 1"),
+        ]
+
+        service = GeminiService(
+            api_key="key-0",
+            delay_seconds=0.0,
+            client=mock_client,
+            fallback_api_keys=["key-1"],
+        )
+        with patch("time.sleep"):
+            with pytest.raises(Exception, match="429 rate limit reached key 1"):
+                service.call_with_retry("gemini-test", "prompt", max_retries=0)
+
+    def test_switch_to_next_fallback_key_lifecycle(self) -> None:
+        """Verify has_next_fallback_key and switch_to_next_fallback_key state changes."""
+        service = GeminiService(
+            api_key="k1",
+            fallback_api_keys=["k2", "k3"],
+            client=MagicMock(),
+        )
+        assert service.has_next_fallback_key() is True
+        assert service.switch_to_next_fallback_key() == "k2"
+        assert service.get_active_api_key() == "k2"
+        assert service.has_next_fallback_key() is True
+        assert service.switch_to_next_fallback_key() == "k3"
+        assert service.has_next_fallback_key() is False
+        assert service.switch_to_next_fallback_key() is None
+
 
