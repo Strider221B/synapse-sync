@@ -54,7 +54,8 @@ SynapseSync solves the study friction experienced by self-directed learners, stu
 - 📂 **Hierarchical Folders & Sub-Folders:** Group notes into nested folders and sub-folders with a collapsible tree sidebar, depth indentation, parent folder selection, and modal note moving. Folder parent-child hierarchies (`parentId`) persist in IndexedDB and sync seamlessly with Google Drive.
 - 💾 **Full Cloud State Persistence (`app_state.json`):** Persists complete learning state (daily review streak, yesterday's streak, cards due today, mastery counts, and preferences) directly to your personal Google Drive folder (`SynapseSync/`). Unauthenticated users see default zero metrics (`Daily Streak: 0`).
 - 🎬 **Local YouTube Lecture Processing:** Ingest entire multi-video playlists via a Python CLI tool using the modern `google-genai` SDK. Generates complete, structured Markdown notes for every lecture and uploads directly to Google Drive.
-- 🤖 **Structured AI Quizzing & Card Management:** One-click generation of 5 multiple-choice questions (with explanations) and 5 flashcards per note, using Gemini 3.8 Flash (`gemini-3.8-flash`) structured outputs. Irrelevant or incorrect questions/flashcards can be deleted directly with cascading removal of spaced repetition records.
+- 🤖 **Scenario-Based AI Quizzing & Deduplicated Re-rolls:** Generates 5 practical, real-life scenario-based MCQs (with tricky distractors testing common misconceptions and detailed explanations) and 5 active-recall flashcards per note, powered by Gemini 3.8 Flash structured outputs. Re-triggering generation automatically passes previously generated items as exclusion context to ensure fresh, non-overlapping questions. Irrelevant questions/flashcards can be deleted directly with cascading removal of spaced repetition records.
+- 🛡️ **Resilient Gemini API Multi-Key Failover:** Configured with primary (`GEMINI_API_KEY`) and fallback keys (`GEMINI_API_KEY_BACKUP`, `GEMINI_API_KEY_BACKUP_<N>`). When a 4xx error or request limit / quota exhaustion is encountered, the service automatically rotates to the next available backup key and retries seamlessly without user disruption.
 - 📋 **One-Click Clipboard Export:** Copy open notes, individual MCQs (complete with question, options, correct answer, and explanation), individual flashcards (prompt and answer), or full quiz sets directly to the clipboard.
 - 🧠 **SuperMemo SM-2 Spaced Repetition:** Scientifically schedules daily card reviews based on your recall quality (ratings 0–5), with an interactive review queue, today's streak, and yesterday's streak tracking.
 - 💬 **Context-Aware Study Chat:** Scoped AI assistant for every note with specialized modes (*Default*, *ELI5 / Explain to a 5-Year-Old*, and *Quiz Me*). Conversations persist locally in IndexedDB and synchronize note-by-note to Google Drive (`SynapseSync/chats/chat_<noteId>.json`), keeping files lightweight and isolated.
@@ -206,6 +207,9 @@ Populate the required secrets:
 # Gemini API Key (Required for AI quizzing, chat, and note generation)
 GEMINI_API_KEY=<YOUR_GEMINI_API_KEY>
 
+# Optional Gemini Fallback Key(s) (Auto-failover on 4xx rate limits; supports comma-separated or GEMINI_API_KEY_BACKUP_<N>)
+GEMINI_API_KEY_BACKUP=<YOUR_BACKUP_GEMINI_API_KEY>
+
 # Shared Secret for Local CLI -> Server API Push
 YOUTUBE_NOTES_API_KEY=local-dev-secret-key-12345
 
@@ -304,8 +308,8 @@ python -m tools.youtube_cli.main process --url "https://www.youtube.com/playlist
 ### Quiz & Flashcard Generation
 1. Open any lecture or document note in the **Note Reader** (`/notes/[id]`).
 2. Click **Generate Quiz**.
-3. Gemini 3.8 Flash processes the note text and returns 5 multiple-choice questions (with explanations) and 5 flashcards.
-4. Quizzes are stored in IndexedDB and can be retaken at any time.
+3. Gemini 3.8 Flash processes the note text and returns 5 scenario-based multiple-choice questions (testing real-world application with tricky distractors and detailed rationales) and 5 active recall flashcards.
+4. Quizzes are stored in IndexedDB and can be retaken at any time. Clicking **Generate New Quiz (Re-roll)** automatically supplies previous questions as exclusion context so you get fresh, non-overlapping questions.
 
 ### Spaced Repetition System (SM-2)
 1. Navigate to the **Review** tab (`/review`).

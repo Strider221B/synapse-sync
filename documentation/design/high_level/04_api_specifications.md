@@ -202,7 +202,11 @@ Sends note text to Google Gemini and receives structured MCQs and flashcards. Us
   "text": "Machine learning is a subset of artificial intelligence that focuses on...",
   "difficulty": "medium",
   "mcqCount": 5,
-  "flashcardCount": 5
+  "flashcardCount": 5,
+  "previousContext": {
+    "questions": ["A fraud detection system needs to flag unauthorized transactions..."],
+    "flashcards": ["What is the difference between supervised and unsupervised learning?"]
+  }
 }
 ```
 
@@ -213,6 +217,7 @@ Sends note text to Google Gemini and receives structured MCQs and flashcards. Us
 | `mcqCount`       | int    | No       | `5`        | Number of MCQs (1-10)                                   |
 | `flashcardCount` | int    | No       | `5`        | Number of flashcards (1-10)                             |
 | `throttleSpeed`  | string | No       | `"low"`    | `"low"` (paid plan, 0s delay) or `"high"` (free tier, 4s delay) |
+| `previousContext`| object / array / string | No | `null` | Previously generated questions/flashcards to avoid duplicating on re-roll or chunking |
 
 #### Response — `200 OK`
 
@@ -220,15 +225,15 @@ Sends note text to Google Gemini and receives structured MCQs and flashcards. Us
 {
   "mcqs": [
     {
-      "question": "Which of the following best describes supervised learning?",
+      "question": "A financial security team needs to flag fraudulent credit card transactions in real time using millions of past labeled records. Which learning approach is most applicable, and what primary risk must the team mitigate?",
       "options": [
-        "Learning from labeled training data",
-        "Learning without any data",
-        "Learning from unlabeled data only",
-        "A type of reinforcement learning"
+        "Supervised classification, while carefully mitigating class imbalance in the training data",
+        "Unsupervised clustering, because fraud patterns continuously shift without known outcomes",
+        "Reinforcement learning, by penalizing the model whenever a fraudulent charge is accepted",
+        "Pure manual heuristic thresholding, to eliminate all false positives"
       ],
       "correctIndex": 0,
-      "explanation": "Supervised learning uses labeled training data where both input features and desired output are provided to the algorithm."
+      "explanation": "Because historical labeled outcomes are available, supervised classification is the direct paradigm. The tricky practical challenge is class imbalance, since fraudulent transactions represent a minute fraction of overall volume."
     }
   ],
   "flashcards": [
@@ -528,7 +533,8 @@ def call_gemini_with_retry(model, prompt, config, max_retries=3):
 
 | Variable         | Service        | Where Set       | Description                              |
 |:-----------------|:---------------|:----------------|:-----------------------------------------|
-| `GEMINI_API_KEY` | Google Gemini  | Vercel Dashboard | API key from Google AI Studio           |
+| `GEMINI_API_KEY` | Google Gemini  | Vercel Dashboard | Primary API key from Google AI Studio           |
+| `GEMINI_API_KEY_BACKUP` | Google Gemini | Vercel + `.env.local` | Fallback API key(s) used on 4xx request limit / quota errors (supports single key, delimited list, or `GEMINI_API_KEY_BACKUP_<N>`) |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google Cloud | Vercel + `.env.local` | Default OAuth 2.0 Web Client ID        |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID_SC` | Google Cloud | Vercel + `.env.local` | OAuth 2.0 Web Client ID for user SC    |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID_DB` | Google Cloud | Vercel + `.env.local` | OAuth 2.0 Web Client ID for user DB    |
