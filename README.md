@@ -119,9 +119,9 @@ graph TB
     Pusher -->|"Direct Upload"| DRIVE_NOTES
     CLI -.->|"Legacy Push"| API_YT
 
-    UI <-->|Local Read/Write| IDB
+    UI <-->|"Local Read/Write"| IDB
     UI --> CLIPBOARD
-    UI -->|Mutation Queue| SYNC_QUEUE
+    UI -->|"Mutation Queue"| SYNC_QUEUE
     SYNC_MGR --> SYNC_QUEUE
     SYNC_MGR --> GDRIVE_SYNC
     GDRIVE_SYNC --> APP_STATE_SYNC
@@ -133,9 +133,9 @@ graph TB
     CHAT_SYNC <==>|"Sync Chat Histories"| DRIVE_CHAT
     APP_STATE_SYNC <==>|"Sync Streak & App State"| DRIVE_STATE
 
-    UI -->|Parse Word Docs| API_PARSE
-    UI -->|Generate Quizzes (Gemini)| API_QUIZ
-    UI -->|Ask Questions (Gemini)| API_CHAT
+    UI -->|"Parse Word Docs"| API_PARSE
+    UI -->|"Generate Quizzes (Gemini)"| API_QUIZ
+    UI -->|"Ask Questions (Gemini)"| API_CHAT
 ```
 
 - **Strict OOP Architecture:** Modular services, single-responsibility classes, typed schemas, and no magic strings.
