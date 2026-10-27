@@ -27,18 +27,10 @@ export async function POST(req: NextRequest) {
       'body = json.loads(sys.stdin.read())',
       'g = GenerateQuiz.__new__(GenerateQuiz)',
       'text = body.get("text", "")',
-      'diff = body.get("difficulty", "medium")',
-      'mcqs = body.get("mcqCount", 5)',
-      'flash = body.get("flashcardCount", 5)',
-      'chunk = body.get("chunkSize", 2500)',
-      'throttle = body.get("throttleSpeed", "low")',
-      'delay = 4.0 if throttle == "high" else 0.0',
-      'ctx = body.get("previousContext") or body.get("context") or body.get("previous_context")',
-      'kwargs = {"chunk_size": chunk, "delay_seconds": delay}',
-      'if ctx: kwargs["previous_context"] = ctx',
-      'res = g.generate_quiz(text, diff, mcqs, flash, **kwargs)',
+      'args, kwargs = g._extract_post_params(body)',
+      'res = g.generate_quiz(text, *args, **kwargs)',
       'print(json.dumps(res))',
-    ].join('; ');
+    ].join('\n');
 
     const result = await new Promise<string>((resolve, reject) => {
       const proc = spawn(pythonBin, ['-c', pyScript], {
