@@ -51,6 +51,7 @@ export class GoogleDriveSyncService {
   private readonly _preferencesService: PreferencesService;
   private readonly _appStateSyncService: AppStateSyncService;
   private readonly _chatSyncService: ChatSyncService;
+  private readonly _activeQuizPushes = new Map<string, Promise<void>>();
 
   private _appFolderId: string | null = null;
   private _notesFolderId: string | null = null;
@@ -103,18 +104,15 @@ export class GoogleDriveSyncService {
    * Pushes a quiz bundled with its MCQs, flashcards, and SRS states to Google Drive.
    */
   public async pushQuiz(quizId: string): Promise<void> {
-    const folderId = await this._getQuizzesFolderId();
-    const db = await this._dbService.getDB();
-    const quiz = await db.get(DB_STORES.QUIZZES, quizId);
-    if (!quiz) return;
-
-    const mcqs = await db.getAllFromIndex(DB_STORES.MCQ_CARDS, DB_INDEXES.BY_QUIZ, quizId);
-    const flashcards = await db.getAllFromIndex(DB_STORES.FLASHCARDS, DB_INDEXES.BY_QUIZ, quizId);
-    const srsCards = await this._loadSRSCardsForCards(mcqs, flashcards);
-
-    const payload: QuizDrivePayload = { quiz, mcqCards: mcqs, flashcards, srsCards };
-    const fileName = `${GoogleDriveSyncService._PREFIX_QUIZ}${quizId}${GoogleDriveSyncService._JSON_EXT}`;
-    await this._gdriveClient.saveFile(fileName, JSON.stringify(payload, null, 2), GoogleDriveSyncService._JSON_MIME, folderId);
+    const active = this._activeQuizPushes.get(quizId);
+    if (active) return active;
+    const pushPromise = this._executePushQuiz(quizId);
+    this._activeQuizPushes.set(quizId, pushPromise);
+    try {
+      await pushPromise;
+    } finally {
+      this._activeQuizPushes.delete(quizId);
+    }
   }
 
   /**
@@ -185,14 +183,19 @@ export class GoogleDriveSyncService {
   public async pullQuizzes(): Promise<number> {
     const folderId = await this._getQuizzesFolderId();
     const files = await this._gdriveClient.listAllFolderItems(folderId);
+    const seen = new Set<string>();
     let count = 0;
 
     for (const file of files) {
       if (!this._isQuizFileName(file.name)) continue;
+      if (seen.has(file.name)) {
+        void this._gdriveClient.deleteFile(file.id).catch(() => {});
+        continue;
+      }
+      seen.add(file.name);
       const text = await this._gdriveClient.getFileText(file.id);
       const payload = JSON.parse(text) as QuizDrivePayload;
-      const imported = await this._saveImportedQuizPayload(payload);
-      if (imported) count += 1;
+      if (await this._saveImportedQuizPayload(payload)) count += 1;
     }
     return count;
   }
@@ -230,15 +233,10 @@ export class GoogleDriveSyncService {
    * Replays a single queued mutation entry to Google Drive.
    */
   public async replaySyncEntry(entry: SyncEntry): Promise<void> {
-    if (entry.entityType === 'note') {
-      await this._replayNoteEntry(entry);
-    } else if (entry.entityType === 'quiz') {
-      await this.pushQuiz(entry.entityId);
-    } else if (entry.entityType === 'srs_card') {
-      await this._replaySRSCardEntry(entry.entityId);
-    } else if (entry.entityType === 'notebook') {
-      await this._replayNotebookEntry(entry);
-    }
+    if (entry.entityType === 'note') await this._replayNoteEntry(entry);
+    else if (entry.entityType === 'quiz') await this.pushQuiz(entry.entityId);
+    else if (entry.entityType === 'srs_card') await this._replaySRSCardEntry(entry.entityId);
+    else if (entry.entityType === 'notebook') await this._replayNotebookEntry(entry);
   }
 
   /**
@@ -260,9 +258,7 @@ export class GoogleDriveSyncService {
    */
   public async syncAll(): Promise<SyncResult> {
     const nowIso = new Date().toISOString();
-    if (!this.isConnected()) {
-      return this._buildSkippedResult(nowIso);
-    }
+    if (!this.isConnected()) return this._buildSkippedResult(nowIso);
 
     const pushedNotes = await this._pushUnsyncedNotes();
     const pushedNotebooks = await this._pushUnsyncedNotebooks();
@@ -279,16 +275,8 @@ export class GoogleDriveSyncService {
 
     await this._preferencesService.set(GoogleDriveSyncService._PREF_LAST_SYNC, nowIso);
     const result: SyncResult = {
-      success: true,
-      pushedNotes,
-      pulledNotes,
-      pushedQuizzes,
-      pulledQuizzes,
-      pushedNotebooks,
-      pulledNotebooks,
-      pushedChats,
-      pulledChats,
-      timestamp: nowIso,
+      success: true, pushedNotes, pulledNotes, pushedQuizzes, pulledQuizzes,
+      pushedNotebooks, pulledNotebooks, pushedChats, pulledChats, timestamp: nowIso,
     };
     this._notifySyncCompleted(result);
     return result;
@@ -321,7 +309,7 @@ export class GoogleDriveSyncService {
       'readwrite'
     );
 
-    await tx.objectStore(DB_STORES.QUIZZES).put(payload.quiz);
+    await tx.objectStore(DB_STORES.QUIZZES).put({ ...payload.quiz, isSynced: true });
     await this._pruneMissingCards(tx, payload);
     for (const mcq of payload.mcqCards) await tx.objectStore(DB_STORES.MCQ_CARDS).put(mcq);
     for (const card of payload.flashcards) await tx.objectStore(DB_STORES.FLASHCARDS).put(card);
@@ -337,9 +325,7 @@ export class GoogleDriveSyncService {
     const db = await this._dbService.getDB();
     const allNotes = await db.getAll(DB_STORES.NOTES);
     const unsynced = allNotes.filter((n) => !n.isSynced);
-    for (const note of unsynced) {
-      await this.pushNote(note);
-    }
+    for (const note of unsynced) await this.pushNote(note);
     return unsynced.length;
   }
 
@@ -350,22 +336,27 @@ export class GoogleDriveSyncService {
     const db = await this._dbService.getDB();
     const allNotebooks = await db.getAll(DB_STORES.NOTEBOOKS);
     const unsynced = allNotebooks.filter((nb) => !nb.isSynced);
-    for (const nb of unsynced) {
-      await this.pushNotebook(nb);
-    }
+    for (const nb of unsynced) await this.pushNotebook(nb);
     return unsynced.length;
   }
 
   /**
-   * Pushes all local quizzes to Google Drive to ensure cards and SRS state are in sync.
+   * Scans and pushes local quizzes marked with isSynced = false.
    */
   protected async _pushUnsyncedQuizzes(): Promise<number> {
     const db = await this._dbService.getDB();
     const allQuizzes = await db.getAll(DB_STORES.QUIZZES);
-    for (const quiz of allQuizzes) {
-      await this.pushQuiz(quiz.id);
+    const unsynced = allQuizzes.filter((quiz) => !quiz.isSynced);
+    let count = 0;
+    for (const quiz of unsynced) {
+      try {
+        await this.pushQuiz(quiz.id);
+        count++;
+      } catch (err) {
+        console.warn(`Failed to push quiz ${quiz.id}:`, err);
+      }
     }
-    return allQuizzes.length;
+    return count;
   }
 
   /**
@@ -398,17 +389,15 @@ export class GoogleDriveSyncService {
 
   private async _getNotebooksFolderId(): Promise<string> {
     if (!this._notebooksFolderId) {
-      const appFolder = await this._getAppFolderId();
-      const folder = await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._NOTEBOOKS_FOLDER_NAME, appFolder);
-      this._notebooksFolderId = folder.id;
+      const app = await this._getAppFolderId();
+      this._notebooksFolderId = (await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._NOTEBOOKS_FOLDER_NAME, app)).id;
     }
     return this._notebooksFolderId;
   }
 
   private async _getAppFolderId(): Promise<string> {
     if (!this._appFolderId) {
-      const folder = await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._APP_FOLDER_NAME);
-      this._appFolderId = folder.id;
+      this._appFolderId = (await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._APP_FOLDER_NAME)).id;
     }
     return this._appFolderId;
   }
@@ -469,10 +458,7 @@ export class GoogleDriveSyncService {
     return name.startsWith(GoogleDriveSyncService._PREFIX_NOTEBOOK) && name.endsWith(GoogleDriveSyncService._JSON_EXT);
   }
 
-  private async _pruneMissingCards(
-    tx: QuizSyncTx,
-    payload: QuizDrivePayload
-  ): Promise<void> {
+  private async _pruneMissingCards(tx: QuizSyncTx, payload: QuizDrivePayload): Promise<void> {
     const mcqStore = tx.objectStore(DB_STORES.MCQ_CARDS);
     const localMcqs: MCQCard[] = await mcqStore.index(DB_INDEXES.BY_QUIZ).getAll(payload.quiz.id);
     const remoteMcqIds = new Set(payload.mcqCards.map((m) => m.id));
@@ -484,12 +470,28 @@ export class GoogleDriveSyncService {
     for (const f of localCards) if (!remoteCardIds.has(f.id)) await flashStore.delete(f.id);
   }
 
+  private async _executePushQuiz(quizId: string): Promise<void> {
+    const folderId = await this._getQuizzesFolderId();
+    const db = await this._dbService.getDB();
+    const quiz = await db.get(DB_STORES.QUIZZES, quizId);
+    if (!quiz) return;
+
+    const mcqs = await db.getAllFromIndex(DB_STORES.MCQ_CARDS, DB_INDEXES.BY_QUIZ, quizId);
+    const flashcards = await db.getAllFromIndex(DB_STORES.FLASHCARDS, DB_INDEXES.BY_QUIZ, quizId);
+    const srsCards = await this._loadSRSCardsForCards(mcqs, flashcards);
+
+    const updatedQuiz = { ...quiz, isSynced: true };
+    const payload: QuizDrivePayload = { quiz: updatedQuiz, mcqCards: mcqs, flashcards, srsCards };
+    const fileName = `${GoogleDriveSyncService._PREFIX_QUIZ}${quizId}${GoogleDriveSyncService._JSON_EXT}`;
+    await this._gdriveClient.saveFile(fileName, JSON.stringify(payload, null, 2), GoogleDriveSyncService._JSON_MIME, folderId);
+    await db.put(DB_STORES.QUIZZES, updatedQuiz);
+  }
+
   private _buildSkippedResult(timestamp: string): SyncResult {
     return {
       success: false, reason: 'not_authenticated',
       pushedNotes: 0, pulledNotes: 0, pushedQuizzes: 0, pulledQuizzes: 0,
-      pushedNotebooks: 0, pulledNotebooks: 0, pushedChats: 0, pulledChats: 0,
-      timestamp,
+      pushedNotebooks: 0, pulledNotebooks: 0, pushedChats: 0, pulledChats: 0, timestamp,
     };
   }
 }

@@ -56,6 +56,7 @@ export class GoogleDriveApiClient {
 
   private readonly _authService: AuthService;
   private readonly _fetchFn: typeof fetch;
+  private readonly _activeSaves = new Map<string, Promise<DriveItem>>();
 
   public constructor(authService: AuthService, fetchFn?: typeof fetch) {
     this._authService = authService;
@@ -159,18 +160,16 @@ export class GoogleDriveApiClient {
   }
 
   /**
-   * Searches for a file or folder by exact name within a parent folder.
+   * Searches for all files or folders matching name within a parent folder.
    */
-  public async findFileByName(
+  public async findAllFilesByName(
     name: string,
     parentFolderId: string = GoogleDriveApiClient._ROOT_FOLDER_ID,
     mimeType?: string
-  ): Promise<DriveItem | null> {
+  ): Promise<DriveItem[]> {
     const escaped = name.replace(/'/g, "\\'");
     let q = `'${encodeURIComponent(parentFolderId)}' in parents and name = '${escaped}' and trashed = false`;
-    if (mimeType) {
-      q += ` and mimeType = '${mimeType}'`;
-    }
+    if (mimeType) q += ` and mimeType = '${mimeType}'`;
     const params = new URLSearchParams({ q, fields: 'files(id, name, mimeType, size, modifiedTime, webViewLink)' });
     const url = `${GoogleDriveApiClient._DRIVE_BASE_URL}/files?${params.toString()}`;
     const token = await this._authService.getAccessToken();
@@ -180,7 +179,19 @@ export class GoogleDriveApiClient {
     await this._validateResponseStatus(response);
     const data = (await response.json()) as GoogleDriveListResponse;
     const files = data.files ?? [];
-    return files.length > 0 ? this._mapRawFileToDriveItem(files[0]) : null;
+    return files.map((file) => this._mapRawFileToDriveItem(file));
+  }
+
+  /**
+   * Searches for a file or folder by exact name within a parent folder.
+   */
+  public async findFileByName(
+    name: string,
+    parentFolderId: string = GoogleDriveApiClient._ROOT_FOLDER_ID,
+    mimeType?: string
+  ): Promise<DriveItem | null> {
+    const files = await this.findAllFilesByName(name, parentFolderId, mimeType);
+    return files.length > 0 ? files[0] : null;
   }
 
   /**
@@ -247,11 +258,17 @@ export class GoogleDriveApiClient {
     mimeType: string = GoogleDriveApiClient._MARKDOWN_MIME,
     parentFolderId: string = GoogleDriveApiClient._ROOT_FOLDER_ID
   ): Promise<DriveItem> {
-    const existing = await this.findFileByName(name, parentFolderId);
-    if (existing) {
-      return this.updateFileContent(existing.id, content, mimeType);
+    const key = `${parentFolderId}:${name}`;
+    const active = this._activeSaves.get(key);
+    if (active) return active;
+
+    const savePromise = this._executeSaveFile(name, content, mimeType, parentFolderId);
+    this._activeSaves.set(key, savePromise);
+    try {
+      return await savePromise;
+    } finally {
+      this._activeSaves.delete(key);
     }
-    return this.createFile(name, content, mimeType, parentFolderId);
   }
 
   /**
@@ -391,5 +408,23 @@ export class GoogleDriveApiClient {
       return globalThis.fetch.bind(globalThis);
     }
     return (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init);
+  }
+
+  private async _executeSaveFile(
+    name: string,
+    content: string | Blob,
+    mimeType: string,
+    parentFolderId: string
+  ): Promise<DriveItem> {
+    const existing = await this.findAllFilesByName(name, parentFolderId);
+    if (existing.length > 0) {
+      const primary = existing[0];
+      const updated = await this.updateFileContent(primary.id, content, mimeType);
+      for (let i = 1; i < existing.length; i++) {
+        void this.deleteFile(existing[i].id).catch(() => {});
+      }
+      return updated;
+    }
+    return this.createFile(name, content, mimeType, parentFolderId);
   }
 }

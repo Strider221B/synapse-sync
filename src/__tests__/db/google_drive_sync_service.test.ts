@@ -133,6 +133,10 @@ describe('GoogleDriveSyncService', () => {
     assert.equal(payload.flashcards.length, 1);
     assert.equal(payload.srsCards.length, 2);
 
+    const db = await dbService.getDB();
+    const localQuiz = await db.get('quizzes', quizWithCards.quiz.id);
+    assert.equal(localQuiz?.isSynced, true);
+
     await dbService.close();
   });
 

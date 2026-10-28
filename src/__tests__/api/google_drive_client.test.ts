@@ -271,4 +271,49 @@ describe('GoogleDriveApiClient', () => {
     await client.deleteFile('file-id-txt');
     assert.equal(deleted, true);
   });
+
+  it('cleans up duplicate files when saving file and deduplicates concurrent saves', async () => {
+    const deletedFileIds: string[] = [];
+    let patchCount = 0;
+    const mockFetch = async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = url.toString();
+      if (init?.method === 'DELETE') {
+        const id = urlStr.split('/files/')[1];
+        deletedFileIds.push(id);
+        return new Response(null, { status: 204 });
+      }
+      if (init?.method === 'PATCH') {
+        patchCount += 1;
+        return new Response(
+          JSON.stringify({ id: 'f-primary', name: 'quiz_123.json', mimeType: 'application/json' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (urlStr.includes('/files?')) {
+        return new Response(
+          JSON.stringify({
+            files: [
+              { id: 'f-primary', name: 'quiz_123.json', mimeType: 'application/json' },
+              { id: 'f-dup1', name: 'quiz_123.json', mimeType: 'application/json' },
+              { id: 'f-dup2', name: 'quiz_123.json', mimeType: 'application/json' },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      throw new Error(`Unexpected route: ${urlStr}`);
+    };
+
+    const client = new GoogleDriveApiClient(mockAuth, mockFetch as typeof fetch);
+    // Concurrent saves
+    const [res1, res2] = await Promise.all([
+      client.saveFile('quiz_123.json', '{}', 'application/json', 'folder-q'),
+      client.saveFile('quiz_123.json', '{}', 'application/json', 'folder-q'),
+    ]);
+
+    assert.equal(res1.id, 'f-primary');
+    assert.equal(res2.id, 'f-primary');
+    assert.equal(patchCount, 1);
+    assert.deepEqual(deletedFileIds, ['f-dup1', 'f-dup2']);
+  });
 });

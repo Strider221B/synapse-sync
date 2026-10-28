@@ -61,7 +61,14 @@ export class QuizService {
     const timestamp = new Date().toISOString();
     const quizId = uuidv4();
 
-    const quiz: Quiz = { id: quizId, noteId, modelUsed, version, generatedAt: timestamp };
+    const quiz: Quiz = {
+      id: quizId,
+      noteId,
+      modelUsed,
+      version,
+      generatedAt: timestamp,
+      isSynced: false,
+    };
     const tx = db.transaction(
       [DB_STORES.QUIZZES, DB_STORES.MCQ_CARDS, DB_STORES.FLASHCARDS, DB_STORES.SRS_CARDS],
       'readwrite'

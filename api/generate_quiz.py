@@ -24,14 +24,17 @@ class GenerateQuiz(BaseHTTPRequestHandler):
     _HTTP_BAD_REQUEST: ClassVar[int] = 400
     _HTTP_RATE_LIMITED: ClassVar[int] = 429
     _HTTP_INTERNAL_ERROR: ClassVar[int] = 500
+    _HTTP_GATEWAY_TIMEOUT: ClassVar[int] = 504
 
     _ERR_BAD_REQUEST: ClassVar[str] = "BAD_REQUEST"
     _ERR_TEXT_TOO_SHORT: ClassVar[str] = "TEXT_TOO_SHORT"
     _ERR_RATE_LIMITED: ClassVar[str] = "RATE_LIMITED"
     _ERR_GENERATION_FAILED: ClassVar[str] = "GENERATION_FAILED"
+    _ERR_TIMEOUT: ClassVar[str] = "TIMEOUT"
 
     _MSG_TEXT_TOO_SHORT: ClassVar[str] = "Provide at least 50 characters of text."
     _MSG_RATE_LIMITED: ClassVar[str] = "Gemini API rate limit reached. Try again in a minute."
+    _MSG_TIMEOUT: ClassVar[str] = "Quiz generation request timed out. Please try again."
 
     _MIN_TEXT_LENGTH: ClassVar[int] = 50
     _MIN_CHUNK_WORDS: ClassVar[int] = 200
@@ -139,14 +142,17 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         gemini_svc = service if service is not None else GeminiService(delay_seconds=delay_seconds)
         words = text.split()
         if len(words) <= chunk_size:
-            return self._generate_single_chunk(
+            result = self._generate_single_chunk(
                 text, difficulty, mcq_count, flashcard_count, gemini_svc, active_model,
                 previous_context=previous_context,
             )
-        return self._generate_chunked(
-            words, difficulty, mcq_count, flashcard_count, gemini_svc, active_model, chunk_size,
-            previous_context=previous_context,
-        )
+        else:
+            result = self._generate_chunked(
+                words, difficulty, mcq_count, flashcard_count, gemini_svc, active_model, chunk_size,
+                previous_context=previous_context,
+            )
+        result["metadata"]["stats"] = gemini_svc.get_stats()
+        return result
 
     def _accumulate_chunk_items(
         self, accumulated: list[str], chunk_result: dict[str, Any]
@@ -343,7 +349,7 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         return self._parse_quiz_response(response, active_model)
 
     def _handle_generation_error(self, err: Exception) -> None:
-        """Route exception to 429 rate limit or 500 generation failure response."""
+        """Route exception to 429 rate limit, 504 timeout, or 500 generation failure response."""
         err_str = str(err)
         err_lower = err_str.lower()
         if (
@@ -353,6 +359,11 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         ):
             self._send_error(
                 self._HTTP_RATE_LIMITED, self._ERR_RATE_LIMITED, self._MSG_RATE_LIMITED
+            )
+            return
+        if "timeout" in err_lower or "timed out" in err_lower:
+            self._send_error(
+                self._HTTP_GATEWAY_TIMEOUT, self._ERR_TIMEOUT, self._MSG_TIMEOUT
             )
             return
         self._send_error(self._HTTP_INTERNAL_ERROR, self._ERR_GENERATION_FAILED, err_str)
