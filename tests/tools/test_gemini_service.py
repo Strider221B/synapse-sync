@@ -255,7 +255,7 @@ class TestGeminiService:
         mock_client = MagicMock()
         mock_response = MagicMock(text='{"result": "recovered"}')
         mock_client.models.generate_content.side_effect = [
-            TimeoutError("Request timed out after 300s"),
+            TimeoutError("Request timed out after 600s"),
             mock_response,
         ]
 

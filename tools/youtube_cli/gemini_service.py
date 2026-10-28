@@ -18,7 +18,7 @@ class GeminiService:
     _ENV_API_KEY: ClassVar[str] = "GEMINI_API_KEY"
     _ENV_BACKUP_KEY: ClassVar[str] = "GEMINI_API_KEY_BACKUP"
     _DEFAULT_DELAY_SECONDS: ClassVar[float] = 4.0
-    _DEFAULT_REQUEST_TIMEOUT: ClassVar[float] = 300.0
+    _DEFAULT_REQUEST_TIMEOUT: ClassVar[float] = 600.0
     _INITIAL_BACKOFF_SECONDS: ClassVar[float] = 2.0
     _BACKOFF_FACTOR: ClassVar[float] = 2.0
     _KEY_TIMEOUT: ClassVar[str] = "timeout"
