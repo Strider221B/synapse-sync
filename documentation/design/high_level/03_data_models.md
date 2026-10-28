@@ -244,8 +244,20 @@ interface Quiz {
   
   /** When this quiz was generated */
   generatedAt: string;
+
+  /** Synchronization status with Google Drive */
+  isSynced?: boolean;
 }
 ```
+
+**Sync Lifecycle & Status:**
+- When created locally via `QuizService.create()`, `isSynced` is initialized to `false`.
+- When successfully pushed to Google Drive via `GoogleDriveSyncService.pushQuiz()`, `isSynced` is updated to `true` in IndexedDB.
+- When imported/pulled from Google Drive via `GoogleDriveSyncService.pullQuizzes()`, `isSynced` is set to `true`.
+- The UI reflects this state dynamically:
+  - `isSynced === true`: Displays `☁️ Saved to Drive`.
+  - `isSynced === false` & connected: Displays interactive `☁️ Sync to Drive` / `⏳ Syncing...` action.
+  - Disconnected: Displays `💾 Local Workspace`.
 
 **IndexedDB Indexes:**
 | Index Name      | Key Path   | Unique | Purpose                         |

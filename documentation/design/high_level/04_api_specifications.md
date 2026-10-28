@@ -218,6 +218,9 @@ Sends note text to Google Gemini and receives structured MCQs and flashcards. Us
 | `flashcardCount` | int    | No       | `5`        | Number of flashcards (1-10)                             |
 | `throttleSpeed`  | string | No       | `"low"`    | `"low"` (paid plan, 0s delay) or `"high"` (free tier, 4s delay) |
 | `previousContext`| object / array / string | No | `null` | Previously generated questions/flashcards to avoid duplicating on re-roll or chunking |
+| `chunkIndex`     | int    | No       | `null`     | 1-based index of current document chunk being processed |
+| `totalChunks`    | int    | No       | `null`     | Total number of document chunks in the session          |
+| `sessionId`      | string | No       | `null`     | UUID identifying multi-chunk generation session for logs |
 
 #### Response — `200 OK`
 
@@ -243,12 +246,31 @@ Sends note text to Google Gemini and receives structured MCQs and flashcards. Us
     }
   ],
   "metadata": {
-    "model": "gemini-3.8-flash",
+    "model": "gemini-2.5-flash",
     "inputTokens": 1250,
-    "outputTokens": 890
+    "outputTokens": 890,
+    "stats": {
+      "total_calls": 3,
+      "successful_calls": 3,
+      "timed_out_calls": 0,
+      "retry_calls": 0,
+      "backup_key_calls": 0,
+      "backup_failovers": 0,
+      "active_key_index": 0,
+      "active_key_masked": "AIzaSy...4aB2",
+      "total_keys_configured": 2
+    }
   }
 }
 ```
+
+#### Timeout Hierarchy & Process Lifecycle
+
+| Layer | Component | Timeout | Behavior on Expiry |
+|:------|:----------|:--------|:-------------------|
+| **Layer 1** | Frontend Fetch (`ApiClient`) | `1,320,000 ms` (22 min) | Aborts client HTTP promise, displays contextual error banner. |
+| **Layer 2** | Route Subprocess (`route.ts`) | `1,200,000 ms` (20 min) | Sends `SIGKILL` to `-child.pid` process group, returns HTTP 504 Gateway Timeout. |
+| **Layer 3** | Gemini SDK (`gemini_service.py`) | `360.0 s` (6 min) | Raises client timeout exception, triggers automatic retry and backup key rotation. |
 
 #### Implementation Notes
 

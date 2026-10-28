@@ -159,6 +159,15 @@ graph TB
 | **Rationale**| Eliminates UI blocking on remote network round-trips; supports fully offline card/note deletion; maintains strict cross-device consistency through Google Drive quiz bundles and folder structures; provides quick export utilities for learners. |
 | **Tradeoff**| Multi-device deletion propagation relies on the next normal sync cycle or reconnection rather than immediate blocking calls. |
 
+### ADR-11: Robust Quiz Generation Timeouts, Telemetry, and Cloud Sync Deduplication
+
+| Aspect     | Decision                                                                  |
+|:-----------|:--------------------------------------------------------------------------|
+| **Context**| Long-form documents (e.g. 100+ page lecture transcripts) generated quizzes across multiple sequential chunks. Low per-request timeouts (30s) caused premature retry exhaustion, while uncalibrated subprocess timeouts killed generation without error propagation. Furthermore, concurrent sync operations and Google Drive search index latency caused duplicate file creation, and static UI badges displayed misleading sync states. |
+| **Decision**| 1. **Layered Timeout Hierarchy**: Calibrated timeouts across three tiers: 360s Gemini SDK per request, 1,200s (20m) Node.js subprocess timeout, and 1,320s (22m) client HTTP timeout. Detached subprocess groups (`-child.pid`) are terminated with `SIGKILL` on timeout to eliminate orphan processes.<br/>2. **Runtime Telemetry & Observability**: Track total calls, successful calls, timeouts, retries, and backup failovers in Python, logging real-time chunk status and end-of-run summaries to the CLI.<br/>3. **Dynamic Quiz Sync Tracking**: Added `isSynced: boolean` to `Quiz` entity. Local generation sets `isSynced = false`, successful push updates IndexedDB to `true`, and the UI displays dynamic badges (`☁️ Saved to Drive`, clickable `☁️ Sync to Drive`, or `💾 Local Workspace`).<br/>4. **In-Flight Mutex & Self-Healing Deduplication**: In-flight promise maps in `GoogleDriveApiClient` (`_activeSaves`) and `GoogleDriveSyncService` (`_activeQuizPushes`) prevent concurrent calls from duplicating files. If duplicate files are detected in Drive, the primary file is updated and extraneous copies are purged automatically. |
+| **Rationale**| Ensures long-running generation completes reliably without hanging or leaving zombie processes; gives clear operational visibility into API health and backup key failovers; guarantees truth in UI sync states; prevents Google Drive folder clutter through mutual exclusion and self-healing. |
+| **Tradeoff**| Longer timeout windows require detached process tracking; remote deduplication introduces an extra cleanup delete call when duplicate files are encountered. |
+
 ---
 
 ## 4. Component Interaction Flows
