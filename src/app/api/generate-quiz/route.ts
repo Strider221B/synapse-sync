@@ -8,7 +8,7 @@ function getPythonPath(): string {
   return process.env.PYTHON_PATH || venvPython;
 }
 
-const SUBPROCESS_TIMEOUT_MS = 720_000;
+const SUBPROCESS_TIMEOUT_MS = 1_200_000;
 
 interface QuizStats {
   total_calls: number;
@@ -19,6 +19,7 @@ interface QuizStats {
   backup_failovers: number;
   active_key_index: number;
   active_key_masked: string;
+  total_keys_configured?: number;
 }
 
 interface QuizSessionAccumulator {
@@ -31,16 +32,20 @@ interface QuizSessionAccumulator {
   chunksCompleted: number;
   totalChunks: number;
   startTime: number;
+  totalKeysConfigured?: number;
 }
 
 const activeSessions = new Map<string, QuizSessionAccumulator>();
 
 function logCompletionSummary(session: QuizSessionAccumulator): void {
   const elapsedSec = ((Date.now() - session.startTime) / 1000).toFixed(1);
+  const keysCount = session.totalKeysConfigured ?? 1;
+  const backupNotice = keysCount > 1 ? `${keysCount - 1} backup key(s)` : 'no backup keys';
   console.log('\n======================================================================');
   console.log(' [Quiz Generation Completed] Gemini API Execution Summary');
   console.log('======================================================================');
   console.log(`  • Chunks Processed:       ${session.chunksCompleted} / ${session.totalChunks}`);
+  console.log(`  • Configured Keys:        ${keysCount} (${backupNotice})`);
   console.log(`  • Total Gemini API Calls: ${session.totalCalls}`);
   console.log(`  • Successful Calls:       ${session.successfulCalls}`);
   console.log(`  • Timed Out Calls:        ${session.timedOutCalls}`);
@@ -70,6 +75,7 @@ function recordSessionProgress(
       chunksCompleted: 0,
       totalChunks,
       startTime: Date.now() - durationMs,
+      totalKeysConfigured: stats?.total_keys_configured,
     };
     activeSessions.set(sessionId, session);
   }
@@ -83,6 +89,11 @@ function recordSessionProgress(
     session.retryCalls += stats.retry_calls ?? 0;
     session.backupKeyCalls += stats.backup_key_calls ?? 0;
     session.backupFailovers += stats.backup_failovers ?? 0;
+    session.totalKeysConfigured = stats.total_keys_configured ?? session.totalKeysConfigured;
+  }
+
+  if (session.totalKeysConfigured !== undefined && session.totalKeysConfigured <= 1 && session.chunksCompleted === 1) {
+    console.warn('[Quiz Generator Notice] Only 1 Gemini API key configured. Set GEMINI_API_KEY_BACKUP in .env.local to enable multi-key failover.');
   }
 
   const durationSec = (durationMs / 1000).toFixed(1);
@@ -145,7 +156,7 @@ export async function POST(req: NextRequest) {
           } catch {
             // Subprocess may have already terminated
           }
-          reject(new Error('Quiz generation subprocess timed out after 720 seconds'));
+          reject(new Error('Quiz generation subprocess timed out after 1200 seconds (20 minutes)'));
         }
       }, SUBPROCESS_TIMEOUT_MS);
 

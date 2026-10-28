@@ -321,6 +321,7 @@ class TestGeminiService:
         assert stats_after["successful_calls"] == 1
         assert stats_after["active_key_index"] == 0
         assert stats_after["active_key_masked"] == "AIza...3456"
+        assert stats_after["total_keys_configured"] == 1
 
         service.reset_stats()
         assert service.get_stats()["total_calls"] == 0
@@ -349,6 +350,7 @@ class TestGeminiService:
         assert stats["timed_out_calls"] == 1
         assert stats["backup_key_calls"] == 1
         assert stats["backup_failovers"] == 1
+        assert stats["total_keys_configured"] == 2
 
     def test_get_active_api_key_masked_formats(self) -> None:
         """Verify get_active_api_key_masked handles none, short, and standard keys."""

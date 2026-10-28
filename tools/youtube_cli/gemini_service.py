@@ -18,7 +18,7 @@ class GeminiService:
     _ENV_API_KEY: ClassVar[str] = "GEMINI_API_KEY"
     _ENV_BACKUP_KEY: ClassVar[str] = "GEMINI_API_KEY_BACKUP"
     _DEFAULT_DELAY_SECONDS: ClassVar[float] = 4.0
-    _DEFAULT_REQUEST_TIMEOUT: ClassVar[float] = 600.0
+    _DEFAULT_REQUEST_TIMEOUT: ClassVar[float] = 360.0
     _INITIAL_BACKOFF_SECONDS: ClassVar[float] = 2.0
     _BACKOFF_FACTOR: ClassVar[float] = 2.0
     _KEY_TIMEOUT: ClassVar[str] = "timeout"
@@ -137,6 +137,7 @@ class GeminiService:
         stats: dict[str, Any] = dict(self._stats)
         stats["active_key_index"] = self._active_key_index
         stats["active_key_masked"] = self.get_active_api_key_masked()
+        stats["total_keys_configured"] = len(self._api_keys)
         return stats
 
     def has_next_fallback_key(self) -> bool:

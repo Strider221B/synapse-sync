@@ -48,6 +48,7 @@ interface GenerateQuizApiResponse {
       backup_failovers: number;
       active_key_index: number;
       active_key_masked: string;
+      total_keys_configured?: number;
     };
   };
 }
