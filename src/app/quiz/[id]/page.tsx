@@ -17,6 +17,7 @@ import { QuizResults } from '@/components/quiz/QuizResults';
 import { FlashCard as FlashCardComponent } from '@/components/quiz/FlashCard';
 import { SM2Engine } from '@/lib/srs/sm2';
 import { ClipboardService } from '@/lib/utils/clipboard_service';
+import { useGoogleAuth } from '@/components/auth/GoogleAuthProviderWrapper';
 
 interface QuizPageProps {
   params: Promise<{ id: string }>;
@@ -57,6 +58,7 @@ function QuizContent({ params }: QuizPageProps) {
   const resolvedParams = use(params);
   const quizId = resolvedParams.id;
   const router = useRouter();
+  const { isAuthenticated } = useGoogleAuth();
 
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [note, setNote] = useState<Note | null>(null);
@@ -64,6 +66,7 @@ function QuizContent({ params }: QuizPageProps) {
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeMode, setActiveMode] = useState<QuizMode>('mcq');
+  const [isSyncingDrive, setIsSyncingDrive] = useState(false);
 
   // MCQ state
   const [currentMcqIndex, setCurrentMcqIndex] = useState(0);
@@ -124,6 +127,21 @@ function QuizContent({ params }: QuizPageProps) {
         setAvailableQuizzes([...allQuizzes].sort((a, b) => b.version - a.version));
         setIsLoading(false);
       }
+
+      if (!quizWithCards.quiz.isSynced) {
+        import('@/lib/db/sync_manager').then(({ SyncManager }) => {
+          const syncService = SyncManager.getInstance().getSyncService();
+          if (syncService && syncService.isConnected()) {
+            syncService.pushQuiz(quizId).then(() => {
+              if (active) {
+                setQuiz((prev) => (prev ? { ...prev, isSynced: true } : prev));
+              }
+            }).catch((syncErr) => {
+              console.warn('Auto-sync quiz to Drive deferred:', syncErr);
+            });
+          }
+        });
+      }
     }
 
     loadQuizData();
@@ -131,6 +149,45 @@ function QuizContent({ params }: QuizPageProps) {
       active = false;
     };
   }, [quizId]);
+
+  useEffect(() => {
+    const handleSyncComplete = async () => {
+      const dbService = new DatabaseService();
+      const db = await dbService.getDB();
+      const updatedQuiz = await db.get('quizzes', quizId);
+      if (updatedQuiz) {
+        setQuiz(updatedQuiz);
+      }
+    };
+    window.addEventListener('synapse-sync-completed', handleSyncComplete);
+    return () => {
+      window.removeEventListener('synapse-sync-completed', handleSyncComplete);
+    };
+  }, [quizId]);
+
+  const handleManualSync = async () => {
+    if (!quiz || isSyncingDrive) return;
+    setIsSyncingDrive(true);
+    try {
+      const { SyncManager } = await import('@/lib/db/sync_manager');
+      const syncManager = SyncManager.getInstance();
+      const syncService = syncManager.getSyncService();
+      if (syncService && syncService.isConnected()) {
+        await syncService.pushQuiz(quiz.id);
+        setQuiz((prev) => (prev ? { ...prev, isSynced: true } : prev));
+      } else {
+        await syncManager.forceSync();
+        const dbService = new DatabaseService();
+        const db = await dbService.getDB();
+        const updated = await db.get('quizzes', quiz.id);
+        if (updated) setQuiz(updated);
+      }
+    } catch (err) {
+      console.error('Failed to sync quiz to Google Drive:', err);
+    } finally {
+      setIsSyncingDrive(false);
+    }
+  };
 
   const handleSelectOption = (optionIndex: number) => {
     if (userAnswers[currentMcqIndex] !== null) return;
@@ -362,7 +419,14 @@ function QuizContent({ params }: QuizPageProps) {
           await syncService.pushQuiz(newQuiz.quiz.id);
         } catch (syncErr) {
           console.warn('Direct Google Drive quiz push deferred to sync queue:', syncErr);
+          const { SyncQueueService } = await import('@/lib/db/services/sync_queue_service');
+          const sqService = new SyncQueueService(dbService);
+          await sqService.enqueue('quiz', newQuiz.quiz.id, 'create', { noteId: note.id });
         }
+      } else {
+        const { SyncQueueService } = await import('@/lib/db/services/sync_queue_service');
+        const sqService = new SyncQueueService(dbService);
+        await sqService.enqueue('quiz', newQuiz.quiz.id, 'create', { noteId: note.id });
       }
       void syncManager.forceSync().catch(() => {});
 
@@ -576,18 +640,56 @@ function QuizContent({ params }: QuizPageProps) {
 
         {/* Mode Switcher Tabs & Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <span
-            style={{
-              fontSize: '0.75rem',
-              color: 'var(--color-primary)',
-              fontWeight: 500,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.25rem',
-            }}
-          >
-            ☁️ Saved to Drive
-          </span>
+          {quiz?.isSynced ? (
+            <span
+              style={{
+                fontSize: '0.75rem',
+                color: 'var(--color-primary)',
+                fontWeight: 500,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+              }}
+            >
+              ☁️ Saved to Drive
+            </span>
+          ) : isAuthenticated ? (
+            <button
+              type="button"
+              onClick={handleManualSync}
+              disabled={isSyncingDrive}
+              title="Quiz is stored locally. Click to sync to Google Drive."
+              style={{
+                fontSize: '0.75rem',
+                color: 'var(--color-warning, #d97706)',
+                backgroundColor: 'transparent',
+                border: '1px dashed var(--color-warning, #d97706)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '0.2rem 0.5rem',
+                cursor: isSyncingDrive ? 'wait' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+                fontWeight: 500,
+              }}
+            >
+              {isSyncingDrive ? '⏳ Syncing to Drive...' : '☁️ Sync to Drive'}
+            </button>
+          ) : (
+            <span
+              style={{
+                fontSize: '0.75rem',
+                color: 'var(--color-text-secondary)',
+                fontWeight: 500,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+              }}
+              title="Stored in local browser workspace."
+            >
+              💾 Local Workspace
+            </span>
+          )}
 
           <div
             style={{

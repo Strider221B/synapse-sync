@@ -112,9 +112,11 @@ export class GoogleDriveSyncService {
     const flashcards = await db.getAllFromIndex(DB_STORES.FLASHCARDS, DB_INDEXES.BY_QUIZ, quizId);
     const srsCards = await this._loadSRSCardsForCards(mcqs, flashcards);
 
-    const payload: QuizDrivePayload = { quiz, mcqCards: mcqs, flashcards, srsCards };
+    const updatedQuiz = { ...quiz, isSynced: true };
+    const payload: QuizDrivePayload = { quiz: updatedQuiz, mcqCards: mcqs, flashcards, srsCards };
     const fileName = `${GoogleDriveSyncService._PREFIX_QUIZ}${quizId}${GoogleDriveSyncService._JSON_EXT}`;
     await this._gdriveClient.saveFile(fileName, JSON.stringify(payload, null, 2), GoogleDriveSyncService._JSON_MIME, folderId);
+    await db.put(DB_STORES.QUIZZES, updatedQuiz);
   }
 
   /**
@@ -321,7 +323,7 @@ export class GoogleDriveSyncService {
       'readwrite'
     );
 
-    await tx.objectStore(DB_STORES.QUIZZES).put(payload.quiz);
+    await tx.objectStore(DB_STORES.QUIZZES).put({ ...payload.quiz, isSynced: true });
     await this._pruneMissingCards(tx, payload);
     for (const mcq of payload.mcqCards) await tx.objectStore(DB_STORES.MCQ_CARDS).put(mcq);
     for (const card of payload.flashcards) await tx.objectStore(DB_STORES.FLASHCARDS).put(card);
@@ -337,9 +339,7 @@ export class GoogleDriveSyncService {
     const db = await this._dbService.getDB();
     const allNotes = await db.getAll(DB_STORES.NOTES);
     const unsynced = allNotes.filter((n) => !n.isSynced);
-    for (const note of unsynced) {
-      await this.pushNote(note);
-    }
+    for (const note of unsynced) await this.pushNote(note);
     return unsynced.length;
   }
 
@@ -350,22 +350,27 @@ export class GoogleDriveSyncService {
     const db = await this._dbService.getDB();
     const allNotebooks = await db.getAll(DB_STORES.NOTEBOOKS);
     const unsynced = allNotebooks.filter((nb) => !nb.isSynced);
-    for (const nb of unsynced) {
-      await this.pushNotebook(nb);
-    }
+    for (const nb of unsynced) await this.pushNotebook(nb);
     return unsynced.length;
   }
 
   /**
-   * Pushes all local quizzes to Google Drive to ensure cards and SRS state are in sync.
+   * Scans and pushes local quizzes marked with isSynced = false.
    */
   protected async _pushUnsyncedQuizzes(): Promise<number> {
     const db = await this._dbService.getDB();
     const allQuizzes = await db.getAll(DB_STORES.QUIZZES);
-    for (const quiz of allQuizzes) {
-      await this.pushQuiz(quiz.id);
+    const unsynced = allQuizzes.filter((quiz) => !quiz.isSynced);
+    let count = 0;
+    for (const quiz of unsynced) {
+      try {
+        await this.pushQuiz(quiz.id);
+        count++;
+      } catch (err) {
+        console.warn(`Failed to push quiz ${quiz.id}:`, err);
+      }
     }
-    return allQuizzes.length;
+    return count;
   }
 
   /**
@@ -398,17 +403,15 @@ export class GoogleDriveSyncService {
 
   private async _getNotebooksFolderId(): Promise<string> {
     if (!this._notebooksFolderId) {
-      const appFolder = await this._getAppFolderId();
-      const folder = await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._NOTEBOOKS_FOLDER_NAME, appFolder);
-      this._notebooksFolderId = folder.id;
+      const app = await this._getAppFolderId();
+      this._notebooksFolderId = (await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._NOTEBOOKS_FOLDER_NAME, app)).id;
     }
     return this._notebooksFolderId;
   }
 
   private async _getAppFolderId(): Promise<string> {
     if (!this._appFolderId) {
-      const folder = await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._APP_FOLDER_NAME);
-      this._appFolderId = folder.id;
+      this._appFolderId = (await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._APP_FOLDER_NAME)).id;
     }
     return this._appFolderId;
   }
@@ -469,10 +472,7 @@ export class GoogleDriveSyncService {
     return name.startsWith(GoogleDriveSyncService._PREFIX_NOTEBOOK) && name.endsWith(GoogleDriveSyncService._JSON_EXT);
   }
 
-  private async _pruneMissingCards(
-    tx: QuizSyncTx,
-    payload: QuizDrivePayload
-  ): Promise<void> {
+  private async _pruneMissingCards(tx: QuizSyncTx, payload: QuizDrivePayload): Promise<void> {
     const mcqStore = tx.objectStore(DB_STORES.MCQ_CARDS);
     const localMcqs: MCQCard[] = await mcqStore.index(DB_INDEXES.BY_QUIZ).getAll(payload.quiz.id);
     const remoteMcqIds = new Set(payload.mcqCards.map((m) => m.id));

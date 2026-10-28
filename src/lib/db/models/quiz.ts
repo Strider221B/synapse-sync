@@ -7,4 +7,5 @@ export interface Quiz {
   modelUsed: string;
   version: number;
   generatedAt: string;
+  isSynced?: boolean;
 }

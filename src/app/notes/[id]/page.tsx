@@ -300,7 +300,14 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
           await syncService.pushQuiz(newQuiz.quiz.id);
         } catch (syncErr) {
           console.warn('Direct Google Drive quiz push deferred to sync queue:', syncErr);
+          const { SyncQueueService } = await import('@/lib/db/services/sync_queue_service');
+          const sqService = new SyncQueueService(dbService);
+          await sqService.enqueue('quiz', newQuiz.quiz.id, 'create', { noteId: note.id });
         }
+      } else {
+        const { SyncQueueService } = await import('@/lib/db/services/sync_queue_service');
+        const sqService = new SyncQueueService(dbService);
+        await sqService.enqueue('quiz', newQuiz.quiz.id, 'create', { noteId: note.id });
       }
       void syncManager.forceSync().catch(() => {});
 
