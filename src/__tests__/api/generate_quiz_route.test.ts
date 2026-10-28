@@ -17,3 +17,4 @@ describe('GenerateQuiz Route Handler', () => {
     assert.equal(data.error.code, 'TEXT_TOO_SHORT');
   });
 });
+
