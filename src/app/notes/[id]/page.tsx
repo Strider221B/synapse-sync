@@ -35,6 +35,16 @@ interface GenerateQuizApiResponse {
     model: string;
     inputTokens: number;
     outputTokens: number;
+    stats?: {
+      total_calls: number;
+      successful_calls: number;
+      timed_out_calls: number;
+      retry_calls: number;
+      backup_key_calls: number;
+      backup_failovers: number;
+      active_key_index: number;
+      active_key_masked: string;
+    };
   };
 }
 
@@ -139,6 +149,10 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
       const quizService = new QuizService(dbService);
       const throttleSpeed = (await prefs.get<string>('throttleSpeed')) || 'low';
       const delayMs = throttleSpeed === 'high' ? 4000 : 0;
+      const sessionId =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `quiz-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
       let existingQuestions: string[] = [];
       let existingFlashcards: string[] = [];
@@ -166,6 +180,9 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
               questions: existingQuestions,
               flashcards: existingFlashcards,
             },
+            chunkIndex: 1,
+            totalChunks: 1,
+            sessionId,
           },
           { signal: abortController.signal }
         );
@@ -214,6 +231,9 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
                   flashcardCount: 5,
                   throttleSpeed,
                   previousContext: chunkContext,
+                  chunkIndex: idx + 1,
+                  totalChunks: chunks.length,
+                  sessionId,
                 },
                 { signal: abortController.signal }
               );

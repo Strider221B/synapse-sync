@@ -178,6 +178,7 @@ class TestGenerateQuiz:
         assert len(result["flashcards"]) == 1
         assert result["metadata"]["inputTokens"] == 120
         assert result["metadata"]["outputTokens"] == 95
+        assert "stats" in result["metadata"]
         mock_service.call_with_retry.assert_called_once()
 
     def test_generate_quiz_chunks_long_text_and_combines_results(self) -> None:

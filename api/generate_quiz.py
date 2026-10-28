@@ -142,14 +142,17 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         gemini_svc = service if service is not None else GeminiService(delay_seconds=delay_seconds)
         words = text.split()
         if len(words) <= chunk_size:
-            return self._generate_single_chunk(
+            result = self._generate_single_chunk(
                 text, difficulty, mcq_count, flashcard_count, gemini_svc, active_model,
                 previous_context=previous_context,
             )
-        return self._generate_chunked(
-            words, difficulty, mcq_count, flashcard_count, gemini_svc, active_model, chunk_size,
-            previous_context=previous_context,
-        )
+        else:
+            result = self._generate_chunked(
+                words, difficulty, mcq_count, flashcard_count, gemini_svc, active_model, chunk_size,
+                previous_context=previous_context,
+            )
+        result["metadata"]["stats"] = gemini_svc.get_stats()
+        return result
 
     def _accumulate_chunk_items(
         self, accumulated: list[str], chunk_result: dict[str, Any]

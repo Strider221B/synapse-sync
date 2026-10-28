@@ -302,5 +302,65 @@ class TestGeminiService:
         assert res.text == '{"result": "ok"}'
         assert mock_client.models.generate_content.call_count == 2
 
+    def test_get_stats_and_reset_stats_lifecycle(self) -> None:
+        """Verify get_stats tracks successful calls and reset_stats clears them."""
+        mock_client = MagicMock()
+        mock_response = MagicMock(text='{"result": "ok"}')
+        mock_client.models.generate_content.return_value = mock_response
+
+        service = GeminiService(
+            api_key="AIzaSyTestKey123456", delay_seconds=0.0, client=mock_client
+        )
+        initial_stats = service.get_stats()
+        assert initial_stats["total_calls"] == 0
+        assert initial_stats["successful_calls"] == 0
+
+        service.call_with_retry("gemini-2.5-flash", "test prompt")
+        stats_after = service.get_stats()
+        assert stats_after["total_calls"] == 1
+        assert stats_after["successful_calls"] == 1
+        assert stats_after["active_key_index"] == 0
+        assert stats_after["active_key_masked"] == "AIza...3456"
+
+        service.reset_stats()
+        assert service.get_stats()["total_calls"] == 0
+
+    def test_get_stats_tracks_timeouts_and_backup_failovers(self) -> None:
+        """Verify stats record timeouts, backup key switches, and backup key calls."""
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = [
+            TimeoutError("Timed out after 600s"),
+            MagicMock(text="ok"),
+        ]
+
+        service = GeminiService(
+            api_key="key-primary",
+            fallback_api_keys=["key-backup"],
+            delay_seconds=0.0,
+            client=mock_client,
+        )
+
+        res = service.call_with_retry("gemini-2.5-flash", "test")
+
+        stats = service.get_stats()
+        assert res.text == "ok"
+        assert stats["total_calls"] == 2
+        assert stats["successful_calls"] == 1
+        assert stats["timed_out_calls"] == 1
+        assert stats["backup_key_calls"] == 1
+        assert stats["backup_failovers"] == 1
+
+    def test_get_active_api_key_masked_formats(self) -> None:
+        """Verify get_active_api_key_masked handles none, short, and standard keys."""
+        service_none = GeminiService(api_key=None, client=MagicMock())
+        with patch.dict("os.environ", {}, clear=True):
+            assert service_none.get_active_api_key_masked() == "<none>"
+
+        service_short = GeminiService(api_key="abcde", client=MagicMock())
+        assert service_short.get_active_api_key_masked() == "***de"
+
+        service_normal = GeminiService(api_key="1234567890", client=MagicMock())
+        assert service_normal.get_active_api_key_masked() == "1234...7890"
+
 
 
