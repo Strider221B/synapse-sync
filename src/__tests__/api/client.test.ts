@@ -104,5 +104,55 @@ describe('ApiClient', () => {
     const result = await client.get<{ safe: boolean }>('/safe-fetch');
     assert.equal(result.safe, true);
   });
+
+  it('times out when request exceeds timeoutMs and throws ApiError', async () => {
+    const hangingFetch = async (_url: RequestInfo | URL, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        if (init?.signal) {
+          init.signal.addEventListener('abort', () => {
+            reject(new Error('AbortError'));
+          });
+        }
+      });
+    };
+
+    const client = new ApiClient('', hangingFetch as typeof fetch);
+    await assert.rejects(
+      async () => client.post('/slow', {}, { timeoutMs: 50 }),
+      (err: unknown) => {
+        assert.ok(err instanceof ApiError);
+        assert.equal(err.status, 408);
+        assert.equal(err.code, 'TIMEOUT');
+        return true;
+      }
+    );
+  });
+
+  it('aborts request when external signal is aborted', async () => {
+    const controller = new AbortController();
+    const mockFetch = async (_url: RequestInfo | URL, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        if (init?.signal) {
+          init.signal.addEventListener('abort', () => {
+            reject(new Error('AbortError'));
+          });
+        }
+      });
+    };
+
+    const client = new ApiClient('', mockFetch as typeof fetch);
+    const postPromise = client.post('/cancel', {}, { signal: controller.signal });
+    controller.abort();
+
+    await assert.rejects(
+      async () => postPromise,
+      (err: unknown) => {
+        assert.ok(err instanceof ApiError);
+        assert.equal(err.status, 499);
+        assert.equal(err.code, 'ABORTED');
+        return true;
+      }
+    );
+  });
 });
 

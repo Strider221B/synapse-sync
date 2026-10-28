@@ -19,7 +19,9 @@ class TestGeminiService:
         with patch("google.genai.Client") as mock_client_cls:
             client = service.configure()
             assert client == mock_client_cls.return_value
-            mock_client_cls.assert_called_once_with(api_key="test-api-key")
+            mock_client_cls.assert_called_once()
+            assert mock_client_cls.call_args.kwargs["api_key"] == "test-api-key"
+            assert "http_options" in mock_client_cls.call_args.kwargs
 
     def test_configure_raises_value_error_when_no_key_available(self) -> None:
         """Verify configure raises ValueError when neither param nor env var has key."""
@@ -262,5 +264,23 @@ class TestGeminiService:
         assert service.switch_to_next_fallback_key() == "k3"
         assert service.has_next_fallback_key() is False
         assert service.switch_to_next_fallback_key() is None
+
+    def test_call_with_retry_retries_on_timeout_and_succeeds(self) -> None:
+        """Verify call_with_retry retries on socket timeout and succeeds on subsequent try."""
+        mock_client = MagicMock()
+        mock_response = MagicMock(text='{"result": "ok"}')
+        mock_client.models.generate_content.side_effect = [
+            TimeoutError("Request timed out after 60s"),
+            mock_response,
+        ]
+
+        service = GeminiService(api_key="key", delay_seconds=0.0, client=mock_client)
+        model = Config.get_default_model()
+        with patch("time.sleep"):
+            res = service.call_with_retry(model, "prompt", max_retries=2)
+
+        assert res.text == '{"result": "ok"}'
+        assert mock_client.models.generate_content.call_count == 2
+
 
 

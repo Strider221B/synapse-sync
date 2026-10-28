@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, use, useEffect, useState } from 'react';
+import React, { Suspense, use, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { DEFAULT_AI_MODEL } from '@/lib/api/ai_config';
@@ -77,6 +77,14 @@ function QuizContent({ params }: QuizPageProps) {
   const [availableQuizzes, setAvailableQuizzes] = useState<Quiz[]>([]);
   const [rerollError, setRerollError] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
+  const rerollAbortControllerRef = useRef<AbortController | null>(null);
+
+  const handleCancelReroll = () => {
+    if (rerollAbortControllerRef.current) {
+      rerollAbortControllerRef.current.abort();
+      rerollAbortControllerRef.current = null;
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -186,6 +194,9 @@ function QuizContent({ params }: QuizPageProps) {
     setRerollError(null);
     setRerollProgress(null);
 
+    const abortController = new AbortController();
+    rerollAbortControllerRef.current = abortController;
+
     try {
       const words = note.content.trim().split(/\s+/);
       const CHUNK_WORDS = 2500;
@@ -204,17 +215,21 @@ function QuizContent({ params }: QuizPageProps) {
 
       if (words.length <= CHUNK_WORDS) {
         setRerollProgress({ currentChunk: 1, totalChunks: 1, mcqCount: 0, flashcardCount: 0, throttleSpeed });
-        const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
-          text: note.content,
-          difficulty: 'medium',
-          mcqCount: 5,
-          flashcardCount: 5,
-          throttleSpeed,
-          previousContext: {
-            questions: existingQuestions,
-            flashcards: existingFlashcards,
+        const response = await client.post<GenerateQuizApiResponse>(
+          '/api/generate-quiz',
+          {
+            text: note.content,
+            difficulty: 'medium',
+            mcqCount: 5,
+            flashcardCount: 5,
+            throttleSpeed,
+            previousContext: {
+              questions: existingQuestions,
+              flashcards: existingFlashcards,
+            },
           },
-        });
+          { signal: abortController.signal }
+        );
         allMCQs = response.mcqs;
         allFlashcards = response.flashcards;
         lastModel = response.metadata?.model || DEFAULT_AI_MODEL;
@@ -225,8 +240,14 @@ function QuizContent({ params }: QuizPageProps) {
         }
 
         for (let idx = 0; idx < chunks.length; idx++) {
+          if (abortController.signal.aborted) {
+            break;
+          }
           if (idx > 0 && delayMs > 0) {
             await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+          if (abortController.signal.aborted) {
+            break;
           }
           setRerollProgress({
             currentChunk: idx + 1,
@@ -239,18 +260,55 @@ function QuizContent({ params }: QuizPageProps) {
             questions: [...existingQuestions, ...allMCQs.map((q) => q.question)],
             flashcards: [...existingFlashcards, ...allFlashcards.map((f) => f.front)],
           };
-          const response = await client.post<GenerateQuizApiResponse>('/api/generate-quiz', {
-            text: chunks[idx],
-            difficulty: 'medium',
-            mcqCount: 5,
-            flashcardCount: 5,
-            throttleSpeed,
-            previousContext: chunkContext,
-          });
-          allMCQs.push(...response.mcqs);
-          allFlashcards.push(...response.flashcards);
-          lastModel = response.metadata?.model || DEFAULT_AI_MODEL;
+
+          let chunkSuccess = false;
+          let lastChunkError: unknown = null;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            if (abortController.signal.aborted) break;
+            try {
+              const response = await client.post<GenerateQuizApiResponse>(
+                '/api/generate-quiz',
+                {
+                  text: chunks[idx],
+                  difficulty: 'medium',
+                  mcqCount: 5,
+                  flashcardCount: 5,
+                  throttleSpeed,
+                  previousContext: chunkContext,
+                },
+                { signal: abortController.signal }
+              );
+              allMCQs.push(...response.mcqs);
+              allFlashcards.push(...response.flashcards);
+              lastModel = response.metadata?.model || DEFAULT_AI_MODEL;
+              chunkSuccess = true;
+              break;
+            } catch (chunkErr) {
+              lastChunkError = chunkErr;
+              if (abortController.signal.aborted) break;
+              if (attempt === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+              }
+            }
+          }
+
+          if (!chunkSuccess) {
+            if (abortController.signal.aborted) break;
+            if (allMCQs.length > 0) {
+              console.warn(`Chunk ${idx + 1} failed, saving ${allMCQs.length} accumulated questions`, lastChunkError);
+              break;
+            }
+            throw lastChunkError;
+          }
         }
+      }
+
+      if (abortController.signal.aborted && allMCQs.length === 0) {
+        return;
+      }
+
+      if (allMCQs.length === 0) {
+        throw new Error('Failed to generate any quiz questions.');
       }
 
       const formattedMCQs = allMCQs.map((q) => ({
@@ -289,16 +347,22 @@ function QuizContent({ params }: QuizPageProps) {
 
       router.push(`/quiz/${newQuiz.quiz.id}`);
     } catch (err: unknown) {
+      if (err instanceof Error && (err.message.includes('aborted') || err.message.includes('ABORTED'))) {
+        return;
+      }
       const errorMsg =
         err instanceof Error
           ? err.message.includes('429') || err.message.includes('RATE_LIMITED')
             ? 'Gemini API rate limit reached. Try again in a minute.'
+            : err.message.includes('TIMEOUT') || err.message.includes('timed out') || err.message.includes('408')
+            ? 'Quiz generation timed out. Please try again.'
             : err.message
           : 'Failed to generate new quiz. Please try again.';
       setRerollError(errorMsg);
     } finally {
       setIsRerolling(false);
       setRerollProgress(null);
+      rerollAbortControllerRef.current = null;
     }
   };
 
@@ -626,13 +690,33 @@ function QuizContent({ params }: QuizPageProps) {
             gap: '0.5rem',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 600 }}>
             <span>
               ⚡ Re-generating questions across document (Chunk {rerollProgress.currentChunk} of {rerollProgress.totalChunks} • {rerollProgress.throttleSpeed === 'high' ? 'High throttle (Free Tier)' : 'Low throttle (Paid Plan)'})...
             </span>
-            <span>
-              {rerollProgress.mcqCount + rerollProgress.flashcardCount} questions accumulated
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span>
+                {rerollProgress.mcqCount + rerollProgress.flashcardCount} questions accumulated
+              </span>
+              <button
+                type="button"
+                onClick={handleCancelReroll}
+                style={{
+                  padding: '0.2rem 0.55rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  color: 'var(--color-error)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  transition: 'all var(--transition-fast)',
+                }}
+                title="Cancel re-generation and keep accumulated questions"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
           <div
             style={{

@@ -7,6 +7,12 @@ export interface ApiErrorPayload {
   message?: string;
 }
 
+export interface RequestOptions {
+  headers?: Record<string, string>;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
 export class ApiError extends Error {
   public readonly status: number;
   public readonly code: string;
@@ -31,6 +37,9 @@ export class ApiClient {
   private static readonly _METHOD_GET = 'GET';
   private static readonly _MAX_RETRIES = 3;
   private static readonly _INITIAL_BACKOFF_MS = 300;
+  private static readonly _DEFAULT_TIMEOUT_MS = 90000;
+  private static readonly _STATUS_REQUEST_TIMEOUT = 408;
+  private static readonly _STATUS_CLIENT_CLOSED = 499;
   private static readonly _STATUS_TOO_MANY_REQUESTS = 429;
   private static readonly _STATUS_SERVER_ERROR_MIN = 500;
   private static readonly _STATUS_SERVER_ERROR_MAX = 599;
@@ -46,59 +55,91 @@ export class ApiClient {
   /**
    * Sends a JSON GET request to the specified endpoint with retry capability.
    */
-  public async get<T>(endpoint: string, customHeaders: Record<string, string> = {}): Promise<T> {
+  public async get<T>(
+    endpoint: string,
+    optionsOrHeaders: RequestOptions | Record<string, string> = {}
+  ): Promise<T> {
+    const options: RequestOptions =
+      'timeoutMs' in optionsOrHeaders || 'signal' in optionsOrHeaders || 'headers' in optionsOrHeaders
+        ? (optionsOrHeaders as RequestOptions)
+        : { headers: optionsOrHeaders as Record<string, string> };
     const url = this._buildUrl(endpoint);
     const headers = {
       [ApiClient._HEADER_ACCEPT]: ApiClient._MIME_JSON,
-      ...customHeaders,
+      ...(options.headers || {}),
     };
+    const timeoutMs = options.timeoutMs ?? ApiClient._DEFAULT_TIMEOUT_MS;
 
     return this._executeWithRetry(async () => {
-      const response = await this._fetchFn(url, {
-        method: ApiClient._METHOD_GET,
-        headers,
-      });
-      return this._handleResponse<T>(response);
+      return this._fetchWithTimeout<T>(
+        url,
+        {
+          method: ApiClient._METHOD_GET,
+          headers,
+        },
+        timeoutMs,
+        options.signal
+      );
     });
   }
 
   /**
    * Sends a JSON POST request to the specified endpoint with retry capability.
    */
-  public async post<T>(endpoint: string, data: unknown): Promise<T> {
+  public async post<T>(
+    endpoint: string,
+    data: unknown,
+    options: RequestOptions = {}
+  ): Promise<T> {
     const url = this._buildUrl(endpoint);
     const body = JSON.stringify(data);
     const headers = {
       [ApiClient._HEADER_CONTENT_TYPE]: ApiClient._MIME_JSON,
       [ApiClient._HEADER_ACCEPT]: ApiClient._MIME_JSON,
+      ...(options.headers || {}),
     };
+    const timeoutMs = options.timeoutMs ?? ApiClient._DEFAULT_TIMEOUT_MS;
 
     return this._executeWithRetry(async () => {
-      const response = await this._fetchFn(url, {
-        method: ApiClient._METHOD_POST,
-        headers,
-        body,
-      });
-      return this._handleResponse<T>(response);
+      return this._fetchWithTimeout<T>(
+        url,
+        {
+          method: ApiClient._METHOD_POST,
+          headers,
+          body,
+        },
+        timeoutMs,
+        options.signal
+      );
     });
   }
 
   /**
    * Sends a multipart/form-data POST request with retry capability.
    */
-  public async postFormData<T>(endpoint: string, formData: FormData): Promise<T> {
+  public async postFormData<T>(
+    endpoint: string,
+    formData: FormData,
+    options: RequestOptions = {}
+  ): Promise<T> {
     const url = this._buildUrl(endpoint);
     const headers = {
       [ApiClient._HEADER_ACCEPT]: ApiClient._MIME_JSON,
+      ...(options.headers || {}),
     };
+    const timeoutMs = options.timeoutMs ?? ApiClient._DEFAULT_TIMEOUT_MS;
 
     return this._executeWithRetry(async () => {
-      const response = await this._fetchFn(url, {
-        method: ApiClient._METHOD_POST,
-        headers,
-        body: formData,
-      });
-      return this._handleResponse<T>(response);
+      return this._fetchWithTimeout<T>(
+        url,
+        {
+          method: ApiClient._METHOD_POST,
+          headers,
+          body: formData,
+        },
+        timeoutMs,
+        options.signal
+      );
     });
   }
 
@@ -144,13 +185,71 @@ export class ApiClient {
    */
   protected _isRetryable(error: unknown): boolean {
     if (error instanceof ApiError) {
+      if (error.code === 'ABORTED') {
+        return false;
+      }
       return (
         error.status === ApiClient._STATUS_TOO_MANY_REQUESTS ||
+        error.status === ApiClient._STATUS_REQUEST_TIMEOUT ||
         (error.status >= ApiClient._STATUS_SERVER_ERROR_MIN &&
           error.status <= ApiClient._STATUS_SERVER_ERROR_MAX)
       );
     }
     return error instanceof TypeError; // Network errors in Fetch API are TypeErrors
+  }
+
+  /**
+   * Executes fetch with timeout and external cancellation support.
+   */
+  private async _fetchWithTimeout<T>(
+    url: string,
+    init: RequestInit,
+    timeoutMs: number,
+    externalSignal?: AbortSignal
+  ): Promise<T> {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        controller.abort(
+          new ApiError('Request timed out', ApiClient._STATUS_REQUEST_TIMEOUT, 'TIMEOUT')
+        );
+      }, timeoutMs);
+    }
+
+    const onExternalAbort = () => {
+      controller.abort(externalSignal?.reason);
+    };
+
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        controller.abort(externalSignal.reason);
+      } else {
+        externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+      }
+    }
+
+    try {
+      const response = await this._fetchFn(url, {
+        ...init,
+        signal: controller.signal,
+      });
+      return await this._handleResponse<T>(response);
+    } catch (err: unknown) {
+      if (controller.signal.aborted && controller.signal.reason instanceof ApiError) {
+        throw controller.signal.reason;
+      }
+      if (externalSignal?.aborted) {
+        throw new ApiError('Request aborted by user', ApiClient._STATUS_CLIENT_CLOSED, 'ABORTED');
+      }
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onExternalAbort);
+      }
+    }
   }
 
   /**

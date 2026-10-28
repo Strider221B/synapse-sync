@@ -126,7 +126,7 @@ class TestGenerateQuiz:
     def test_do_post_returns_500_on_generation_failure(self) -> None:
         """Verify do_POST responds with 500 when generation fails unexpectedly."""
         handler = self._create_handler({"text": self._SAMPLE_TEXT})
-        err = RuntimeError("Unexpected AI model timeout")
+        err = RuntimeError("Unexpected AI model breakdown")
 
         with (
             patch.object(handler, "generate_quiz", side_effect=err),
@@ -139,6 +139,23 @@ class TestGenerateQuiz:
 
         resp_data = self._get_response_json(handler)
         assert resp_data["error"]["code"] == "GENERATION_FAILED"
+
+    def test_do_post_returns_504_on_timeout(self) -> None:
+        """Verify do_POST responds with 504 when generation times out."""
+        handler = self._create_handler({"text": self._SAMPLE_TEXT})
+        err = TimeoutError("Request timed out after 60s")
+
+        with (
+            patch.object(handler, "generate_quiz", side_effect=err),
+            patch.object(handler, "send_response") as mock_resp,
+            patch.object(handler, "send_header"),
+            patch.object(handler, "end_headers"),
+        ):
+            handler.do_POST()
+            mock_resp.assert_called_once_with(504)
+
+        resp_data = self._get_response_json(handler)
+        assert resp_data["error"]["code"] == "TIMEOUT"
 
     def test_generate_quiz_invokes_gemini_service(self) -> None:
         """Verify generate_quiz delegates to GeminiService and formats tokens."""

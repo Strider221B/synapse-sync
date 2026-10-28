@@ -18,8 +18,10 @@ class GeminiService:
     _ENV_API_KEY: ClassVar[str] = "GEMINI_API_KEY"
     _ENV_BACKUP_KEY: ClassVar[str] = "GEMINI_API_KEY_BACKUP"
     _DEFAULT_DELAY_SECONDS: ClassVar[float] = 4.0
+    _DEFAULT_REQUEST_TIMEOUT: ClassVar[float] = 60.0
     _INITIAL_BACKOFF_SECONDS: ClassVar[float] = 2.0
     _BACKOFF_FACTOR: ClassVar[float] = 2.0
+    _KEY_TIMEOUT: ClassVar[str] = "timeout"
     _RATE_LIMIT_MARKER_429: ClassVar[str] = "429"
     _RATE_LIMIT_MARKER_RESOURCE: ClassVar[str] = "resourceexhausted"
     _RATE_LIMIT_MARKER_QUOTA: ClassVar[str] = "quota"
@@ -37,6 +39,10 @@ class GeminiService:
     _ERR_MARKER_PER_DAY: ClassVar[str] = "per day"
     _ERR_MARKER_FREE_TIER: ClassVar[str] = "free tier"
     _ERR_MARKER_DAILY: ClassVar[str] = "daily"
+    _ERR_MARKER_TIMEOUT: ClassVar[str] = "timeout"
+    _ERR_MARKER_TIMED_OUT: ClassVar[str] = "timed out"
+    _ERR_MARKER_CONNECTION: ClassVar[str] = "connection"
+    _ERR_MARKER_RESET: ClassVar[str] = "reset"
     _ERR_MISSING_API_KEY: ClassVar[str] = "GEMINI_API_KEY environment variable is not set."
     _ERR_MAX_RETRIES: ClassVar[str] = "Maximum retry attempts exceeded for Gemini API call."
     _ERR_UNSUPPORTED_CLIENT: ClassVar[str] = (
@@ -50,12 +56,16 @@ class GeminiService:
         client: Any = None,
         genai_module: Any = None,
         fallback_api_keys: list[str] | None = None,
+        request_timeout: float | None = None,
     ) -> None:
         """Initialize the GeminiService with optional API keys, delay, and API client."""
         self._delay_seconds = delay_seconds
         self._client = client if client is not None else genai_module
         self._last_call_timestamp: float = 0.0
         self._active_key_index: int = 0
+        self._request_timeout = (
+            request_timeout if request_timeout is not None else self._DEFAULT_REQUEST_TIMEOUT
+        )
         self._api_keys = self._resolve_api_keys(api_key, fallback_api_keys)
         self._api_key: str | None = (
             self._api_keys[0] if self._api_keys else (api_key or os.getenv(self._ENV_API_KEY))
@@ -67,7 +77,7 @@ class GeminiService:
         if not active_key:
             raise ValueError(self._ERR_MISSING_API_KEY)
         if self._client is None:
-            self._client = genai.Client(api_key=active_key)
+            self._client = self._create_genai_client(active_key)
         elif hasattr(self._client, "configure"):
             self._client.configure(api_key=active_key)
         return self._client
@@ -118,7 +128,7 @@ class GeminiService:
         if self._client is not None and hasattr(self._client, "configure"):
             self._client.configure(api_key=new_key)
         else:
-            self._client = genai.Client(api_key=new_key)
+            self._client = self._create_genai_client(new_key)
         return new_key
 
     def _build_generate_content_config(self, config: Any) -> types.GenerateContentConfig:
@@ -135,6 +145,13 @@ class GeminiService:
                 disable=True
             )
         return gen_config
+
+    def _create_genai_client(self, api_key: str) -> Any:
+        """Instantiate Google GenAI Client with active API key and timeout options."""
+        http_options = types.HttpOptions(
+            client_args={self._KEY_TIMEOUT: self._request_timeout}
+        )
+        return genai.Client(api_key=api_key, http_options=http_options)
 
     def _execute_call_loop(
         self,
@@ -215,10 +232,14 @@ class GeminiService:
         return self._ERR_MARKER_403 in error_msg and "quota" in error_msg
 
     def _is_retryable_error(self, err: Exception) -> bool:
-        """Determine if exception is safe to auto-retry (transient 5xx or rate limit)."""
+        """Determine if exception is safe to auto-retry (transient 5xx, rate limit, or timeout)."""
         if self._is_daily_quota_error(err):
             return False
-        return self._is_server_5xx_error(err) or self._is_rate_limit_error(err)
+        return (
+            self._is_server_5xx_error(err)
+            or self._is_rate_limit_error(err)
+            or self._is_timeout_or_network_error(err)
+        )
 
     def _is_server_5xx_error(self, err: Exception) -> bool:
         """Determine if an exception represents a 5xx or unavailable server error."""
@@ -232,6 +253,16 @@ class GeminiService:
             or self._ERR_MARKER_HIGH_DEMAND in error_msg
             or self._ERR_MARKER_SERVER_ERROR in error_msg
             or self._ERR_MARKER_OVERLOADED in error_msg
+        )
+
+    def _is_timeout_or_network_error(self, err: Exception) -> bool:
+        """Determine if an exception represents a network timeout or connection reset."""
+        error_msg = str(err).lower()
+        return (
+            self._ERR_MARKER_TIMEOUT in error_msg
+            or self._ERR_MARKER_TIMED_OUT in error_msg
+            or self._ERR_MARKER_CONNECTION in error_msg
+            or self._ERR_MARKER_RESET in error_msg
         )
 
     def _resolve_api_keys(

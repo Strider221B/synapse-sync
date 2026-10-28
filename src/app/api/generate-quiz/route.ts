@@ -8,6 +8,8 @@ function getPythonPath(): string {
   return process.env.PYTHON_PATH || venvPython;
 }
 
+const SUBPROCESS_TIMEOUT_MS = 75_000;
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -33,10 +35,23 @@ export async function POST(req: NextRequest) {
     ].join('\n');
 
     const result = await new Promise<string>((resolve, reject) => {
+      let isSettled = false;
       const proc = spawn(pythonBin, ['-c', pyScript], {
         cwd: process.cwd(),
         env: { ...process.env },
       });
+
+      const timer = setTimeout(() => {
+        if (!isSettled) {
+          isSettled = true;
+          try {
+            proc.kill('SIGKILL');
+          } catch {
+            // Subprocess may have already terminated
+          }
+          reject(new Error('Quiz generation subprocess timed out after 75 seconds'));
+        }
+      }, SUBPROCESS_TIMEOUT_MS);
 
       let stdout = '';
       let stderr = '';
@@ -49,11 +64,31 @@ export async function POST(req: NextRequest) {
         stderr += chunk.toString();
       });
 
+      proc.on('error', (err) => {
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timer);
+          reject(err);
+        }
+      });
+
+      proc.stdin.on('error', (err) => {
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timer);
+          reject(err);
+        }
+      });
+
       proc.on('close', (code) => {
-        if (code === 0) {
-          resolve(stdout);
-        } else {
-          reject(new Error(stderr || `Quiz generator failed with code ${code}`));
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timer);
+          if (code === 0) {
+            resolve(stdout);
+          } else {
+            reject(new Error(stderr || `Quiz generator failed with code ${code}`));
+          }
         }
       });
 
@@ -66,16 +101,20 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Quiz generation failed';
     const isRateLimited = message.includes('429') || message.toLowerCase().includes('quota');
+    const isTimeout =
+      message.toLowerCase().includes('timeout') || message.toLowerCase().includes('timed out');
     return NextResponse.json(
       {
         error: {
-          code: isRateLimited ? 'RATE_LIMITED' : 'GENERATION_FAILED',
+          code: isRateLimited ? 'RATE_LIMITED' : isTimeout ? 'TIMEOUT' : 'GENERATION_FAILED',
           message: isRateLimited
             ? 'Gemini API rate limit reached. Try again in a minute.'
+            : isTimeout
+            ? 'Quiz generation timed out. Please try again.'
             : message,
         },
       },
-      { status: isRateLimited ? 429 : 500 }
+      { status: isRateLimited ? 429 : isTimeout ? 504 : 500 }
     );
   }
 }
