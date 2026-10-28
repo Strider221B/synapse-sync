@@ -250,6 +250,26 @@ class TestGeminiService:
             with pytest.raises(Exception, match="429 rate limit reached key 1"):
                 service.call_with_retry("gemini-test", "prompt", max_retries=0)
 
+    def test_call_with_retry_fails_over_to_fallback_key_on_timeout(self) -> None:
+        """Verify timeout triggers failover to fallback Gemini API key."""
+        mock_client = MagicMock()
+        mock_response = MagicMock(text='{"result": "recovered"}')
+        mock_client.models.generate_content.side_effect = [
+            TimeoutError("Request timed out after 300s"),
+            mock_response,
+        ]
+
+        service = GeminiService(
+            api_key="key-0",
+            delay_seconds=0.0,
+            client=mock_client,
+            fallback_api_keys=["key-1"],
+        )
+        res = service.call_with_retry("gemini-test", "prompt")
+        assert res.text == '{"result": "recovered"}'
+        assert service.get_active_api_key() == "key-1"
+        assert mock_client.models.generate_content.call_count == 2
+
     def test_switch_to_next_fallback_key_lifecycle(self) -> None:
         """Verify has_next_fallback_key and switch_to_next_fallback_key state changes."""
         service = GeminiService(

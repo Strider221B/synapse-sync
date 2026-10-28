@@ -18,7 +18,7 @@ class GeminiService:
     _ENV_API_KEY: ClassVar[str] = "GEMINI_API_KEY"
     _ENV_BACKUP_KEY: ClassVar[str] = "GEMINI_API_KEY_BACKUP"
     _DEFAULT_DELAY_SECONDS: ClassVar[float] = 4.0
-    _DEFAULT_REQUEST_TIMEOUT: ClassVar[float] = 60.0
+    _DEFAULT_REQUEST_TIMEOUT: ClassVar[float] = 300.0
     _INITIAL_BACKOFF_SECONDS: ClassVar[float] = 2.0
     _BACKOFF_FACTOR: ClassVar[float] = 2.0
     _KEY_TIMEOUT: ClassVar[str] = "timeout"
@@ -99,7 +99,7 @@ class GeminiService:
                     client, model_name, prompt, config, max_retries, on_retry
                 )
             except Exception as err:
-                if self._is_request_limit_error(err) and self.has_next_fallback_key():
+                if self._is_failover_error(err) and self.has_next_fallback_key():
                     self.switch_to_next_fallback_key()
                     continue
                 raise
@@ -170,7 +170,7 @@ class GeminiService:
                 self._last_call_timestamp = time.time()
                 return response
             except Exception as err:
-                if self._is_request_limit_error(err) and self.has_next_fallback_key():
+                if self._is_failover_error(err) and self.has_next_fallback_key():
                     raise
                 if attempt >= max_retries or not self._is_retryable_error(err):
                     raise
@@ -202,6 +202,10 @@ class GeminiService:
             or self._ERR_MARKER_FREE_TIER in error_msg
             or self._ERR_MARKER_DAILY in error_msg
         )
+
+    def _is_failover_error(self, err: Exception) -> bool:
+        """Determine if an exception warrants failover to a fallback Gemini API key."""
+        return self._is_request_limit_error(err) or self._is_timeout_or_network_error(err)
 
     def _is_rate_limit_error(self, err: Exception) -> bool:
         """Determine if an exception represents a 429 or quota exhaustion error."""

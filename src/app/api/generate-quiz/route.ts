@@ -8,7 +8,7 @@ function getPythonPath(): string {
   return process.env.PYTHON_PATH || venvPython;
 }
 
-const SUBPROCESS_TIMEOUT_MS = 75_000;
+const SUBPROCESS_TIMEOUT_MS = 360_000;
 
 export async function POST(req: NextRequest) {
   try {
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
           } catch {
             // Subprocess may have already terminated
           }
-          reject(new Error('Quiz generation subprocess timed out after 75 seconds'));
+          reject(new Error('Quiz generation subprocess timed out after 360 seconds'));
         }
       }, SUBPROCESS_TIMEOUT_MS);
 

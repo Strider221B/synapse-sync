@@ -37,7 +37,7 @@ export class ApiClient {
   private static readonly _METHOD_GET = 'GET';
   private static readonly _MAX_RETRIES = 3;
   private static readonly _INITIAL_BACKOFF_MS = 300;
-  private static readonly _DEFAULT_TIMEOUT_MS = 90000;
+  private static readonly _DEFAULT_TIMEOUT_MS = 420000;
   private static readonly _STATUS_REQUEST_TIMEOUT = 408;
   private static readonly _STATUS_CLIENT_CLOSED = 499;
   private static readonly _STATUS_TOO_MANY_REQUESTS = 429;
