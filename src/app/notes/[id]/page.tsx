@@ -303,13 +303,14 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
           const { SyncQueueService } = await import('@/lib/db/services/sync_queue_service');
           const sqService = new SyncQueueService(dbService);
           await sqService.enqueue('quiz', newQuiz.quiz.id, 'create', { noteId: note.id });
+          void syncManager.forceSync().catch(() => {});
         }
       } else {
         const { SyncQueueService } = await import('@/lib/db/services/sync_queue_service');
         const sqService = new SyncQueueService(dbService);
         await sqService.enqueue('quiz', newQuiz.quiz.id, 'create', { noteId: note.id });
+        void syncManager.forceSync().catch(() => {});
       }
-      void syncManager.forceSync().catch(() => {});
 
       router.push(`/quiz/${newQuiz.quiz.id}`);
     } catch (err: unknown) {

@@ -83,10 +83,18 @@ export class SyncManager {
    * Triggers an immediate force synchronization pushing local changes and pulling remote updates.
    */
   public async forceSync(): Promise<SyncResult | SyncReplayResult> {
-    if (this._syncService && this._syncService.isConnected()) {
-      return this._syncService.syncAll();
+    if (this._isProcessing) {
+      return { totalProcessed: 0, succeeded: 0, failed: 0, skipped: 1 };
     }
-    return this.processQueue();
+    this._isProcessing = true;
+    try {
+      if (this._syncService && this._syncService.isConnected()) {
+        return await this._syncService.syncAll();
+      }
+      return await this.processQueue();
+    } finally {
+      this._isProcessing = false;
+    }
   }
 
   /**
