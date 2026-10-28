@@ -201,9 +201,22 @@ graph TD
 |:----------------------|:----------|:-------|:-------------------------------------------------|:--------------------------------|:--------|:---------|
 | `/api/parse-docx`     | Python    | POST   | `.docx` file (multipart)                         | `{ text: string }`             | No      | ~5s      |
 | `/api/youtube-notes`  | Python    | POST   | `{ notebook, notes[] }` (legacy compatibility)   | `{ notebookId, noteIds[] }`    | No      | ~10s     |
-| `/api/generate-quiz`  | Python    | POST   | `{ text, difficulty?, mcqCount?, flashcardCount?, previousContext? }` | `{ mcqs: [scenario], flashcards: [] }` | Yes (multi-key failover) | ~20s |
+| `/api/generate-quiz`  | Python / Next.js | POST   | `{ text, difficulty?, mcqCount?, flashcardCount?, previousContext?, chunkIndex?, totalChunks?, sessionId? }` | `{ mcqs: [scenario], flashcards: [], metadata: { model, stats } }` | Yes (multi-key failover) | Layered: 360s SDK / 20m Node / 22m Client |
 | `/api/summarize`      | Python    | POST   | `{ text: string }`                               | `{ notes: string }`            | Yes     | ~15s     |
 | `/api/chat`           | Python    | POST   | `{ context, question, history }`                 | `{ answer: string }`           | Yes     | ~10s     |
+
+#### Quiz Generation Timeout & Telemetry Architecture
+
+1. **Layered Timeout Hierarchy:**
+   - **Frontend Client (`ApiClient`):** Configured with a default timeout of `1,320,000 ms` (22 minutes).
+   - **Node.js Subprocess (`route.ts`):** Spawns `api/generate_quiz.py` with an execution budget of `1,200,000 ms` (20 minutes) using `detached: true`. On timeout or client abort, the child process group (`-child.pid`) is terminated with `SIGKILL` to prevent orphan Python background processes.
+   - **Gemini SDK (`gemini_service.py`):** Configured with `_DEFAULT_REQUEST_TIMEOUT = 360.0` (6 minutes per individual request). This ensures individual chunk calls have sufficient time to return while failing fast enough for Python's retry and backup key rotation loops to resolve well within Node's execution budget.
+
+2. **Runtime Telemetry & Observability:**
+   - Tracks `total_calls`, `successful_calls`, `timed_out_calls`, `retry_calls`, `backup_key_calls`, `backup_failovers`, and active key masking.
+   - Emits formatted chunk progress updates to the server console:
+     `[Quiz Generator] Chunk 1/13 completed in 203.3s (Gemini calls: 1, timed out: 0, backup key calls: 0)`
+   - Logs an end-of-run banner detailing overall API usage and issues a warning if only a single Gemini API key is configured.
 
 #### Local CLI Tool Specifications
 
@@ -280,6 +293,19 @@ Google Drive: SynapseSync/
 2. **Note Deletions**: Deleting a note in the UI writes a `delete` mutation to `sync_queue`. During the normal sync cycle, `GoogleDriveSyncService._replayQueueEntries` triggers `deleteRemoteNote(noteId)`, removing `note_<id>.json` and `chat_<id>.json` from Google Drive.
 3. **MCQ & Flashcard Deletions**: Individual questions deleted in the quiz view cascade to remove local SRS tracking records and enqueue a quiz update. During normal sync, `pushQuiz(quizId)` replaces the remote bundle `quiz_<quizId>.json` without the deleted cards. When other devices pull, `_saveImportedQuizPayload` reconciles local cards and prunes cards removed from Google Drive.
 4. **Non-Blocking Normal Sync**: Operations do not block user interactions with synchronous remote calls; mutations are recorded locally in IndexedDB and replayed naturally during background sync.
+5. **Quiz Sync Lifecycle & Status Verification**:
+   - `Quiz` entities track `isSynced: boolean`. Newly created quizzes initialize with `isSynced = false`.
+   - `GoogleDriveSyncService.pushQuiz()` updates local IndexedDB to `isSynced = true` upon upload.
+   - `_pushUnsyncedQuizzes()` filters `allQuizzes.filter(q => !q.isSynced)` with per-item error handling, ensuring already-synced quizzes are not repeatedly re-uploaded and touched.
+   - The UI displays dynamic sync indicators: `☁️ Saved to Drive` (when synced), a clickable `☁️ Sync to Drive` / `⏳ Syncing...` action (when local and Drive connected), and `💾 Local Workspace` (when disconnected).
+6. **In-Flight Concurrency Control & Mutex Locking**:
+   - `GoogleDriveApiClient._activeSaves` maps in-flight save promises by `${parentFolderId}:${fileName}`. Concurrent saves share the same in-flight promise rather than generating duplicate files.
+   - `GoogleDriveSyncService._activeQuizPushes` maps in-flight quiz push operations by `quizId`.
+   - `SyncManager.forceSync()` uses an `_isProcessing` guard to prevent overlapping full sync cycles.
+7. **Self-Healing Duplicate Detection & Purging**:
+   - Google Drive's API permits multiple files with identical names due to eventual consistency search delays.
+   - In `GoogleDriveApiClient.saveFile()`, if `findAllFilesByName()` finds more than one file, it updates the primary file and deletes extra duplicates automatically.
+   - In `GoogleDriveSyncService.pullQuizzes()`, seen filenames are tracked, and any duplicate quiz JSON files are purged automatically from Google Drive.
 
 ```mermaid
 sequenceDiagram
