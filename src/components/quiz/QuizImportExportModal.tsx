@@ -205,23 +205,37 @@ export function QuizImportExportModal({
     setSubmitError(null);
     try {
       const dbService = new DatabaseService();
-      const quizService = new QuizService(dbService);
+      const { SyncQueueService } = await import('@/lib/db/services/sync_queue_service');
+      const syncQueueService = new SyncQueueService(dbService);
+      const quizService = new QuizService(dbService, syncQueueService);
       const created = await importExportService.importQuiz(note.id, note.title, activeParsed, quizService);
 
       try {
         const { SyncManager } = await import('@/lib/db/sync_manager');
         const syncManager = SyncManager.getInstance();
-        const syncService = syncManager.getSyncService();
-        if (syncService && syncService.isConnected()) {
-          await syncService.pushQuiz(created.quiz.id).catch(async () => {
-            const { SyncQueueService } = await import('@/lib/db/services/sync_queue_service');
-            const sqService = new SyncQueueService(dbService);
-            await sqService.enqueue('quiz', created.quiz.id, 'create', { noteId: note.id });
-            void syncManager.forceSync().catch(() => {});
-          });
+        let syncService = syncManager.getSyncService();
+        if (!syncService) {
+          const { AuthService } = await import('@/lib/auth/auth_service');
+          const auth = new AuthService();
+          await auth.initialize();
+          if (auth.isAuthenticated()) {
+            const { GoogleDriveApiClient } = await import('@/lib/api/google_drive_client');
+            const { GoogleDriveSyncService } = await import('@/lib/db/services/google_drive_sync_service');
+            syncService = new GoogleDriveSyncService(dbService, new GoogleDriveApiClient(auth), auth);
+            syncManager.setSyncService(syncService);
+          }
         }
-      } catch {
-        // Handled gracefully
+
+        if (syncService && syncService.isConnected()) {
+          await syncService.pushQuiz(created.quiz.id);
+          created.quiz.isSynced = true;
+        } else {
+          await syncQueueService.enqueue('quiz', created.quiz.id, 'create', { noteId: note.id });
+          void syncManager.forceSync().catch(() => {});
+        }
+      } catch (syncErr) {
+        console.warn('Direct Google Drive quiz push deferred to sync queue:', syncErr);
+        await syncQueueService.enqueue('quiz', created.quiz.id, 'create', { noteId: note.id });
       }
 
       onImportSuccess(created);

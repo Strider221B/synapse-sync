@@ -291,15 +291,9 @@ export class GoogleDriveSyncService {
    */
   protected async _loadSRSCardsForCards(mcqs: MCQCard[], flashcards: Flashcard[]): Promise<SRSCard[]> {
     const db = await this._dbService.getDB();
-    const srsStore = db.transaction(DB_STORES.SRS_CARDS).store.index(DB_INDEXES.BY_CARD);
-    const cardIds = [...mcqs.map((m) => m.id), ...flashcards.map((f) => f.id)];
-    const records: SRSCard[] = [];
-
-    for (const cardId of cardIds) {
-      const srsCard = await srsStore.get(cardId);
-      if (srsCard) records.push(srsCard);
-    }
-    return records;
+    const cardIdSet = new Set([...mcqs.map((m) => m.id), ...flashcards.map((f) => f.id)]);
+    const allSrs: SRSCard[] = await db.getAll(DB_STORES.SRS_CARDS);
+    return allSrs.filter((s) => cardIdSet.has(s.cardId));
   }
 
   /**

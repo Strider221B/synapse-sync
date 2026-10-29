@@ -58,7 +58,7 @@ function QuizContent({ params }: QuizPageProps) {
   const resolvedParams = use(params);
   const quizId = resolvedParams.id;
   const router = useRouter();
-  const { isAuthenticated } = useGoogleAuth();
+  const { isAuthenticated, authService } = useGoogleAuth();
 
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [note, setNote] = useState<Note | null>(null);
@@ -130,8 +130,15 @@ function QuizContent({ params }: QuizPageProps) {
       }
 
       if (!quizWithCards.quiz.isSynced) {
-        import('@/lib/db/sync_manager').then(({ SyncManager }) => {
-          const syncService = SyncManager.getInstance().getSyncService();
+        import('@/lib/db/sync_manager').then(async ({ SyncManager }) => {
+          const syncManager = SyncManager.getInstance();
+          let syncService = syncManager.getSyncService();
+          if (!syncService && authService && authService.isAuthenticated()) {
+            const { GoogleDriveApiClient } = await import('@/lib/api/google_drive_client');
+            const { GoogleDriveSyncService } = await import('@/lib/db/services/google_drive_sync_service');
+            syncService = new GoogleDriveSyncService(dbService, new GoogleDriveApiClient(authService), authService);
+            syncManager.setSyncService(syncService);
+          }
           if (syncService && syncService.isConnected()) {
             syncService.pushQuiz(quizId).then(() => {
               if (active) {
@@ -172,7 +179,14 @@ function QuizContent({ params }: QuizPageProps) {
     try {
       const { SyncManager } = await import('@/lib/db/sync_manager');
       const syncManager = SyncManager.getInstance();
-      const syncService = syncManager.getSyncService();
+      let syncService = syncManager.getSyncService();
+      if (!syncService && authService && authService.isAuthenticated()) {
+        const { GoogleDriveApiClient } = await import('@/lib/api/google_drive_client');
+        const { GoogleDriveSyncService } = await import('@/lib/db/services/google_drive_sync_service');
+        const { DatabaseService } = await import('@/lib/db/database_service');
+        syncService = new GoogleDriveSyncService(new DatabaseService(), new GoogleDriveApiClient(authService), authService);
+        syncManager.setSyncService(syncService);
+      }
       if (syncService && syncService.isConnected()) {
         await syncService.pushQuiz(quiz.id);
         setQuiz((prev) => (prev ? { ...prev, isSynced: true } : prev));
