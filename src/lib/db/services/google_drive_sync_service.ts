@@ -135,22 +135,24 @@ export class GoogleDriveSyncService {
     const folderId = await this._getNotesFolderId();
     const fileName = `${GoogleDriveSyncService._PREFIX_NOTE}${noteId}${GoogleDriveSyncService._JSON_EXT}`;
     const file = await this._gdriveClient.findFileByName(fileName, folderId);
-    if (file) {
-      await this._gdriveClient.deleteFile(file.id);
-    }
+    if (file) await this._gdriveClient.deleteFile(file.id);
     await this._chatSyncService.deleteRemoteChat(noteId);
   }
 
   /**
-   * Pushes all chat messages associated with a note to its dedicated file on Google Drive.
+   * Removes a quiz file from Google Drive when deleted locally.
    */
+  public async deleteRemoteQuiz(quizId: string): Promise<void> {
+    const folderId = await this._getQuizzesFolderId();
+    const fileName = `${GoogleDriveSyncService._PREFIX_QUIZ}${quizId}${GoogleDriveSyncService._JSON_EXT}`;
+    const file = await this._gdriveClient.findFileByName(fileName, folderId);
+    if (file) await this._gdriveClient.deleteFile(file.id);
+  }
+
   public async pushChat(noteId: string): Promise<void> {
     await this._chatSyncService.pushChat(noteId);
   }
 
-  /**
-   * Removes a chat history file from Google Drive when chat is cleared or note is deleted.
-   */
   public async deleteRemoteChat(noteId: string): Promise<void> {
     await this._chatSyncService.deleteRemoteChat(noteId);
   }
@@ -234,8 +236,10 @@ export class GoogleDriveSyncService {
    */
   public async replaySyncEntry(entry: SyncEntry): Promise<void> {
     if (entry.entityType === 'note') await this._replayNoteEntry(entry);
-    else if (entry.entityType === 'quiz') await this.pushQuiz(entry.entityId);
-    else if (entry.entityType === 'srs_card') await this._replaySRSCardEntry(entry.entityId);
+    else if (entry.entityType === 'quiz') {
+      if (entry.operation === 'delete') await this.deleteRemoteQuiz(entry.entityId);
+      else await this.pushQuiz(entry.entityId);
+    } else if (entry.entityType === 'srs_card') await this._replaySRSCardEntry(entry.entityId);
     else if (entry.entityType === 'notebook') await this._replayNotebookEntry(entry);
   }
 
@@ -405,11 +409,11 @@ export class GoogleDriveSyncService {
   private async _replayNoteEntry(entry: SyncEntry): Promise<void> {
     if (entry.operation === 'delete') {
       await this.deleteRemoteNote(entry.entityId);
-      return;
+    } else {
+      const db = await this._dbService.getDB();
+      const note = await db.get(DB_STORES.NOTES, entry.entityId);
+      if (note) await this.pushNote(note);
     }
-    const db = await this._dbService.getDB();
-    const note = await db.get(DB_STORES.NOTES, entry.entityId);
-    if (note) await this.pushNote(note);
   }
 
   private async _replayNotebookEntry(entry: SyncEntry): Promise<void> {
@@ -449,11 +453,9 @@ export class GoogleDriveSyncService {
   private _isNoteFileName(name: string): boolean {
     return name.startsWith(GoogleDriveSyncService._PREFIX_NOTE) && name.endsWith(GoogleDriveSyncService._JSON_EXT);
   }
-
   private _isQuizFileName(name: string): boolean {
     return name.startsWith(GoogleDriveSyncService._PREFIX_QUIZ) && name.endsWith(GoogleDriveSyncService._JSON_EXT);
   }
-
   private _isNotebookFileName(name: string): boolean {
     return name.startsWith(GoogleDriveSyncService._PREFIX_NOTEBOOK) && name.endsWith(GoogleDriveSyncService._JSON_EXT);
   }

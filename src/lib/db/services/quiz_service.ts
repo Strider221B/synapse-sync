@@ -98,6 +98,9 @@ export class QuizService {
     await this._cascadeDeleteFlashcards(tx, quizId);
     await tx.objectStore(DB_STORES.QUIZZES).delete(quizId);
     await tx.done;
+    if (this._syncQueueService) {
+      await this._syncQueueService.enqueue(QuizService._ENTITY_TYPE, quizId, QuizService._OP_DELETE, { quizId });
+    }
   }
 
   /**

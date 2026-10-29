@@ -91,6 +91,7 @@ function QuizContent({ params }: QuizPageProps) {
   const [availableQuizzes, setAvailableQuizzes] = useState<Quiz[]>([]);
   const [rerollError, setRerollError] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [isDeletingQuiz, setIsDeletingQuiz] = useState(false);
   const rerollAbortControllerRef = useRef<AbortController | null>(null);
 
   const handleCancelReroll = () => {
@@ -507,6 +508,50 @@ function QuizContent({ params }: QuizPageProps) {
     }
   };
 
+  const handleDeleteQuizVersion = async () => {
+    if (!quiz || isDeletingQuiz) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to delete Quiz version v${quiz.version}? This will permanently remove all ${mcqCards.length} MCQs, ${flashcards.length} flashcards, and their spaced repetition history.`
+    );
+    if (!confirmed) return;
+
+    setIsDeletingQuiz(true);
+    try {
+      const dbService = new DatabaseService();
+      const syncQueueService = new SyncQueueService(dbService);
+      const quizService = new QuizService(dbService, syncQueueService);
+
+      await quizService.delete(quiz.id);
+
+      try {
+        const { SyncManager } = await import('@/lib/db/sync_manager');
+        const syncManager = SyncManager.getInstance();
+        const syncService = syncManager.getSyncService();
+        if (syncService && syncService.isConnected()) {
+          await syncService.deleteRemoteQuiz(quiz.id);
+        } else {
+          void syncManager.forceSync().catch(() => {});
+        }
+      } catch {
+        // Handled gracefully
+      }
+
+      const remaining = availableQuizzes.filter((q) => q.id !== quiz.id);
+      if (remaining.length > 0) {
+        const sortedRemaining = [...remaining].sort((a, b) => b.version - a.version);
+        router.push(`/quiz/${sortedRemaining[0].id}`);
+      } else if (note) {
+        router.push(`/notes/${note.id}`);
+      } else {
+        router.push('/quiz');
+      }
+    } catch (err) {
+      console.error('Failed to delete quiz version:', err);
+      setIsDeletingQuiz(false);
+      alert('Failed to delete quiz version. Please try again.');
+    }
+  };
+
   if (isLoading) {
     return (
       <div style={{ padding: '4rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
@@ -795,6 +840,26 @@ function QuizContent({ params }: QuizPageProps) {
             title="Re-trigger quiz and flashcard generation across the entire document"
           >
             <span>{isRerolling ? '⏳' : '🔄'}</span> Re-trigger
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDeleteQuizVersion}
+            disabled={isDeletingQuiz}
+            style={{
+              padding: '0.4rem 0.85rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'transparent',
+              border: '1px solid var(--color-surface-border)',
+              color: 'var(--color-error)',
+              fontSize: '0.825rem',
+              fontWeight: 600,
+              cursor: isDeletingQuiz ? 'not-allowed' : 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+            title={`Delete quiz version v${quiz.version}`}
+          >
+            <span>🗑️</span> {isDeletingQuiz ? 'Deleting...' : 'Delete Version'}
           </button>
         </div>
       </div>

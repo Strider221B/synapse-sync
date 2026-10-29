@@ -74,6 +74,48 @@ function QuizListContent() {
     };
   }, [filterNoteId]);
 
+  const handleDeleteQuizVersion = async (quizId: string, version: number, noteTitle: string) => {
+    const confirmed = window.confirm(
+      `Delete quiz version v${version} for "${noteTitle}"? This will permanently remove its questions and spaced repetition cards.`
+    );
+    if (!confirmed) return;
+
+    const dbService = new DatabaseService();
+    const { SyncQueueService } = await import('@/lib/db/services/sync_queue_service');
+    const syncQueueService = new SyncQueueService(dbService);
+    const quizService = new QuizService(dbService, syncQueueService);
+
+    await quizService.delete(quizId);
+
+    try {
+      const { SyncManager } = await import('@/lib/db/sync_manager');
+      const syncManager = SyncManager.getInstance();
+      const syncService = syncManager.getSyncService();
+      if (syncService && syncService.isConnected()) {
+        await syncService.deleteRemoteQuiz(quizId);
+      } else {
+        void syncManager.forceSync().catch(() => {});
+      }
+    } catch {
+      // Handled gracefully
+    }
+
+    setSummaries((prev) =>
+      prev
+        .map((s) => {
+          const filtered = s.quizzes.filter((q) => q.id !== quizId);
+          if (filtered.length === 0) return null;
+          return {
+            ...s,
+            quizzes: filtered,
+            latestQuiz: filtered[0],
+            lastGeneratedDate: filtered[0].generatedAt,
+          };
+        })
+        .filter((s): s is NoteQuizSummary => s !== null)
+    );
+  };
+
   const filteredSummaries = summaries.filter((item) =>
     item.note.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -284,22 +326,47 @@ function QuizListContent() {
                       Retake:
                     </span>
                     {quizzes.map((q) => (
-                      <Link
+                      <div
                         key={q.id}
-                        href={`/quiz/${q.id}`}
                         style={{
-                          padding: '0.15rem 0.5rem',
+                          display: 'inline-flex',
+                          alignItems: 'center',
                           borderRadius: 'var(--radius-sm)',
                           backgroundColor: q.id === latestQuiz.id ? 'var(--color-primary-light)' : 'var(--color-surface-raised)',
                           border: '1px solid var(--color-surface-border)',
-                          color: q.id === latestQuiz.id ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                          fontSize: '0.75rem',
-                          fontWeight: 600,
-                          textDecoration: 'none',
+                          overflow: 'hidden',
                         }}
                       >
-                        v{q.version}
-                      </Link>
+                        <Link
+                          href={`/quiz/${q.id}`}
+                          style={{
+                            padding: '0.15rem 0.5rem',
+                            color: q.id === latestQuiz.id ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          v{q.version}
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteQuizVersion(q.id, q.version, note.title)}
+                          title={`Delete version v${q.version}`}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            borderLeft: '1px solid var(--color-surface-border)',
+                            color: 'var(--color-text-muted)',
+                            cursor: 'pointer',
+                            padding: '0.1rem 0.35rem',
+                            fontSize: '0.7rem',
+                            lineHeight: 1,
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -339,6 +406,24 @@ function QuizListContent() {
                 >
                   📖 Note
                 </Link>
+
+                <button
+                  type="button"
+                  onClick={() => handleDeleteQuizVersion(latestQuiz.id, latestQuiz.version, note.title)}
+                  style={{
+                    padding: '0.625rem 0.75rem',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'transparent',
+                    border: '1px solid var(--color-surface-border)',
+                    color: 'var(--color-error)',
+                    fontWeight: 600,
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                  }}
+                  title={`Delete latest quiz version v${latestQuiz.version}`}
+                >
+                  🗑️
+                </button>
               </div>
             </div>
           ))}
