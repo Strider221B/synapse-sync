@@ -221,8 +221,9 @@ Sends note text to Google Gemini and receives structured MCQs and flashcards. Us
 | `chunkIndex`     | int    | No       | `null`     | 1-based index of current document chunk being processed |
 | `totalChunks`    | int    | No       | `null`     | Total number of document chunks in the session          |
 | `sessionId`      | string | No       | `null`     | UUID identifying multi-chunk generation session for logs |
+| `exportOnly` / `mode` | bool / string | No | `false` | When `true` or `"export"`, returns pre-built prompts chunked at ~2,500 words with past context and output schema, bypassing Gemini generation calls. |
 
-#### Response — `200 OK`
+#### Response — `200 OK` (Standard Generation)
 
 ```json
 {
@@ -261,6 +262,32 @@ Sends note text to Google Gemini and receives structured MCQs and flashcards. Us
       "total_keys_configured": 2
     }
   }
+}
+```
+
+#### Response — `200 OK` (Prompt Export Mode: `exportOnly=true`)
+
+```json
+{
+  "mode": "export",
+  "noteTitle": "Machine Learning Foundations",
+  "totalChunks": 2,
+  "chunkWords": 2500,
+  "previousContextCount": 8,
+  "chunks": [
+    {
+      "chunkIndex": 1,
+      "totalChunks": 2,
+      "wordCount": 2480,
+      "prompt": "You are an expert tutor creating an interactive study quiz...\n\n### NOTE EXCERPT (CHUNK 1 OF 2)\n..."
+    },
+    {
+      "chunkIndex": 2,
+      "totalChunks": 2,
+      "wordCount": 1820,
+      "prompt": "You are an expert tutor creating an interactive study quiz...\n\n### PREVIOUS QUESTIONS & FLASHCARDS TO EXCLUDE\n..."
+    }
+  ]
 }
 ```
 
