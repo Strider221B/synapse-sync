@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useId, useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import type { Note } from '@/lib/db/models';
 import type { QuizWithCards } from '@/lib/db/services/quiz_service';
 import { DatabaseService } from '@/lib/db/database_service';
@@ -32,17 +32,6 @@ export function QuizImportExportModal({
 }: QuizImportExportModalProps) {
   const modalTitleId = useId();
   const fileInputId = useId();
-  const [activeTab, setActiveTab] = useState<'export' | 'import'>('export');
-  const [activeExportChunkIndex, setActiveExportChunkIndex] = useState(0);
-  const [copiedChunk, setCopiedChunk] = useState<number | null>(null);
-
-  const [importMode, setImportMode] = useState<'per-chunk' | 'all-in-one'>('per-chunk');
-  const [activeImportChunkIndex, setActiveImportChunkIndex] = useState(0);
-  const [chunkInputs, setChunkInputs] = useState<string[]>(['']);
-  const [allInOneText, setAllInOneText] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-
   const importExportService = useMemo(() => new QuizImportExportService(), []);
 
   const exportBundle: QuizExportBundle | null = useMemo(() => {
@@ -60,15 +49,32 @@ export function QuizImportExportModal({
     }
   }, [isOpen, note.id, note.title, note.content, existingQuestions, existingFlashcards, importExportService]);
 
-  useEffect(() => {
-    if (exportBundle && exportBundle.totalChunks > 0) {
-      setChunkInputs((prev) => {
-        if (prev.length >= exportBundle.totalChunks && prev.some((t) => t.trim())) return prev;
-        return Array.from({ length: exportBundle.totalChunks }, (_, i) => prev[i] || '');
-      });
-      if (exportBundle.totalChunks > 1) setImportMode('per-chunk');
-    }
-  }, [exportBundle]);
+  const bundleTotalChunks = exportBundle?.totalChunks ?? 1;
+  const bundleKey = `${note.id}-${bundleTotalChunks}`;
+
+  const [activeTab, setActiveTab] = useState<'export' | 'import'>('export');
+  const [activeExportChunkIndex, setActiveExportChunkIndex] = useState(0);
+  const [copiedChunk, setCopiedChunk] = useState<number | null>(null);
+  const [importMode, setImportMode] = useState<'per-chunk' | 'all-in-one'>(
+    bundleTotalChunks > 1 ? 'per-chunk' : 'all-in-one'
+  );
+  const [activeImportChunkIndex, setActiveImportChunkIndex] = useState(0);
+  const [chunkInputs, setChunkInputs] = useState<string[]>(() =>
+    Array.from({ length: bundleTotalChunks }, () => '')
+  );
+  const [prevBundleKey, setPrevBundleKey] = useState(bundleKey);
+  const [allInOneText, setAllInOneText] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  if (bundleKey !== prevBundleKey) {
+    setPrevBundleKey(bundleKey);
+    setChunkInputs((prev) => {
+      if (prev.length >= bundleTotalChunks && prev.some((t) => t.trim())) return prev;
+      return Array.from({ length: bundleTotalChunks }, (_, i) => prev[i] || '');
+    });
+    if (bundleTotalChunks > 1) setImportMode('per-chunk');
+  }
 
   const chunkResults = useMemo(() => {
     return chunkInputs.map((text) => {

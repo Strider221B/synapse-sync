@@ -156,7 +156,7 @@ function QuizContent({ params }: QuizPageProps) {
     return () => {
       active = false;
     };
-  }, [quizId]);
+  }, [quizId, authService]);
 
   useEffect(() => {
     const handleSyncComplete = async () => {
