@@ -168,6 +168,73 @@ I hope this helps your studies!`;
     assert.equal(parsed.flashcards.length, 1);
   });
 
+  it('parses multiple raw JSON objects pasted sequentially into a single text', () => {
+    const multiJson = `
+    {
+      "mcqs": [
+        {
+          "question": "Chunk 1 Question",
+          "options": ["A", "B", "C", "D"],
+          "correctIndex": 0,
+          "explanation": "Exp 1"
+        }
+      ],
+      "flashcards": []
+    }
+    {
+      "mcqs": [],
+      "flashcards": [
+        {
+          "front": "Chunk 2 Front",
+          "back": "Chunk 2 Back"
+        }
+      ]
+    }
+    `;
+
+    const parsed = service.parseImportText(multiJson);
+    assert.equal(parsed.mcqs.length, 1);
+    assert.equal(parsed.flashcards.length, 1);
+    assert.equal(parsed.mcqs[0].question, 'Chunk 1 Question');
+    assert.equal(parsed.flashcards[0].front, 'Chunk 2 Front');
+  });
+
+  it('parses multiple chunks passed as array of strings via parseMultipleChunks', () => {
+    const chunk1 = JSON.stringify({
+      mcqs: [
+        {
+          question: 'Q1',
+          options: ['A', 'B', 'C', 'D'],
+          correctIndex: 1,
+          explanation: 'E1',
+        },
+      ],
+      flashcards: [],
+    });
+    const chunk2 = `\`\`\`json
+    {
+      "mcqs": [
+        {
+          "question": "Q2",
+          "options": ["1", "2", "3", "4"],
+          "correctIndex": 2,
+          "explanation": "E2"
+        }
+      ],
+      "flashcards": [
+        {
+          "front": "F2",
+          "back": "B2"
+        }
+      ]
+    }
+    \`\`\``;
+
+    const parsed = service.parseMultipleChunks([chunk1, chunk2]);
+    assert.equal(parsed.mcqs.length, 2);
+    assert.equal(parsed.flashcards.length, 1);
+  });
+
   it('throws error when JSON syntax is corrupted', () => {
     assert.throws(() => service.parseImportText('{ invalid json here'), /Failed to parse JSON input/);
   });

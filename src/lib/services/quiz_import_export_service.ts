@@ -162,17 +162,47 @@ export class QuizImportExportService {
   }
 
   /**
-   * Parses raw imported text (JSON or markdown fenced) into validated MCQs and flashcards.
+   * Parses raw imported text (JSON, multiple JSON blocks, or markdown fenced) into validated MCQs and flashcards.
    */
   public parseImportText(rawText: string): ParsedQuizImport {
-    const cleaned = this._extractJsonString(rawText);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch {
-      throw new Error(QuizImportExportService._ERR_INVALID_JSON);
+    const blocks = this._extractJsonBlocks(rawText);
+    const mcqs: CreateMCQInput[] = [];
+    const flashcards: CreateFlashcardInput[] = [];
+    for (const block of blocks) {
+      const cleaned = this._extractJsonString(block);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch {
+        throw new Error(QuizImportExportService._ERR_INVALID_JSON);
+      }
+      const validated = this.validateImportData(parsed);
+      mcqs.push(...validated.mcqs);
+      flashcards.push(...validated.flashcards);
     }
-    return this.validateImportData(parsed);
+    if (mcqs.length === 0 && flashcards.length === 0) {
+      throw new Error(QuizImportExportService._ERR_NO_ITEMS);
+    }
+    return { mcqs, flashcards };
+  }
+
+  /**
+   * Parses multiple raw chunk inputs and aggregates all validated MCQs and flashcards.
+   */
+  public parseMultipleChunks(rawChunks: string[]): ParsedQuizImport {
+    const allMcqs: CreateMCQInput[] = [];
+    const allFlashcards: CreateFlashcardInput[] = [];
+    for (const chunk of rawChunks) {
+      const trimmed = chunk.trim();
+      if (!trimmed) continue;
+      const parsed = this.parseImportText(trimmed);
+      allMcqs.push(...parsed.mcqs);
+      allFlashcards.push(...parsed.flashcards);
+    }
+    if (allMcqs.length === 0 && allFlashcards.length === 0) {
+      throw new Error(QuizImportExportService._ERR_NO_ITEMS);
+    }
+    return { mcqs: allMcqs, flashcards: allFlashcards };
   }
 
   /**
@@ -306,6 +336,16 @@ export class QuizImportExportService {
     return lines.join('\n');
   }
 
+  protected _extractJsonBlocks(rawText: string): string[] {
+    const trimmed = rawText.trim();
+    const fences = Array.from(trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi), (m) => m[1].trim());
+    if (fences.length > 0) {
+      return fences;
+    }
+    const blocks = this._scanBalancedBraces(trimmed);
+    return blocks.length > 0 ? blocks : [trimmed];
+  }
+
   protected _extractJsonString(rawText: string): string {
     const trimmed = rawText.trim();
     const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
@@ -338,6 +378,46 @@ export class QuizImportExportService {
     return [];
   }
 
+  protected _scanBalancedBraces(text: string): string[] {
+    const blocks: string[] = [];
+    let depth = 0;
+    let startIdx = -1;
+    let inString = false;
+    let escape = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (inString) {
+        if (escape) escape = false;
+        else if (char === '\\') escape = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') inString = true;
+      else if (char === '{' || char === '[') {
+        if (depth === 0) startIdx = i;
+        depth++;
+      } else if (char === '}' || char === ']') {
+        depth--;
+        if (depth === 0 && startIdx !== -1) {
+          blocks.push(text.slice(startIdx, i + 1).trim());
+          startIdx = -1;
+        }
+      }
+    }
+    return blocks;
+  }
+
+  protected _validateFlashcard(item: unknown): CreateFlashcardInput {
+    if (!item || typeof item !== 'object') throw new Error(QuizImportExportService._ERR_INVALID_FLASHCARD);
+    const rec = item as Record<string, unknown>;
+    const front = String(rec.front || '').trim();
+    const back = String(rec.back || '').trim();
+    if (!front || !back) throw new Error(QuizImportExportService._ERR_INVALID_FLASHCARD);
+    const tags = Array.isArray(rec.tags) ? rec.tags.map((t) => String(t).trim()).filter(Boolean) : [];
+    return { front, back, tags };
+  }
+
   protected _validateMCQCard(item: unknown): CreateMCQInput {
     if (!item || typeof item !== 'object') throw new Error(QuizImportExportService._ERR_INVALID_MCQ_QUESTION);
     const rec = item as Record<string, unknown>;
@@ -358,15 +438,5 @@ export class QuizImportExportService {
     }
     const explanation = String(rec.explanation || '').trim() || QuizImportExportService._DEFAULT_EXPLANATION;
     return { question, options, correctIndex, explanation };
-  }
-
-  protected _validateFlashcard(item: unknown): CreateFlashcardInput {
-    if (!item || typeof item !== 'object') throw new Error(QuizImportExportService._ERR_INVALID_FLASHCARD);
-    const rec = item as Record<string, unknown>;
-    const front = String(rec.front || '').trim();
-    const back = String(rec.back || '').trim();
-    if (!front || !back) throw new Error(QuizImportExportService._ERR_INVALID_FLASHCARD);
-    const tags = Array.isArray(rec.tags) ? rec.tags.map((t) => String(t).trim()).filter(Boolean) : [];
-    return { front, back, tags };
   }
 }
