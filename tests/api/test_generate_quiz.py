@@ -365,6 +365,58 @@ class TestGenerateQuiz:
         assert mock_svc.call_with_retry.call_count == 3
         assert len(result["mcqs"]) == 3
 
+    def test_export_quiz_prompts_single_chunk(self) -> None:
+        """Verify export_quiz_prompts produces single chunk prompt with schema."""
+        handler = self._create_handler()
+        result = handler.export_quiz_prompts(
+            text=self._SAMPLE_TEXT,
+            difficulty="hard",
+            mcq_count=3,
+            flashcard_count=3,
+            chunk_size=500,
+        )
+        assert result["totalChunks"] == 1
+        assert len(result["chunks"]) == 1
+        chunk = result["chunks"][0]
+        assert chunk["chunkIndex"] == 1
+        assert "Rules for Multiple Choice Questions" in chunk["prompt"]
+        assert "Difficulty: hard" in chunk["prompt"]
+        assert "type" in result["outputSchema"]
+
+    def test_export_quiz_prompts_multi_chunk_with_past_context(self) -> None:
+        """Verify export_quiz_prompts produces multiple chunks with past context."""
+        handler = self._create_handler()
+        result = handler.export_quiz_prompts(
+            text="word " * 600,
+            difficulty="medium",
+            chunk_size=200,
+            previous_context=["Avoid Question A", "Avoid Card B"],
+        )
+        assert result["totalChunks"] == 3
+        assert len(result["chunks"]) == 3
+        assert "Avoid Question A" in result["chunks"][0]["prompt"]
+        assert "Part 1 of 3" in result["chunks"][0]["prompt"]
+        assert "Part 2 of 3" in result["chunks"][1]["prompt"]
+
+    def test_do_post_with_export_only_flag(self) -> None:
+        """Verify do_POST with exportOnly returns 200 and does not invoke Gemini."""
+        handler = self._create_handler({
+            "text": self._SAMPLE_TEXT,
+            "exportOnly": True,
+            "previousContext": ["Old Question 1"],
+        })
+        with (
+            patch.object(handler, "send_response") as mock_resp,
+            patch.object(handler, "send_header"),
+            patch.object(handler, "end_headers"),
+        ):
+            handler.do_POST()
+            mock_resp.assert_called_once_with(self._HTTP_OK)
+            resp_data = self._get_response_json(handler)
+            assert resp_data["totalChunks"] == 1
+            assert len(resp_data["chunks"]) == 1
+            assert "Old Question 1" in resp_data["chunks"][0]["prompt"]
+
     def _create_handler(self, body_data: dict[str, Any] | None = None) -> GenerateQuiz:
         """Construct mock GenerateQuiz instance with rfile, wfile, and headers."""
         instance = GenerateQuiz.__new__(GenerateQuiz)
