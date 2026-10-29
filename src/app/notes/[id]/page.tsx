@@ -117,7 +117,24 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
       // Handled gracefully
     }
 
-    setQuizzes((prev) => prev.filter((q) => q.id !== quizId));
+    setQuizzes((prev) => {
+      const remaining = prev.filter((q) => q.id !== quizId);
+      // Asynchronously refresh in-memory past questions & flashcards from remaining versions
+      void (async () => {
+        const remainingQuestions: string[] = [];
+        const remainingFlashcards: string[] = [];
+        for (const q of remaining) {
+          const bundle = await quizService.getQuizWithCards(q.id);
+          if (bundle) {
+            remainingQuestions.push(...bundle.mcqCards.map((c) => c.question));
+            remainingFlashcards.push(...bundle.flashcards.map((f) => f.front));
+          }
+        }
+        setPastQuestions(remainingQuestions);
+        setPastFlashcards(remainingFlashcards);
+      })();
+      return remaining;
+    });
   };
 
   useEffect(() => {
