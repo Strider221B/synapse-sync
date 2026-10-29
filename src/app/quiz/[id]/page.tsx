@@ -58,7 +58,7 @@ function QuizContent({ params }: QuizPageProps) {
   const resolvedParams = use(params);
   const quizId = resolvedParams.id;
   const router = useRouter();
-  const { isAuthenticated } = useGoogleAuth();
+  const { isAuthenticated, authService } = useGoogleAuth();
 
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [note, setNote] = useState<Note | null>(null);
@@ -91,6 +91,7 @@ function QuizContent({ params }: QuizPageProps) {
   const [availableQuizzes, setAvailableQuizzes] = useState<Quiz[]>([]);
   const [rerollError, setRerollError] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [isDeletingQuiz, setIsDeletingQuiz] = useState(false);
   const rerollAbortControllerRef = useRef<AbortController | null>(null);
 
   const handleCancelReroll = () => {
@@ -129,8 +130,15 @@ function QuizContent({ params }: QuizPageProps) {
       }
 
       if (!quizWithCards.quiz.isSynced) {
-        import('@/lib/db/sync_manager').then(({ SyncManager }) => {
-          const syncService = SyncManager.getInstance().getSyncService();
+        import('@/lib/db/sync_manager').then(async ({ SyncManager }) => {
+          const syncManager = SyncManager.getInstance();
+          let syncService = syncManager.getSyncService();
+          if (!syncService && authService && authService.isAuthenticated()) {
+            const { GoogleDriveApiClient } = await import('@/lib/api/google_drive_client');
+            const { GoogleDriveSyncService } = await import('@/lib/db/services/google_drive_sync_service');
+            syncService = new GoogleDriveSyncService(dbService, new GoogleDriveApiClient(authService), authService);
+            syncManager.setSyncService(syncService);
+          }
           if (syncService && syncService.isConnected()) {
             syncService.pushQuiz(quizId).then(() => {
               if (active) {
@@ -148,7 +156,7 @@ function QuizContent({ params }: QuizPageProps) {
     return () => {
       active = false;
     };
-  }, [quizId]);
+  }, [quizId, authService]);
 
   useEffect(() => {
     const handleSyncComplete = async () => {
@@ -171,7 +179,14 @@ function QuizContent({ params }: QuizPageProps) {
     try {
       const { SyncManager } = await import('@/lib/db/sync_manager');
       const syncManager = SyncManager.getInstance();
-      const syncService = syncManager.getSyncService();
+      let syncService = syncManager.getSyncService();
+      if (!syncService && authService && authService.isAuthenticated()) {
+        const { GoogleDriveApiClient } = await import('@/lib/api/google_drive_client');
+        const { GoogleDriveSyncService } = await import('@/lib/db/services/google_drive_sync_service');
+        const { DatabaseService } = await import('@/lib/db/database_service');
+        syncService = new GoogleDriveSyncService(new DatabaseService(), new GoogleDriveApiClient(authService), authService);
+        syncManager.setSyncService(syncService);
+      }
       if (syncService && syncService.isConnected()) {
         await syncService.pushQuiz(quiz.id);
         setQuiz((prev) => (prev ? { ...prev, isSynced: true } : prev));
@@ -507,6 +522,50 @@ function QuizContent({ params }: QuizPageProps) {
     }
   };
 
+  const handleDeleteQuizVersion = async () => {
+    if (!quiz || isDeletingQuiz) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to delete Quiz version v${quiz.version}? This will permanently remove all ${mcqCards.length} MCQs, ${flashcards.length} flashcards, and their spaced repetition history.`
+    );
+    if (!confirmed) return;
+
+    setIsDeletingQuiz(true);
+    try {
+      const dbService = new DatabaseService();
+      const syncQueueService = new SyncQueueService(dbService);
+      const quizService = new QuizService(dbService, syncQueueService);
+
+      await quizService.delete(quiz.id);
+
+      try {
+        const { SyncManager } = await import('@/lib/db/sync_manager');
+        const syncManager = SyncManager.getInstance();
+        const syncService = syncManager.getSyncService();
+        if (syncService && syncService.isConnected()) {
+          await syncService.deleteRemoteQuiz(quiz.id);
+        } else {
+          void syncManager.forceSync().catch(() => {});
+        }
+      } catch {
+        // Handled gracefully
+      }
+
+      const remaining = availableQuizzes.filter((q) => q.id !== quiz.id);
+      if (remaining.length > 0) {
+        const sortedRemaining = [...remaining].sort((a, b) => b.version - a.version);
+        router.push(`/quiz/${sortedRemaining[0].id}`);
+      } else if (note) {
+        router.push(`/notes/${note.id}`);
+      } else {
+        router.push('/quiz');
+      }
+    } catch (err) {
+      console.error('Failed to delete quiz version:', err);
+      setIsDeletingQuiz(false);
+      alert('Failed to delete quiz version. Please try again.');
+    }
+  };
+
   if (isLoading) {
     return (
       <div style={{ padding: '4rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
@@ -795,6 +854,26 @@ function QuizContent({ params }: QuizPageProps) {
             title="Re-trigger quiz and flashcard generation across the entire document"
           >
             <span>{isRerolling ? '⏳' : '🔄'}</span> Re-trigger
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDeleteQuizVersion}
+            disabled={isDeletingQuiz}
+            style={{
+              padding: '0.4rem 0.85rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'transparent',
+              border: '1px solid var(--color-surface-border)',
+              color: 'var(--color-error)',
+              fontSize: '0.825rem',
+              fontWeight: 600,
+              cursor: isDeletingQuiz ? 'not-allowed' : 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+            title={`Delete quiz version v${quiz.version}`}
+          >
+            <span>🗑️</span> {isDeletingQuiz ? 'Deleting...' : 'Delete Version'}
           </button>
         </div>
       </div>

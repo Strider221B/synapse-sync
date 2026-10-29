@@ -168,6 +168,15 @@ graph TB
 | **Rationale**| Ensures long-running generation completes reliably without hanging or leaving zombie processes; gives clear operational visibility into API health and backup key failovers; guarantees truth in UI sync states; prevents Google Drive folder clutter through mutual exclusion and self-healing. |
 | **Tradeoff**| Longer timeout windows require detached process tracking; remote deduplication introduces an extra cleanup delete call when duplicate files are encountered. |
 
+### ADR-12: Offline Quiz Prompt Export, Multi-Chunk Re-Import & Full Version Deletion
+
+| Aspect     | Decision                                                                  |
+|:-----------|:--------------------------------------------------------------------------|
+| **Context**| Heavy lecture notes exceed Gemini free-tier rate limits (429) or generation quotas. Users needed an offline alternative to export note chunks, run them in external models (Claude, ChatGPT, Gemini Web), and re-import the results. Furthermore, importing individual chunks previously produced redundant versions, requiring the ability to delete entire quiz versions (and free their questions from prompt exclusion). Finally, large card decks (e.g. 65 MCQs + 65 Flashcards) crashed Google Drive sync due to browser IndexedDB transaction auto-commit timeouts. |
+| **Decision**| 1. **Chunked Prompt Export (`QuizImportExportService`)**: Notes are chunked into ~2,500-word blocks with expected JSON schemas and past questions/flashcards context to prevent duplicates. Exportable as `.json` or `.md`.<br/>2. **Tabbed Multi-Chunk & Bulk Import**: Reusable components (`QuizImportExportModal`, `QuizExportTab`, `QuizImportTab` all $\le 500$ lines) allow chunk-by-chunk pasting with live status indicators (`Chunk 1`, `Chunk 2`, etc.) or all-in-one bulk pasting. Validates 4-option MCQs and flashcards and persists them into IndexedDB and SRS decks.<br/>3. **Full Quiz Version Deletion**: Users can delete any quiz version across the reader view, quiz page, and quizzes index. Deletions cascade to MCQs, flashcards, and SRS records, delete the remote `quiz_<id>.json` file on Google Drive, and dynamically remove deleted questions from past context so they can be re-tested in future versions.<br/>4. **Atomic Batch Drive Sync**: In `GoogleDriveSyncService._loadSRSCardsForCards`, replaced the sequential single-transaction loop across 130 cards with an atomic `await db.getAll(DB_STORES.SRS_CARDS)` filtered via a `Set`, preventing browser `TransactionInactiveError` and ensuring reliable Drive sync. |
+| **Rationale**| Eliminates API rate-limit bottlenecks; gives learners full model choice and privacy options; ensures pristine database and cloud sync integrity regardless of deck size; keeps deleted quiz concepts re-testable. |
+| **Tradeoff**| The export path requires manual copy-pasting to and from external LLM interfaces. |
+
 ---
 
 ## 4. Component Interaction Flows

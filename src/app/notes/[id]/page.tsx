@@ -15,6 +15,8 @@ import { NotebookService } from '@/lib/db/services/notebook_service';
 import { QuizService } from '@/lib/db/services/quiz_service';
 import { PreferencesService } from '@/lib/db/services/preferences_service';
 import { ClipboardService } from '@/lib/utils/clipboard_service';
+import { QuizImportExportModal } from '@/components/quiz/QuizImportExportModal';
+import type { QuizWithCards } from '@/lib/db/services/quiz_service';
 
 interface NoteReaderPageProps {
   params: Promise<{ id: string }>;
@@ -70,6 +72,9 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
   const [quizError, setQuizError] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [folderPath, setFolderPath] = useState<Notebook[]>([]);
+  const [isImportExportOpen, setIsImportExportOpen] = useState(false);
+  const [pastQuestions, setPastQuestions] = useState<string[]>([]);
+  const [pastFlashcards, setPastFlashcards] = useState<string[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const handleCancelGeneration = () => {
@@ -77,6 +82,59 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+  };
+
+  const handleImportSuccess = (created: QuizWithCards) => {
+    setQuizzes((prev) => [...prev, created.quiz]);
+    setPastQuestions((prev) => [...prev, ...created.mcqCards.map((c) => c.question)]);
+    setPastFlashcards((prev) => [...prev, ...created.flashcards.map((f) => f.front)]);
+    router.push(`/quiz/${created.quiz.id}`);
+  };
+
+  const handleDeleteQuizVersion = async (quizId: string, version: number) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete Quiz version v${version}? This will permanently remove all associated MCQs, flashcards, and spaced repetition history.`
+    );
+    if (!confirmed) return;
+
+    const dbService = new DatabaseService();
+    const { SyncQueueService } = await import('@/lib/db/services/sync_queue_service');
+    const syncQueueService = new SyncQueueService(dbService);
+    const quizService = new QuizService(dbService, syncQueueService);
+
+    await quizService.delete(quizId);
+
+    try {
+      const { SyncManager } = await import('@/lib/db/sync_manager');
+      const syncManager = SyncManager.getInstance();
+      const syncService = syncManager.getSyncService();
+      if (syncService && syncService.isConnected()) {
+        await syncService.deleteRemoteQuiz(quizId);
+      } else {
+        void syncManager.forceSync().catch(() => {});
+      }
+    } catch {
+      // Handled gracefully
+    }
+
+    setQuizzes((prev) => {
+      const remaining = prev.filter((q) => q.id !== quizId);
+      // Asynchronously refresh in-memory past questions & flashcards from remaining versions
+      void (async () => {
+        const remainingQuestions: string[] = [];
+        const remainingFlashcards: string[] = [];
+        for (const q of remaining) {
+          const bundle = await quizService.getQuizWithCards(q.id);
+          if (bundle) {
+            remainingQuestions.push(...bundle.mcqCards.map((c) => c.question));
+            remainingFlashcards.push(...bundle.flashcards.map((f) => f.front));
+          }
+        }
+        setPastQuestions(remainingQuestions);
+        setPastFlashcards(remainingFlashcards);
+      })();
+      return remaining;
+    });
   };
 
   useEffect(() => {
@@ -108,6 +166,25 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
       const foundQuizzes = await quizService.getByNote(noteId);
       if (active) {
         setQuizzes(foundQuizzes);
+      }
+      if (foundQuizzes.length > 0) {
+        try {
+          const allQuestions: string[] = [];
+          const allFlash: string[] = [];
+          for (const q of foundQuizzes) {
+            const bundle = await quizService.getQuizWithCards(q.id);
+            if (bundle) {
+              allQuestions.push(...bundle.mcqCards.map((c) => c.question));
+              allFlash.push(...bundle.flashcards.map((f) => f.front));
+            }
+          }
+          if (active) {
+            setPastQuestions(allQuestions);
+            setPastFlashcards(allFlash);
+          }
+        } catch {
+          // Fall back gracefully
+        }
       }
 
       setIsLoading(false);
@@ -504,6 +581,28 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
             </button>
           )}
 
+          <button
+            type="button"
+            onClick={() => setIsImportExportOpen(true)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              padding: '0.5rem 0.875rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-surface-raised)',
+              color: 'var(--color-text-secondary)',
+              border: '1px solid var(--color-surface-border)',
+              fontSize: '0.825rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+            title="Generate quiz without rate limits: export chunked prompts & import results"
+          >
+            <span>📥</span> Import Quiz / Export Prompts
+          </button>
+
           <Link
             href={`/chat?noteId=${note.id}`}
             style={{
@@ -676,22 +775,47 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 500 }}>Retake version:</span>
                   {quizzes.map((q) => (
-                    <Link
+                    <div
                       key={q.id}
-                      href={`/quiz/${q.id}`}
                       style={{
-                        padding: '0.1rem 0.45rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
                         borderRadius: 'var(--radius-sm)',
-                        fontSize: '0.75rem',
                         backgroundColor: q.id === quizzes[quizzes.length - 1].id ? 'var(--color-primary-light)' : 'var(--color-surface-raised)',
                         border: '1px solid var(--color-surface-border)',
-                        color: q.id === quizzes[quizzes.length - 1].id ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                        textDecoration: 'none',
-                        fontWeight: 600,
+                        overflow: 'hidden',
                       }}
                     >
-                      v{q.version}
-                    </Link>
+                      <Link
+                        href={`/quiz/${q.id}`}
+                        style={{
+                          padding: '0.1rem 0.45rem',
+                          fontSize: '0.75rem',
+                          color: q.id === quizzes[quizzes.length - 1].id ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                          textDecoration: 'none',
+                          fontWeight: 600,
+                        }}
+                      >
+                        v{q.version}
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteQuizVersion(q.id, q.version)}
+                        title={`Delete version v${q.version}`}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          borderLeft: '1px solid var(--color-surface-border)',
+                          color: 'var(--color-text-muted)',
+                          cursor: 'pointer',
+                          padding: '0.1rem 0.35rem',
+                          fontSize: '0.7rem',
+                          lineHeight: 1,
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -733,6 +857,40 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
             >
               🔄 Re-trigger
             </button>
+            <button
+              type="button"
+              onClick={() => setIsImportExportOpen(true)}
+              style={{
+                padding: '0.5rem 0.75rem',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--color-surface-raised)',
+                border: '1px solid var(--color-surface-border)',
+                color: 'var(--color-text-secondary)',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+              }}
+              title="Export chunked prompts or import another quiz version"
+            >
+              📥 Import / Export
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDeleteQuizVersion(quizzes[quizzes.length - 1].id, quizzes[quizzes.length - 1].version)}
+              style={{
+                padding: '0.5rem 0.75rem',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'transparent',
+                border: '1px solid var(--color-surface-border)',
+                color: 'var(--color-error)',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+              }}
+              title={`Delete current quiz version v${quizzes[quizzes.length - 1].version}`}
+            >
+              🗑️ Delete
+            </button>
           </div>
         </div>
       )}
@@ -747,25 +905,48 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
             color: 'var(--color-error)',
             fontSize: '0.875rem',
             display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
+            flexDirection: 'column',
+            gap: '0.5rem',
           }}
         >
-          <span>{quizError}</span>
-          <button
-            type="button"
-            onClick={() => setQuizError(null)}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--color-error)',
-              cursor: 'pointer',
-              fontWeight: 700,
-              fontSize: '1rem',
-            }}
-          >
-            ✕
-          </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>{quizError}</span>
+            <button
+              type="button"
+              onClick={() => setQuizError(null)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--color-error)',
+                cursor: 'pointer',
+                fontWeight: 700,
+                fontSize: '1rem',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={() => {
+                setQuizError(null);
+                setIsImportExportOpen(true);
+              }}
+              style={{
+                padding: '0.35rem 0.75rem',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--color-surface)',
+                border: '1px solid var(--color-error)',
+                color: 'var(--color-error)',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+              }}
+            >
+              ⚡ Free Tier Rate Limits? Export Prompts &amp; Import Manually →
+            </button>
+          </div>
         </div>
       )}
 
@@ -899,6 +1080,17 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
           </div>
         )}
       </article>
+
+      {note && (
+        <QuizImportExportModal
+          isOpen={isImportExportOpen}
+          onClose={() => setIsImportExportOpen(false)}
+          note={note}
+          existingQuestions={pastQuestions}
+          existingFlashcards={pastFlashcards}
+          onImportSuccess={handleImportSuccess}
+        />
+      )}
     </div>
   );
 }

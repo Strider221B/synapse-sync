@@ -73,6 +73,9 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 | QZ-07 | One-click clipboard copy for individual MCQs (with options, answer, explanation) and flashcards (front/back) | P1 |
 | QZ-08 | Google Drive quiz bundle sync: card deletions update remote `quiz_<quizId>.json` and prune removed cards on pull | P0 |
 | QZ-09 | Multi-key Gemini API fallback: automatic rotation to backup key(s) (`GEMINI_API_KEY_BACKUP`) on 4xx request limit or quota exhaustion errors | P0 |
+| QZ-10 | Offline quiz prompt export: chunk note (~2,500 words), generate prompts with expected schema and past questions/flashcards context to bypass API rate limits | P0 |
+| QZ-11 | Multi-chunk and bulk quiz import: slot-based chunk tabs and all-in-one paste with JSON validation, IndexedDB persistence, SRS card initialization, and Drive sync | P0 |
+| QZ-12 | Full quiz version deletion across reader, quiz view, and summary cards: cascade deletes MCQs, flashcards, SRS records, and remote Drive files, freeing deleted questions from prompt exclusion | P0 |
 
 ### 3.4 Spaced Repetition System (SM-2)
 

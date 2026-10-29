@@ -236,10 +236,10 @@ interface Quiz {
   /** FK → Note.id */
   noteId: string;
   
-  /** Which Gemini model generated this quiz */
+  /** Which Gemini model generated this quiz, or 'manual-import' */
   modelUsed: string;
   
-  /** Version number (increments on re-roll) */
+  /** Version number (increments on re-roll or manual import) */
   version: number;
   
   /** When this quiz was generated */
@@ -250,10 +250,11 @@ interface Quiz {
 }
 ```
 
-**Sync Lifecycle & Status:**
+**Sync Lifecycle & Version Deletion:**
 - When created locally via `QuizService.create()`, `isSynced` is initialized to `false`.
 - When successfully pushed to Google Drive via `GoogleDriveSyncService.pushQuiz()`, `isSynced` is updated to `true` in IndexedDB.
 - When imported/pulled from Google Drive via `GoogleDriveSyncService.pullQuizzes()`, `isSynced` is set to `true`.
+- **Entire Version Deletion**: Deleting a quiz version via `QuizService.delete(quizId)` cascades deletion across all associated `MCQCard`, `Flashcard`, and `SRSCard` entities in IndexedDB, and enqueues a `'delete'` operation in `SyncQueueService` to delete remote `quiz_<quizId>.json` from Google Drive via `GoogleDriveSyncService.deleteRemoteQuiz()`. Deleting a version frees its questions from the dynamic past questions exclusion context for subsequent quiz generation or prompt export.
 - The UI reflects this state dynamically:
   - `isSynced === true`: Displays `☁️ Saved to Drive`.
   - `isSynced === false` & connected: Displays interactive `☁️ Sync to Drive` / `⏳ Syncing...` action.

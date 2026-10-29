@@ -119,6 +119,11 @@ class GenerateQuiz(BaseHTTPRequestHandler):
             return
 
         args, kwargs = self._extract_post_params(body_dict)
+        if body_dict.get("exportOnly") or body_dict.get("mode") == "export":
+            export_result = self.export_quiz_prompts(text, *args, **kwargs)
+            self._send_json(self._HTTP_OK, export_result)
+            return
+
         try:
             result = self.generate_quiz(text, *args, **kwargs)
             self._send_json(self._HTTP_OK, result)
@@ -154,6 +159,38 @@ class GenerateQuiz(BaseHTTPRequestHandler):
         result["metadata"]["stats"] = gemini_svc.get_stats()
         return result
 
+    def export_quiz_prompts(
+        self,
+        text: str,
+        difficulty: str = _DEFAULT_DIFFICULTY,
+        mcq_count: int = _DEFAULT_COUNT,
+        flashcard_count: int = _DEFAULT_COUNT,
+        chunk_size: int = _DEFAULT_CHUNK_WORDS,
+        previous_context: Any = None,
+        **_extra: Any,
+    ) -> dict[str, Any]:
+        """Export note chunks with full prompt and expected schema without calling Gemini."""
+        words = text.split()
+        sanitized_chunk_size = self._sanitize_chunk_size(chunk_size)
+        sanitized_diff = self._sanitize_difficulty(difficulty)
+        safe_mcq = self._clamp_count(mcq_count)
+        safe_flash = self._clamp_count(flashcard_count)
+        chunks = self._chunk_words(words, sanitized_chunk_size)
+        accumulated = self._extract_context_items(previous_context)
+        chunk_payloads = self._build_export_chunks(
+            chunks, sanitized_diff, safe_mcq, safe_flash, accumulated
+        )
+        return {
+            "totalChunks": len(chunks),
+            "chunkSize": sanitized_chunk_size,
+            "difficulty": sanitized_diff,
+            "mcqCount": safe_mcq,
+            "flashcardCount": safe_flash,
+            "previousContext": accumulated,
+            "outputSchema": self._QUIZ_SCHEMA,
+            "chunks": chunk_payloads,
+        }
+
     def _accumulate_chunk_items(
         self, accumulated: list[str], chunk_result: dict[str, Any]
     ) -> None:
@@ -166,6 +203,32 @@ class GenerateQuiz(BaseHTTPRequestHandler):
             f_front = str(flash.get("front", "")).strip()
             if f_front and f_front not in accumulated:
                 accumulated.append(f_front)
+
+    def _build_export_chunks(
+        self,
+        chunks: list[list[str]],
+        diff: str,
+        mcqs: int,
+        flashcards: int,
+        context_items: list[str],
+    ) -> list[dict[str, Any]]:
+        """Construct individual chunk prompt representations for export."""
+        results: list[dict[str, Any]] = []
+        for idx, chunk in enumerate(chunks):
+            part_info = f" (Part {idx + 1} of {len(chunks)})" if len(chunks) > 1 else ""
+            chunk_text = " ".join(chunk)
+            prompt = self._build_prompt(
+                chunk_text, diff, mcqs, flashcards, part_info, context_items
+            )
+            results.append({
+                "chunkIndex": idx + 1,
+                "totalChunks": len(chunks),
+                "wordCount": len(chunk),
+                "text": chunk_text,
+                "prompt": prompt,
+                "outputSchema": self._QUIZ_SCHEMA,
+            })
+        return results
 
     def _build_generation_config(self) -> types.GenerateContentConfig:
         """Construct GenerateContentConfig enforcing structured JSON schema output."""

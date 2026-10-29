@@ -130,6 +130,7 @@ export async function POST(req: NextRequest) {
     }
 
     const pythonBin = getPythonPath();
+    const isExport = Boolean(body.exportOnly || body.mode === 'export');
     const pyScript = [
       'import sys, json',
       'from api.generate_quiz import GenerateQuiz',
@@ -137,7 +138,9 @@ export async function POST(req: NextRequest) {
       'g = GenerateQuiz.__new__(GenerateQuiz)',
       'text = body.get("text", "")',
       'args, kwargs = g._extract_post_params(body)',
-      'res = g.generate_quiz(text, *args, **kwargs)',
+      isExport
+        ? 'res = g.export_quiz_prompts(text, *args, **kwargs)'
+        : 'res = g.generate_quiz(text, *args, **kwargs)',
       'print(json.dumps(res))',
     ].join('\n');
 
