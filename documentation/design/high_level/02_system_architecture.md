@@ -150,7 +150,7 @@ graph LR
 |:-----------------------------|:------------------------------------------------------------------------|
 | Authentication               | Google OAuth 2.0 flow; tokens in `localStorage`                        |
 | Google Drive file browsing   | Direct calls to Google Drive API v3 from browser (delegated auth)       |
-| Note rendering               | Parse Markdown/extracted text; render with `react-markdown`             |
+| Note rendering               | Parse Markdown/extracted text; render with `react-markdown`, `remark-gfm`, `remark-math`, `rehype-katex` (KaTeX for LaTeX math equations), and `mermaid` (UML diagrams) |
 | Quiz taking & scoring        | Entirely client-side; results stored in IndexedDB                       |
 | SM-2 algorithm execution     | Pure client-side computation — no server roundtrip needed               |
 | Offline data management      | IndexedDB as primary store; sync queue for pending operations           |
@@ -289,7 +289,10 @@ Google Drive: SynapseSync/
 ```
 
 #### Sync Lifecycle & Deletion Propagation
-1. **Hierarchical Subfolders**: Notebooks maintain `parentId` referencing their parent folder. Both `pushNotebook` and `pullNotebooks` serialize this field, maintaining folder trees seamlessly across devices.
+1. **Hierarchical Subfolders & Safe Lifecycle**:
+   - Notebooks maintain `parentId` referencing their parent folder. Both `pushNotebook` and `pullNotebooks` serialize this field, maintaining folder trees seamlessly across devices.
+   - **Folder Relocation ("Move Folder")**: Entire folders (including their notes and nested sub-folders) can be reparented to any valid destination folder or moved to root (`parentId: null`). Circular dependencies are strictly prevented (`cannot move folder into itself` or `into any of its recursive descendants`).
+   - **Empty Folder Deletion Safeguard**: Folders can only be deleted if they are empty (`noteCount === 0` and `subfolderCount === 0`). The UI disables the delete button on non-empty folders. Deleting an empty folder queues a mutation and removes `notebook_<id>.json` on Google Drive via `deleteRemoteNotebook`.
 2. **Note Deletions**: Deleting a note in the UI writes a `delete` mutation to `sync_queue`. During the normal sync cycle, `GoogleDriveSyncService._replayQueueEntries` triggers `deleteRemoteNote(noteId)`, removing `note_<id>.json` and `chat_<id>.json` from Google Drive.
 3. **MCQ & Flashcard Deletions**: Individual questions deleted in the quiz view cascade to remove local SRS tracking records and enqueue a quiz update. During normal sync, `pushQuiz(quizId)` replaces the remote bundle `quiz_<quizId>.json` without the deleted cards. When other devices pull, `_saveImportedQuizPayload` reconciles local cards and prunes cards removed from Google Drive.
 4. **Non-Blocking Normal Sync**: Operations do not block user interactions with synchronous remote calls; mutations are recorded locally in IndexedDB and replayed naturally during background sync.
@@ -549,6 +552,9 @@ synapse-sync/
 │   │   ├── notes/
 │   │   │   ├── NoteCard.tsx
 │   │   │   ├── NoteReader.tsx
+│   │   │   ├── MarkdownRenderer.tsx      # GFM, KaTeX math & Mermaid UML
+│   │   │   ├── MermaidDiagram.tsx        # Client-side SVG UML renderer
+│   │   │   ├── MoveFolderModal.tsx       # Folder reparenting & cycle prevention
 │   │   │   └── GoogleDrivePicker.tsx
 │   │   ├── quiz/
 │   │   │   ├── MCQCard.tsx

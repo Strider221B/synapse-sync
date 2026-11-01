@@ -167,6 +167,10 @@ interface Notebook {
 | `by-updated`   | `updatedAt` | No     | Sort by recently modified    |
 | `by-parent`    | `parentId`  | No     | Query subfolders by parent   |
 
+**Hierarchical Lifecycle & Integrity Constraints:**
+- **Reparenting & Cycle Prevention**: A folder's `parentId` can be updated to relocate the folder and all its contents under another folder or to root (`parentId: null`). Circular dependencies are strictly forbidden: a folder cannot have itself or any of its recursive descendants as its `parentId`.
+- **Empty Folder Deletion Safeguard**: Folders are protected against accidental loss of child notes. A folder can only be deleted when empty (`noteCount === 0` and `subfolderCount === 0`). Attempting to delete a non-empty folder throws an error and the UI disables the delete action.
+
 ---
 
 ### 3.2 Note
@@ -218,6 +222,11 @@ interface Note {
 | `by-source-type`  | `sourceType`  | No     | Filter by origin                  |
 | `by-updated`      | `updatedAt`   | No     | Sort by recently modified         |
 | `by-title`        | `title`       | No     | Alphabetical listing              |
+
+**Rich Content Formatting Support:**
+- **GitHub Flavored Markdown (GFM)**: Tables, task lists, strikethrough, autolinks rendered via `react-markdown` and `remark-gfm`.
+- **LaTeX Mathematical Notation**: Inline math expressions (`$...$`) and display block equations (`$$...$$`) parsed via `remark-math` and formatted via `rehype-katex` with KaTeX typography.
+- **Mermaid UML Diagrams**: Fenced code blocks with language `mermaid` rendered client-side into responsive SVG diagrams via `mermaid` (supporting flowcharts, sequence, class, state, and ER diagrams).
 
 > [!NOTE]
 > **Full-text search** is not natively supported by IndexedDB. We implement it by iterating over notes and using `String.prototype.includes()` or a lightweight library like `flexsearch` that maintains its own in-memory index built from IndexedDB data on app startup.

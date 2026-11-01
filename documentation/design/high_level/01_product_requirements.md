@@ -44,6 +44,10 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 | NM-13 | Fully responsive mobile reader layout eliminating fixed-width clipping on narrow viewports | P0 |
 | NM-14 | One-click clipboard export for full open notes (`ClipboardService.formatNote`) | P1 |
 | NM-15 | Bidirectional Google Drive sync for subfolder hierarchies and deleted notes (`note_<id>.json` and `chat_<id>.json`) during normal background sync | P0 |
+| NM-16 | Mathematical equation rendering in notes markdown supporting inline LaTeX (`$...$`) and display block equations (`$$...$$`) via KaTeX | P1 |
+| NM-17 | Mermaid UML diagram rendering in notes markdown supporting flowcharts, sequence, class, state, and ER diagrams with dark/light theme adaptation and syntax error fallback | P1 |
+| NM-18 | Hierarchical folder relocation ("Move Folder"): move an entire folder with its notes and sub-folders under another folder or to root, with cyclic dependency validation | P1 |
+| NM-19 | Safe empty folder deletion: folders may only be deleted when empty (0 notes and 0 subfolders); delete button is disabled when folder contains contents | P1 |
 
 ### 3.2 YouTube Transcript Ingestion (Local-First Pipeline)
 
