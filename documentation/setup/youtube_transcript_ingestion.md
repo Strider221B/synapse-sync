@@ -409,7 +409,7 @@ Produce exhaustively detailed notes in JSON format.
    ```bash
    python tools/youtube_cli/main.py process --url "https://www.youtube.com/playlist?list=..."
    ```
-   This downloads and caches transcripts in `~/.synapse-sync/transcript_cache/<video_id>.json` without using any LLM quota.
+   This resolves the playlist, initializes the notebook directory in `~/.synapse-sync/processed_notes/<playlist_title>/` (creating `notes/`, `notebook.json`, and `state.json`), and downloads transcripts into `~/.synapse-sync/transcript_cache/<video_id>.json` without consuming LLM quota. The console prints the exact playlist directory path for your notes.
 
 2. **Extract Transcript Text:**
    Extract the transcript text using a one-line Python command:
@@ -431,7 +431,7 @@ Produce exhaustively detailed notes in JSON format.
    ```bash
    python tools/youtube_cli/main.py push --notebook-dir ~/.synapse-sync/processed_notes/<playlist_title>
    ```
-   The CLI automatically reads the markdown files in `notes/`, syncs them into `notes.json`, and uploads them to Google Drive!
+   The CLI automatically reads the markdown files in `notes/`, syncs them into `notes.json`, auto-generates `notebook.json` if missing, and uploads the complete notebook and notes to Google Drive!
 
 6. **Sync in SynapseSync PWA:**
    Open SynapseSync in your browser and click **🔄 Sync from Google Drive**. All notes are loaded into your offline IndexedDB for instant reading, active recall quizzes, and SRS reviews.

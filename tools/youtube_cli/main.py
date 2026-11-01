@@ -82,15 +82,13 @@ class YouTubeCli:
 
         if args.command == self._CMD_PROCESS:
             return self.process(
-                args.url, args.local_only, args.server_url,
-                args.drive_folder, args.drive_token, args.force, args.retry_failed,
-                generate_notes=args.generate_notes,
+                args.url, args.local_only, args.server_url, args.drive_folder,
+                args.drive_token, args.force, args.retry_failed, generate_notes=args.generate_notes,
             )
         if args.command == self._CMD_RETRY:
             return self.retry(
-                args.url, args.notebook_dir, args.local_only,
-                args.server_url, args.drive_folder, args.drive_token,
-                generate_notes=args.generate_notes,
+                args.url, args.notebook_dir, args.local_only, args.server_url,
+                args.drive_folder, args.drive_token, generate_notes=args.generate_notes,
             )
         if args.command == self._CMD_PUSH:
             return self.push_directory(
@@ -158,6 +156,9 @@ class YouTubeCli:
     ) -> int:
         """Push a locally saved notebook directory to Google Drive or backend server."""
         nb_path = Path(notebook_dir).expanduser().resolve()
+        if not nb_path.exists():
+            self._console.print(f"[bold red]Error: Directory does not exist: {nb_path}[/bold red]")
+            return 1
         notebook, notes = self._state_manager.load_notes(nb_path)
         if not notebook:
             self._console.print(f"[bold red]Error: Missing notebook.json in {nb_path}[/bold red]")
@@ -200,8 +201,7 @@ class YouTubeCli:
         p.add_argument(self._OPT_FORCE, action="store_true", help="Force regenerate notes")
         p.add_argument(self._OPT_RETRY_FAILED, action="store_true", help="Retry failed")
         p.add_argument(
-            self._OPT_GENERATE_NOTES, self._OPT_WITH_GEMINI,
-            action="store_true", help="Generate study notes with Gemini"
+            self._OPT_GENERATE_NOTES, self._OPT_WITH_GEMINI, action="store_true", help="Notes"
         )
 
     def _add_push_subparser(self, subparsers: Any) -> None:
@@ -218,7 +218,7 @@ class YouTubeCli:
         self._add_common_remote_options(p)
         p.add_argument(
             self._OPT_GENERATE_NOTES, self._OPT_WITH_GEMINI,
-            action="store_true", default=True, help="Generate notes with Gemini"
+            action="store_true", default=True, help="Gemini notes"
         )
 
     def _process_single_video(
@@ -278,13 +278,14 @@ class YouTubeCli:
             return 1
 
         videos = pl_info["videos"]
+        playlist_title = pl_info["playlist_title"]
+        playlist_dir = self._state_manager.get_playlist_dir(playlist_title)
+        notebook = self._state_manager.build_playlist_notebook(playlist_title, url)
+        self._state_manager.init_playlist(playlist_dir, notebook, url)
+        self._console.print(f"[dim]Playlist directory: file://{playlist_dir}[/dim]")
         if not generate_notes:
             return self._download_playlist_transcripts_only(videos)
 
-        playlist_title = pl_info["playlist_title"]
-        playlist_dir = self._state_manager.get_playlist_dir(playlist_title)
-        self._console.print(f"[dim]Playlist directory: file://{playlist_dir}[/dim]")
-        notebook = self._state_manager.build_playlist_notebook(playlist_title, url)
         _, _, fail_cnt, _ = self._process_video_batch(
             videos, playlist_dir, notebook, local_only, server_url,
             drive_folder, drive_token, force, retry_failed
@@ -465,8 +466,7 @@ class YouTubeCli:
         if url or not notebook_dir:
             return url
         nb_path = Path(notebook_dir).expanduser().resolve()
-        result: str | None = self._state_manager.load_state(nb_path).get("playlistUrl")
-        return result
+        return self._state_manager.load_state(nb_path).get("playlistUrl")
 
     def _load_environment(self) -> None:
         """Load environment variables from local .env files if present and unset."""
@@ -481,11 +481,9 @@ class YouTubeCli:
             with env_path.open(encoding="utf-8") as handle:
                 for raw_line in handle:
                     line = raw_line.strip()
-                    if (
-                        not line
-                        or line.startswith(self._ENV_COMMENT_PREFIX)
-                        or self._ENV_DELIMITER not in line
-                    ):
+                    if not line or line.startswith(self._ENV_COMMENT_PREFIX):
+                        continue
+                    if self._ENV_DELIMITER not in line:
                         continue
                     key, val = [p.strip().strip("'\"") for p in line.split(self._ENV_DELIMITER, 1)]
                     if key and key not in os.environ:
