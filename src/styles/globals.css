@@ -1,3 +1,5 @@
+@import "katex/dist/katex.min.css";
+
 /* ==========================================================================
    SynapseSync Design System — Global Tokens & Styles
    ========================================================================== */
@@ -50,6 +52,13 @@
   --glass-bg: rgba(20, 20, 31, 0.7);
   --glass-border: rgba(255, 255, 255, 0.08);
 
+  /* Code & Syntax Colors */
+  --color-code-text: #e2e8f0;
+  --color-code-bg: var(--color-bg-secondary);
+  --color-code-inline: #a5b4fc;
+  --color-code-inline-bg: var(--color-surface-raised);
+  --color-code-inline-border: var(--color-surface-border);
+
   color-scheme: dark;
 }
 
@@ -100,6 +109,13 @@
   --glass-bg: rgba(255, 255, 255, 0.85);
   --glass-border: rgba(0, 0, 0, 0.06);
 
+  /* Code & Syntax Colors */
+  --color-code-text: #0f172a;
+  --color-code-bg: #f1f5f9;
+  --color-code-inline: #4338ca;
+  --color-code-inline-bg: #e0e7ff;
+  --color-code-inline-border: #c7d2fe;
+
   color-scheme: light;
 }
 
@@ -145,6 +161,13 @@
     --shadow-glow: 0 0 20px rgba(79, 70, 229, 0.15);
     --glass-bg: rgba(255, 255, 255, 0.85);
     --glass-border: rgba(0, 0, 0, 0.06);
+
+    /* Code & Syntax Colors */
+    --color-code-text: #0f172a;
+    --color-code-bg: #f1f5f9;
+    --color-code-inline: #4338ca;
+    --color-code-inline-bg: #e0e7ff;
+    --color-code-inline-border: #c7d2fe;
 
     color-scheme: light;
   }
@@ -573,7 +596,7 @@ button {
 }
 
 .markdown-body pre {
-  background: var(--color-bg-secondary);
+  background: var(--color-code-bg);
   border: 1px solid var(--color-surface-border);
   border-radius: var(--radius-md);
   padding: 1rem;
@@ -584,28 +607,50 @@ button {
 .markdown-body code {
   font-family: var(--font-family-mono);
   font-size: 0.875em;
-  background: var(--color-surface-raised);
+  background: var(--color-code-inline-bg);
   padding: 0.15rem 0.35rem;
   border-radius: var(--radius-sm);
-  color: #a5b4fc;
+  border: 1px solid var(--color-code-inline-border);
+  color: var(--color-code-inline);
 }
 
 .markdown-body pre code {
   background: transparent;
+  border: none;
   padding: 0;
-  color: #e2e8f0;
+  color: var(--color-code-text);
+}
+
+.markdown-body a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-body a:hover {
+  color: var(--color-primary-hover);
 }
 
 .markdown-body blockquote {
   border-left: 3px solid var(--color-primary);
   padding-left: 1rem;
   margin: 1.25rem 0;
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
   font-style: italic;
   background: var(--color-primary-light);
   padding-top: 0.5rem;
   padding-bottom: 0.5rem;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.markdown-body .katex {
+  color: var(--color-text-primary);
+}
+
+.markdown-body .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5rem 0;
 }
 
 .markdown-body table {
@@ -749,6 +794,64 @@ button {
 
 .folder-tree-item:hover {
   background-color: var(--color-surface-raised);
+}
+
+.folder-tree-row {
+  position: relative;
+}
+
+.folder-tree-row .folder-row-actions {
+  display: none;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.folder-tree-row:hover .folder-row-actions,
+.folder-tree-row:focus-within .folder-row-actions {
+  display: flex;
+}
+
+.folder-action-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.1rem 0.25rem;
+  border-radius: var(--radius-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  line-height: 1;
+  transition: all var(--transition-fast);
+}
+
+.folder-action-btn:hover {
+  color: var(--color-primary);
+  background-color: var(--color-surface-raised);
+  border-color: var(--color-surface-border);
+}
+
+.folder-action-btn.action-delete:hover {
+  color: var(--color-error);
+  background-color: var(--color-error-bg);
+}
+
+.folder-action-btn.action-disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.folder-count-badge {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  min-width: 22px;
+  text-align: center;
 }
 
 @media (max-width: 768px) {

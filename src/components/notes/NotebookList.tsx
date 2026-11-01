@@ -4,6 +4,8 @@ import React, { useMemo, useState, useTransition } from 'react';
 import type { Notebook } from '@/lib/db/models';
 import { DatabaseService } from '@/lib/db/database_service';
 import { NotebookService } from '@/lib/db/services/notebook_service';
+import { MoveFolderModal } from './MoveFolderModal';
+import { CreateFolderModal } from './CreateFolderModal';
 
 interface NotebookListProps {
   notebooks: Notebook[];
@@ -11,6 +13,8 @@ interface NotebookListProps {
   selectedNotebookId?: string | null;
   onSelectNotebook?: (id: string | null) => void;
   onNotebookCreated?: (notebook: Notebook) => void;
+  onNotebookUpdated?: (notebook: Notebook) => void;
+  onNotebookDeleted?: (id: string) => void;
 }
 
 interface FolderTreeNode {
@@ -20,7 +24,7 @@ interface FolderTreeNode {
 }
 
 /**
- * Component for viewing, selecting, and creating hierarchical folders and sub-folders.
+ * Component for viewing, selecting, and managing hierarchical folders and sub-folders.
  */
 export function NotebookList({
   notebooks,
@@ -28,14 +32,13 @@ export function NotebookList({
   selectedNotebookId,
   onSelectNotebook,
   onNotebookCreated,
+  onNotebookUpdated,
+  onNotebookDeleted,
 }: NotebookListProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [name, setName] = useState('');
-  const [parentId, setParentId] = useState<string | null>(null);
-  const [description, setDescription] = useState('');
-  const [tagsInput, setTagsInput] = useState('');
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const [createPresetParentId, setCreatePresetParentId] = useState<string | null>(null);
+  const [folderToMove, setFolderToMove] = useState<Notebook | null>(null);
+  const [, startTransition] = useTransition();
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(new Set());
   const [isMobileExpanded, setIsMobileExpanded] = useState(true);
 
@@ -59,7 +62,6 @@ export function NotebookList({
       }
     });
 
-    // Update depths recursively if tree is deep
     const assignDepths = (nodes: FolderTreeNode[], currentDepth: number) => {
       nodes.forEach((n) => {
         n.depth = currentDepth;
@@ -86,58 +88,51 @@ export function NotebookList({
 
   const openCreateModal = (presetParentId: string | null = null, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    setParentId(presetParentId);
-    setName('');
-    setDescription('');
-    setTagsInput('');
-    setError(null);
+    setCreatePresetParentId(presetParentId);
     setShowCreateModal(true);
   };
 
-  const handleCreate = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) {
-      setError('Folder name is required');
+  const handleCreated = (created: Notebook) => {
+    if (created.parentId) {
+      setCollapsedFolderIds((prev) => {
+        const next = new Set(prev);
+        next.delete(created.parentId!);
+        return next;
+      });
+    }
+    onNotebookCreated?.(created);
+  };
+
+  const handleDeleteFolder = (folder: Notebook, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const count = noteCounts?.[folder.id] ?? 0;
+    const hasSubfolders = notebooks.some((nb) => nb.parentId === folder.id);
+    if (count > 0 || hasSubfolders) {
+      alert('Cannot delete folder: it contains notes or sub-folders.');
       return;
     }
 
-    setError(null);
+    const confirmed = window.confirm(
+      `Are you sure you want to delete the empty folder "${folder.name}"?`
+    );
+    if (!confirmed) return;
+
     startTransition(async () => {
       try {
         const dbService = new DatabaseService();
         const notebookService = new NotebookService(dbService);
-        const tags = tagsInput
-          .split(',')
-          .map((t) => t.trim())
-          .filter((t) => t.length > 0);
+        await notebookService.delete(folder.id);
 
-        const created = await notebookService.create({
-          name: name.trim(),
-          parentId: parentId || null,
-          description: description.trim(),
-          source: 'manual',
-          tags,
-        });
-
-        // Expand parent folder so newly created subfolder is immediately visible
-        if (parentId) {
-          setCollapsedFolderIds((prev) => {
-            const next = new Set(prev);
-            next.delete(parentId);
-            return next;
-          });
+        const { SyncManager } = await import('@/lib/db/sync_manager');
+        const syncService = SyncManager.getInstance().getSyncService();
+        if (syncService) {
+          await syncService.deleteRemoteNotebook(folder.id).catch(() => {});
         }
+        void SyncManager.getInstance().forceSync().catch(() => {});
 
-        setName('');
-        setParentId(null);
-        setDescription('');
-        setTagsInput('');
-        setShowCreateModal(false);
-        if (onNotebookCreated) {
-          onNotebookCreated(created);
-        }
+        onNotebookDeleted?.(folder.id);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to create folder');
+        alert(err instanceof Error ? err.message : 'Failed to delete folder');
       }
     });
   };
@@ -147,12 +142,14 @@ export function NotebookList({
     const hasChildren = node.children.length > 0;
     const isCollapsed = collapsedFolderIds.has(node.notebook.id);
     const count = noteCounts?.[node.notebook.id] ?? 0;
+    const isEmptyFolder = count === 0 && !hasChildren;
 
     return (
       <div key={node.notebook.id} style={{ display: 'flex', flexDirection: 'column' }}>
         <div
           role="button"
           tabIndex={0}
+          className="folder-tree-row"
           onClick={() => onSelectNotebook?.(node.notebook.id)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') onSelectNotebook?.(node.notebook.id);
@@ -161,7 +158,7 @@ export function NotebookList({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '0.5rem 0.75rem',
+            padding: '0.45rem 0.65rem',
             paddingLeft: `${0.65 + node.depth * 1.15}rem`,
             borderRadius: 'var(--radius-md)',
             cursor: 'pointer',
@@ -171,6 +168,7 @@ export function NotebookList({
             border: isSelected ? '1px solid var(--color-primary-glow)' : '1px solid transparent',
             transition: 'all var(--transition-fast)',
             gap: '0.4rem',
+            minHeight: '36px',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0, flex: 1 }}>
@@ -191,21 +189,24 @@ export function NotebookList({
                   justifyContent: 'center',
                   width: '16px',
                   height: '16px',
+                  flexShrink: 0,
                 }}
               >
                 {isCollapsed ? '▶' : '▼'}
               </button>
             ) : (
-              <span style={{ width: '16px' }} />
+              <span style={{ width: '16px', flexShrink: 0 }} />
             )}
 
-            <span style={{ fontSize: '0.95rem' }}>📁</span>
+            <span style={{ fontSize: '0.95rem', flexShrink: 0 }}>📁</span>
             <span
               style={{
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
                 fontSize: '0.875rem',
+                minWidth: 0,
+                flex: 1,
               }}
               title={node.notebook.name}
             >
@@ -213,44 +214,48 @@ export function NotebookList({
             </span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexShrink: 0 }}>
-            {/* Quick Add Subfolder button */}
-            <button
-              type="button"
-              onClick={(e) => openCreateModal(node.notebook.id, e)}
-              title={`Add sub-folder inside ${node.notebook.name}`}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--color-text-muted)',
-                fontSize: '0.75rem',
-                cursor: 'pointer',
-                padding: '0.1rem 0.35rem',
-                borderRadius: 'var(--radius-xs)',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'var(--color-primary)';
-                e.currentTarget.style.backgroundColor = 'var(--color-surface-raised)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--color-text-muted)';
-                e.currentTarget.style.backgroundColor = 'transparent';
-              }}
-            >
-              + Sub
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0 }}>
+            <div className="folder-row-actions">
+              <button
+                type="button"
+                onClick={(e) => openCreateModal(node.notebook.id, e)}
+                title={`Add sub-folder inside "${node.notebook.name}"`}
+                aria-label="Add sub-folder"
+                className="folder-action-btn"
+              >
+                +
+              </button>
 
-            <span
-              style={{
-                fontSize: '0.75rem',
-                padding: '0.1rem 0.45rem',
-                borderRadius: 'var(--radius-full)',
-                backgroundColor: 'var(--color-surface-raised)',
-                color: 'var(--color-text-muted)',
-                minWidth: '22px',
-                textAlign: 'center',
-              }}
-            >
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFolderToMove(node.notebook);
+                }}
+                title={`Move folder "${node.notebook.name}"`}
+                aria-label="Move folder"
+                className="folder-action-btn"
+              >
+                ⇄
+              </button>
+
+              <button
+                type="button"
+                disabled={!isEmptyFolder}
+                onClick={(e) => handleDeleteFolder(node.notebook, e)}
+                title={
+                  isEmptyFolder
+                    ? `Delete empty folder "${node.notebook.name}"`
+                    : `Cannot delete: contains ${count} note${count === 1 ? '' : 's'} and ${node.children.length} sub-folder${node.children.length === 1 ? '' : 's'}`
+                }
+                aria-label="Delete empty folder"
+                className={`folder-action-btn ${isEmptyFolder ? 'action-delete' : 'action-disabled'}`}
+              >
+                🗑️
+              </button>
+            </div>
+
+            <span className="folder-count-badge">
               {count}
             </span>
           </div>
@@ -355,15 +360,7 @@ export function NotebookList({
             }}
           >
             <span style={{ fontSize: '0.875rem' }}>📚 All Notes</span>
-            <span
-              style={{
-                fontSize: '0.75rem',
-                padding: '0.1rem 0.45rem',
-                borderRadius: 'var(--radius-full)',
-                backgroundColor: 'var(--color-surface-raised)',
-                color: 'var(--color-text-muted)',
-              }}
-            >
+            <span className="folder-count-badge">
               {totalNotesCount}
             </span>
           </div>
@@ -374,200 +371,25 @@ export function NotebookList({
       )}
 
       {/* Modal for Creating New Folder or Sub-Folder */}
-      {showCreateModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
-            backdropFilter: 'blur(6px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100,
-            padding: '1rem',
-          }}
-          onClick={() => setShowCreateModal(false)}
-        >
-          <div
-            style={{
-              backgroundColor: 'var(--color-surface)',
-              border: '1px solid var(--color-surface-border)',
-              borderRadius: 'var(--radius-xl)',
-              padding: '1.75rem',
-              width: '100%',
-              maxWidth: '460px',
-              boxShadow: 'var(--shadow-lg)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2
-              style={{
-                fontSize: '1.25rem',
-                fontWeight: 700,
-                color: 'var(--color-text-primary)',
-                marginBottom: '1.25rem',
-              }}
-            >
-              {parentId ? 'Create New Sub-folder' : 'Create New Folder'}
-            </h2>
-            <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label
-                  style={{
-                    display: 'block',
-                    fontSize: '0.8rem',
-                    color: 'var(--color-text-secondary)',
-                    marginBottom: '0.35rem',
-                  }}
-                >
-                  Folder Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Stanford CS229, Week 1, Algorithms"
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.875rem',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-bg-secondary)',
-                    border: '1px solid var(--color-surface-border)',
-                    color: 'var(--color-text-primary)',
-                    outline: 'none',
-                  }}
-                />
-              </div>
+      <CreateFolderModal
+        isOpen={showCreateModal}
+        parentId={createPresetParentId}
+        notebooks={notebooks}
+        onClose={() => setShowCreateModal(false)}
+        onCreated={handleCreated}
+      />
 
-              <div>
-                <label
-                  style={{
-                    display: 'block',
-                    fontSize: '0.8rem',
-                    color: 'var(--color-text-secondary)',
-                    marginBottom: '0.35rem',
-                  }}
-                >
-                  Parent Folder (for nesting sub-folders)
-                </label>
-                <select
-                  value={parentId ?? ''}
-                  onChange={(e) => setParentId(e.target.value || null)}
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.875rem',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-bg-secondary)',
-                    border: '1px solid var(--color-surface-border)',
-                    color: 'var(--color-text-primary)',
-                    outline: 'none',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <option value="">📁 None (Top-Level Folder)</option>
-                  {notebooks.map((nb) => (
-                    <option key={nb.id} value={nb.id}>
-                      📁 {nb.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label
-                  style={{
-                    display: 'block',
-                    fontSize: '0.8rem',
-                    color: 'var(--color-text-secondary)',
-                    marginBottom: '0.35rem',
-                  }}
-                >
-                  Description (optional)
-                </label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={2}
-                  placeholder="Short description of this subject or topic..."
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.875rem',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-bg-secondary)',
-                    border: '1px solid var(--color-surface-border)',
-                    color: 'var(--color-text-primary)',
-                    outline: 'none',
-                    resize: 'vertical',
-                  }}
-                />
-              </div>
-
-              <div>
-                <label
-                  style={{
-                    display: 'block',
-                    fontSize: '0.8rem',
-                    color: 'var(--color-text-secondary)',
-                    marginBottom: '0.35rem',
-                  }}
-                >
-                  Tags (comma separated)
-                </label>
-                <input
-                  type="text"
-                  value={tagsInput}
-                  onChange={(e) => setTagsInput(e.target.value)}
-                  placeholder="lecture-notes, chapter-1, exams"
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.875rem',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-bg-secondary)',
-                    border: '1px solid var(--color-surface-border)',
-                    color: 'var(--color-text-primary)',
-                    outline: 'none',
-                  }}
-                />
-              </div>
-
-              {error && <div style={{ color: 'var(--color-error)', fontSize: '0.8rem' }}>{error}</div>}
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  style={{
-                    padding: '0.5rem 1rem',
-                    borderRadius: 'var(--radius-md)',
-                    color: 'var(--color-text-secondary)',
-                    backgroundColor: 'transparent',
-                    border: '1px solid var(--color-surface-border)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isPending}
-                  style={{
-                    padding: '0.5rem 1.25rem',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-primary)',
-                    color: '#ffffff',
-                    fontWeight: 600,
-                    cursor: isPending ? 'wait' : 'pointer',
-                  }}
-                >
-                  {isPending ? 'Creating...' : parentId ? 'Create Sub-folder' : 'Create Folder'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Move Folder Modal */}
+      <MoveFolderModal
+        folder={folderToMove}
+        notebooks={notebooks}
+        isOpen={Boolean(folderToMove)}
+        onClose={() => setFolderToMove(null)}
+        onMoved={(updated) => {
+          onNotebookUpdated?.(updated);
+          setFolderToMove(null);
+        }}
+      />
     </div>
   );
 }

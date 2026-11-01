@@ -1,9 +1,10 @@
 'use client';
 
-import React, { Suspense, use, useCallback, useEffect, useState, useTransition } from 'react';
+import React, { Suspense, use, useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { NoteCard } from '@/components/notes/NoteCard';
+import { MoveFolderModal } from '@/components/notes/MoveFolderModal';
 import { DatabaseService } from '@/lib/db/database_service';
 import type { Note, Notebook } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
@@ -13,19 +14,43 @@ interface NotebookDetailPageProps {
   params: Promise<{ id: string }>;
 }
 
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '0.625rem 0.875rem',
+  borderRadius: 'var(--radius-md)',
+  backgroundColor: 'var(--color-bg-secondary)',
+  border: '1px solid var(--color-surface-border)',
+  color: 'var(--color-text-primary)',
+};
+
+const actionBtnStyle: React.CSSProperties = {
+  padding: '0.5rem 0.875rem',
+  borderRadius: 'var(--radius-md)',
+  backgroundColor: 'var(--color-surface-raised)',
+  border: '1px solid var(--color-surface-border)',
+  color: 'var(--color-text-primary)',
+  fontSize: '0.85rem',
+  fontWeight: 500,
+  cursor: 'pointer',
+};
+
 function NotebookDetailContent({ params }: NotebookDetailPageProps) {
   const resolvedParams = use(params);
   const notebookId = resolvedParams.id;
   const router = useRouter();
 
   const [notebook, setNotebook] = useState<Notebook | null>(null);
+  const [allNotebooks, setAllNotebooks] = useState<Notebook[]>([]);
+  const [subfolders, setSubfolders] = useState<Notebook[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Edit State
+  // Edit & Move State
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [editParentId, setEditParentId] = useState<string>('');
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const loadData = useCallback(async () => {
@@ -33,16 +58,21 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
     const nbService = new NotebookService(dbService);
     const noteService = new NoteService(dbService);
 
-    const [foundNb, foundNotes] = await Promise.all([
+    const [foundNb, foundNotes, foundSubfolders, allNbs] = await Promise.all([
       nbService.getById(notebookId),
       noteService.getByNotebook(notebookId),
+      nbService.getByParent(notebookId),
+      nbService.getAll(),
     ]);
 
     setNotebook(foundNb ?? null);
     setNotes(foundNotes);
+    setSubfolders(foundSubfolders);
+    setAllNotebooks(allNbs);
     if (foundNb) {
       setEditName(foundNb.name);
       setEditDescription(foundNb.description ?? '');
+      setEditParentId(foundNb.parentId ?? '');
     }
     setIsLoading(false);
   }, [notebookId]);
@@ -51,6 +81,14 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
     void Promise.resolve().then(loadData);
   }, [loadData]);
 
+  const isEmpty = notes.length === 0 && subfolders.length === 0;
+
+  const availableParents = useMemo(() => {
+    if (!notebook) return [];
+    const descendants = NotebookService.getDescendantIdsFromList(notebook.id, allNotebooks);
+    return allNotebooks.filter((nb) => nb.id !== notebook.id && !descendants.has(nb.id));
+  }, [notebook, allNotebooks]);
+
   const handleUpdate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editName.trim()) return;
@@ -58,25 +96,42 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
     startTransition(async () => {
       const dbService = new DatabaseService();
       const nbService = new NotebookService(dbService);
+      const targetParentId = editParentId.trim() ? editParentId.trim() : null;
+      if (targetParentId !== (notebook?.parentId ?? null)) {
+        await nbService.move(notebookId, targetParentId);
+      }
       const updated = await nbService.update(notebookId, {
         name: editName.trim(),
         description: editDescription.trim(),
       });
       setNotebook(updated);
       setIsEditing(false);
+      void loadData();
     });
   };
 
   const handleDeleteNotebook = async () => {
     if (!notebook) return;
+    if (!isEmpty) {
+      alert('Cannot delete folder: it contains notes or subfolders. Delete or move them first.');
+      return;
+    }
     const confirmed = window.confirm(
-      `Are you sure you want to delete the notebook "${notebook.name}"? (Existing notes will be preserved).`
+      `Are you sure you want to delete the empty folder "${notebook.name}"?`
     );
     if (!confirmed) return;
 
     const dbService = new DatabaseService();
     const nbService = new NotebookService(dbService);
     await nbService.delete(notebook.id);
+
+    const { SyncManager } = await import('@/lib/db/sync_manager');
+    const syncService = SyncManager.getInstance().getSyncService();
+    if (syncService) {
+      await syncService.deleteRemoteNotebook(notebook.id).catch(() => {});
+    }
+    void SyncManager.getInstance().forceSync().catch(() => {});
+
     router.push('/notes');
   };
 
@@ -154,14 +209,7 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
                 required
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.625rem 0.875rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-bg-secondary)',
-                  border: '1px solid var(--color-surface-border)',
-                  color: 'var(--color-text-primary)',
-                }}
+                style={inputStyle}
               />
             </div>
 
@@ -173,43 +221,40 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
                 value={editDescription}
                 onChange={(e) => setEditDescription(e.target.value)}
                 rows={2}
-                style={{
-                  width: '100%',
-                  padding: '0.625rem 0.875rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-bg-secondary)',
-                  border: '1px solid var(--color-surface-border)',
-                  color: 'var(--color-text-primary)',
-                }}
+                style={inputStyle}
               />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginBottom: '0.35rem' }}>
+                Parent Folder (for nesting sub-folders)
+              </label>
+              <select
+                value={editParentId}
+                onChange={(e) => setEditParentId(e.target.value)}
+                style={{ ...inputStyle, cursor: 'pointer' }}
+              >
+                <option value="">📁 None (Top-Level Folder)</option>
+                {availableParents.map((nb) => (
+                  <option key={nb.id} value={nb.id}>
+                    📁 {nb.name} {nb.parentId ? '(Sub-folder)' : ''}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div style={{ display: 'flex', gap: '0.75rem' }}>
               <button
                 type="button"
                 onClick={() => setIsEditing(false)}
-                style={{
-                  padding: '0.45rem 1rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'transparent',
-                  border: '1px solid var(--color-surface-border)',
-                  color: 'var(--color-text-secondary)',
-                  fontSize: '0.85rem',
-                }}
+                style={{ padding: '0.45rem 1rem', borderRadius: 'var(--radius-md)', background: 'transparent', border: '1px solid var(--color-surface-border)', color: 'var(--color-text-secondary)', fontSize: '0.85rem' }}
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isPending}
-                style={{
-                  padding: '0.45rem 1.25rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-primary)',
-                  color: '#ffffff',
-                  fontWeight: 600,
-                  fontSize: '0.85rem',
-                }}
+                style={{ padding: '0.45rem 1.25rem', borderRadius: 'var(--radius-md)', background: 'var(--color-primary)', color: '#ffffff', fontWeight: 600, fontSize: '0.85rem' }}
               >
                 Save Changes
               </button>
@@ -268,35 +313,40 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setIsMoveModalOpen(true)}
+                style={actionBtnStyle}
+              >
+                📁 Move Folder
+              </button>
               <button
                 type="button"
                 onClick={() => setIsEditing(true)}
-                style={{
-                  padding: '0.5rem 0.875rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-surface-raised)',
-                  border: '1px solid var(--color-surface-border)',
-                  color: 'var(--color-text-primary)',
-                  fontSize: '0.85rem',
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                }}
+                style={actionBtnStyle}
               >
                 ✏️ Edit Notebook
               </button>
               <button
                 type="button"
+                disabled={!isEmpty}
                 onClick={handleDeleteNotebook}
+                title={
+                  isEmpty
+                    ? `Delete empty notebook "${notebook.name}"`
+                    : `Cannot delete: contains ${notes.length} note${notes.length === 1 ? '' : 's'} and ${subfolders.length} sub-folder${subfolders.length === 1 ? '' : 's'}`
+                }
                 style={{
                   padding: '0.5rem 0.875rem',
                   borderRadius: 'var(--radius-md)',
                   backgroundColor: 'transparent',
                   border: '1px solid var(--color-surface-border)',
-                  color: 'var(--color-error)',
+                  color: isEmpty ? 'var(--color-error)' : 'var(--color-text-muted)',
                   fontSize: '0.85rem',
                   fontWeight: 500,
-                  cursor: 'pointer',
+                  cursor: isEmpty ? 'pointer' : 'not-allowed',
+                  opacity: isEmpty ? 1 : 0.4,
                 }}
               >
                 🗑️ Delete
@@ -305,6 +355,55 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
           </div>
         )}
       </div>
+
+      {/* Sub-folders in this notebook (if any) */}
+      {subfolders.length > 0 && (
+        <section>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+              Sub-folders ({subfolders.length})
+            </h2>
+          </div>
+          <div className="notes-subfolders-grid" style={{ marginBottom: '2rem' }}>
+            {subfolders.map((sf) => (
+              <Link
+                key={sf.id}
+                href={`/notes/notebook/${sf.id}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0.65rem 0.85rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-surface)',
+                  border: '1px solid var(--color-surface-border)',
+                  textDecoration: 'none',
+                  color: 'var(--color-text-primary)',
+                  gap: '0.5rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0 }}>
+                  <span style={{ fontSize: '1.1rem' }}>📁</span>
+                  <span
+                    style={{
+                      fontSize: '0.85rem',
+                      fontWeight: 600,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {sf.name}
+                  </span>
+                </div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', flexShrink: 0 }}>
+                  Manage →
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Notes Grid */}
       <section>
@@ -359,6 +458,19 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
           </div>
         )}
       </section>
+
+      {/* Move Folder Modal */}
+      <MoveFolderModal
+        folder={notebook}
+        notebooks={allNotebooks}
+        isOpen={isMoveModalOpen}
+        onClose={() => setIsMoveModalOpen(false)}
+        onMoved={(updated) => {
+          setNotebook(updated);
+          setIsMoveModalOpen(false);
+          void loadData();
+        }}
+      />
     </div>
   );
 }
