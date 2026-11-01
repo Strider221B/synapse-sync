@@ -6,6 +6,8 @@ const THEME_DARK = 'dark';
 const THEME_LIGHT = 'default';
 const ATTR_DATA_THEME = 'data-theme';
 const VALUE_LIGHT = 'light';
+const VALUE_SYSTEM = 'system';
+const MEDIA_QUERY_DARK = '(prefers-color-scheme: dark)';
 const ID_PREFIX = 'mermaid-';
 
 export interface MermaidDiagramProps {
@@ -13,10 +15,45 @@ export interface MermaidDiagramProps {
   className?: string;
 }
 
+function checkDarkMode(): boolean {
+  if (typeof document === 'undefined') return true;
+  const theme = document.documentElement.getAttribute(ATTR_DATA_THEME);
+  if (theme === VALUE_LIGHT) return false;
+  if (theme === THEME_DARK) return true;
+  if (theme === VALUE_SYSTEM && typeof window !== 'undefined' && window.matchMedia) {
+    return window.matchMedia(MEDIA_QUERY_DARK).matches;
+  }
+  return true;
+}
+
+function useIsDarkMode(): boolean {
+  const [isDark, setIsDark] = useState<boolean>(checkDarkMode);
+
+  useEffect(() => {
+    const update = () => setIsDark(checkDarkMode());
+    const observer = new MutationObserver(update);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: [ATTR_DATA_THEME],
+    });
+
+    const mql = window.matchMedia?.(MEDIA_QUERY_DARK);
+    mql?.addEventListener?.('change', update);
+
+    return () => {
+      observer.disconnect();
+      mql?.removeEventListener?.('change', update);
+    };
+  }, []);
+
+  return isDark;
+}
+
 /**
  * Renders Mermaid UML diagrams (flowcharts, sequence, class, state, ER diagrams) client-side into SVG.
  */
 export function MermaidDiagram({ chart, className = '' }: MermaidDiagramProps) {
+  const isDark = useIsDarkMode();
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
@@ -26,8 +63,6 @@ export function MermaidDiagram({ chart, className = '' }: MermaidDiagramProps) {
     async function renderChart() {
       try {
         const mermaid = (await import('mermaid')).default;
-        const isDark = document.documentElement.getAttribute(ATTR_DATA_THEME) !== VALUE_LIGHT;
-
         mermaid.initialize({
           startOnLoad: false,
           theme: isDark ? THEME_DARK : THEME_LIGHT,
@@ -37,7 +72,6 @@ export function MermaidDiagram({ chart, className = '' }: MermaidDiagramProps) {
 
         const id = `${ID_PREFIX}${Math.random().toString(36).substring(2, 10)}`;
         const { svg: renderedSvg } = await mermaid.render(id, chart);
-
         if (isMounted) {
           setSvg(renderedSvg);
           setError(null);
@@ -50,11 +84,10 @@ export function MermaidDiagram({ chart, className = '' }: MermaidDiagramProps) {
     }
 
     void renderChart();
-
     return () => {
       isMounted = false;
     };
-  }, [chart]);
+  }, [chart, isDark]);
 
   if (error) {
     return (
@@ -134,4 +167,3 @@ export function MermaidDiagram({ chart, className = '' }: MermaidDiagramProps) {
     </div>
   );
 }
-

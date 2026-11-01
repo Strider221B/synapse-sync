@@ -84,4 +84,27 @@ sequenceDiagram
     assert.ok(html.includes('language-python'), 'Must preserve code language class');
     assert.ok(html.includes('mermaid-diagram'), 'Mermaid block must be in mermaid-diagram container');
   });
+
+  it('renders inline code and preformatted code blocks properly', () => {
+    const content = 'Use `np.einsum` to evaluate tensor contractions:\n\n```python\nR1 = np.array([0, 1])\n```';
+    const html = renderToStaticMarkup(
+      React.createElement(MarkdownRenderer, { content })
+    );
+
+    assert.ok(html.includes('np.einsum'), 'Must render inline code content');
+    assert.ok(html.includes('<code'), 'Must have code tag');
+    assert.ok(html.includes('R1 = np.array([0, 1])'), 'Must render preformatted code block content');
+    assert.ok(html.includes('language-python'), 'Must preserve language class on code element');
+  });
+
+  it('renders blockquotes, lists, and links properly', () => {
+    const content = '> Important note\n\n- Item 1\n- Item 2\n\n[Documentation](https://example.com)';
+    const html = renderToStaticMarkup(
+      React.createElement(MarkdownRenderer, { content })
+    );
+
+    assert.ok(html.includes('<blockquote>'), 'Must render blockquote element');
+    assert.ok(html.includes('<ul>'), 'Must render unordered list');
+    assert.ok(html.includes('<a href="https://example.com"'), 'Must render link with href');
+  });
 });
