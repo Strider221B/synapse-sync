@@ -43,6 +43,12 @@ describe('GoogleDriveSyncService', () => {
         }
         return null;
       },
+      findAllFilesByName: async (name: string, parentFolderId = 'root') => {
+        if (savedFiles[name] && savedFiles[name].parentFolderId === parentFolderId) {
+          return [{ id: `file-${name}-id`, name, file: { mimeType: 'application/json' } } as DriveItem];
+        }
+        return [];
+      },
       saveFile: async (name: string, content: string | Blob, _mime = 'application/json', parentFolderId = 'root') => {
         const text = typeof content === 'string' ? content : '';
         savedFiles[name] = { content: text, parentFolderId };
@@ -317,6 +323,40 @@ describe('GoogleDriveSyncService', () => {
       retryCount: 0,
     });
     assert.equal(deletedFiles.includes('file-note_del-id.json-id'), true);
+
+    savedFiles['notebook_del-nb.json'] = { content: '{}', parentFolderId: 'folder-notebooks-id' };
+    await syncService.replaySyncEntry({
+      id: 'e4',
+      entityType: 'notebook',
+      entityId: 'del-nb',
+      operation: 'delete',
+      payload: {},
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+      retryCount: 0,
+    });
+    assert.equal(deletedFiles.includes('file-notebook_del-nb.json-id'), true);
+
+    await dbService.close();
+  });
+
+  it('does not resurrect a deleted notebook during pullNotebooks when queued for deletion', async () => {
+    const dbService = new DatabaseService(`${TEST_DB_PREFIX}-del-pull`);
+    const nbService = new NotebookService(dbService);
+    const queueService = new SyncQueueService(dbService);
+    const { client, savedFiles } = createMockDriveClient();
+    const syncService = new GoogleDriveSyncService(dbService, client, createMockAuth(), queueService);
+
+    const nb = await nbService.create({ name: 'To Be Deleted', source: 'manual', tags: [] });
+    await nbService.delete(nb.id);
+
+    savedFiles[`notebook_${nb.id}.json`] = { content: JSON.stringify(nb), parentFolderId: 'folder-notebooks-id' };
+
+    const pulledCount = await syncService.pullNotebooks();
+    assert.equal(pulledCount, 0, 'Must not pull back notebook queued for deletion');
+
+    const check = await nbService.getById(nb.id);
+    assert.equal(check, undefined, 'Notebook must remain deleted');
 
     await dbService.close();
   });

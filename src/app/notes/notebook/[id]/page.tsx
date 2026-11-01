@@ -14,6 +14,26 @@ interface NotebookDetailPageProps {
   params: Promise<{ id: string }>;
 }
 
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '0.625rem 0.875rem',
+  borderRadius: 'var(--radius-md)',
+  backgroundColor: 'var(--color-bg-secondary)',
+  border: '1px solid var(--color-surface-border)',
+  color: 'var(--color-text-primary)',
+};
+
+const actionBtnStyle: React.CSSProperties = {
+  padding: '0.5rem 0.875rem',
+  borderRadius: 'var(--radius-md)',
+  backgroundColor: 'var(--color-surface-raised)',
+  border: '1px solid var(--color-surface-border)',
+  color: 'var(--color-text-primary)',
+  fontSize: '0.85rem',
+  fontWeight: 500,
+  cursor: 'pointer',
+};
+
 function NotebookDetailContent({ params }: NotebookDetailPageProps) {
   const resolvedParams = use(params);
   const notebookId = resolvedParams.id;
@@ -104,6 +124,14 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
     const dbService = new DatabaseService();
     const nbService = new NotebookService(dbService);
     await nbService.delete(notebook.id);
+
+    const { SyncManager } = await import('@/lib/db/sync_manager');
+    const syncService = SyncManager.getInstance().getSyncService();
+    if (syncService) {
+      await syncService.deleteRemoteNotebook(notebook.id).catch(() => {});
+    }
+    void SyncManager.getInstance().forceSync().catch(() => {});
+
     router.push('/notes');
   };
 
@@ -181,14 +209,7 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
                 required
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.625rem 0.875rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-bg-secondary)',
-                  border: '1px solid var(--color-surface-border)',
-                  color: 'var(--color-text-primary)',
-                }}
+                style={inputStyle}
               />
             </div>
 
@@ -200,14 +221,7 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
                 value={editDescription}
                 onChange={(e) => setEditDescription(e.target.value)}
                 rows={2}
-                style={{
-                  width: '100%',
-                  padding: '0.625rem 0.875rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-bg-secondary)',
-                  border: '1px solid var(--color-surface-border)',
-                  color: 'var(--color-text-primary)',
-                }}
+                style={inputStyle}
               />
             </div>
 
@@ -218,16 +232,7 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
               <select
                 value={editParentId}
                 onChange={(e) => setEditParentId(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.625rem 0.875rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-bg-secondary)',
-                  border: '1px solid var(--color-surface-border)',
-                  color: 'var(--color-text-primary)',
-                  outline: 'none',
-                  cursor: 'pointer',
-                }}
+                style={{ ...inputStyle, cursor: 'pointer' }}
               >
                 <option value="">📁 None (Top-Level Folder)</option>
                 {availableParents.map((nb) => (
@@ -242,28 +247,14 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
               <button
                 type="button"
                 onClick={() => setIsEditing(false)}
-                style={{
-                  padding: '0.45rem 1rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'transparent',
-                  border: '1px solid var(--color-surface-border)',
-                  color: 'var(--color-text-secondary)',
-                  fontSize: '0.85rem',
-                }}
+                style={{ padding: '0.45rem 1rem', borderRadius: 'var(--radius-md)', background: 'transparent', border: '1px solid var(--color-surface-border)', color: 'var(--color-text-secondary)', fontSize: '0.85rem' }}
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isPending}
-                style={{
-                  padding: '0.45rem 1.25rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-primary)',
-                  color: '#ffffff',
-                  fontWeight: 600,
-                  fontSize: '0.85rem',
-                }}
+                style={{ padding: '0.45rem 1.25rem', borderRadius: 'var(--radius-md)', background: 'var(--color-primary)', color: '#ffffff', fontWeight: 600, fontSize: '0.85rem' }}
               >
                 Save Changes
               </button>
@@ -326,32 +317,14 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
               <button
                 type="button"
                 onClick={() => setIsMoveModalOpen(true)}
-                style={{
-                  padding: '0.5rem 0.875rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-surface-raised)',
-                  border: '1px solid var(--color-surface-border)',
-                  color: 'var(--color-text-primary)',
-                  fontSize: '0.85rem',
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                }}
+                style={actionBtnStyle}
               >
                 📁 Move Folder
               </button>
               <button
                 type="button"
                 onClick={() => setIsEditing(true)}
-                style={{
-                  padding: '0.5rem 0.875rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-surface-raised)',
-                  border: '1px solid var(--color-surface-border)',
-                  color: 'var(--color-text-primary)',
-                  fontSize: '0.85rem',
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                }}
+                style={actionBtnStyle}
               >
                 ✏️ Edit Notebook
               </button>

@@ -148,8 +148,8 @@ export class GoogleDriveSyncService {
   public async deleteRemoteNotebook(notebookId: string): Promise<void> {
     const folderId = await this._getNotebooksFolderId();
     const fileName = `${GoogleDriveSyncService._PREFIX_NOTEBOOK}${notebookId}${GoogleDriveSyncService._JSON_EXT}`;
-    const file = await this._gdriveClient.findFileByName(fileName, folderId);
-    if (file) await this._gdriveClient.deleteFile(file.id);
+    const files = await this._gdriveClient.findAllFilesByName(fileName, folderId);
+    for (const f of files) await this._gdriveClient.deleteFile(f.id);
   }
 
   public async pushChat(noteId: string): Promise<void> {
@@ -212,12 +212,15 @@ export class GoogleDriveSyncService {
     const folderId = await this._getNotebooksFolderId();
     const files = await this._gdriveClient.listAllFolderItems(folderId);
     const db = await this._dbService.getDB();
+    const queue = await db.getAll(DB_STORES.SYNC_QUEUE);
+    const delSet = new Set(queue.filter((q) => q.entityType === 'notebook' && q.operation === 'delete').map((q) => q.entityId));
     let count = 0;
 
     for (const file of files) {
       if (!this._isNotebookFileName(file.name)) continue;
       const text = await this._gdriveClient.getFileText(file.id);
       const remoteNb = JSON.parse(text) as Notebook;
+      if (delSet.has(remoteNb.id)) continue;
       const local = await db.get(DB_STORES.NOTEBOOKS, remoteNb.id);
       if (!local || new Date(remoteNb.updatedAt) > new Date(local.updatedAt)) {
         await db.put(DB_STORES.NOTEBOOKS, { ...remoteNb, isSynced: true });
@@ -240,12 +243,10 @@ export class GoogleDriveSyncService {
   public async replaySyncEntry(entry: SyncEntry): Promise<void> {
     if (entry.entityType === 'note') await this._replayNoteEntry(entry);
     else if (entry.entityType === 'quiz') {
-      if (entry.operation === 'delete') await this.deleteRemoteQuiz(entry.entityId);
-      else await this.pushQuiz(entry.entityId);
+      await (entry.operation === 'delete' ? this.deleteRemoteQuiz(entry.entityId) : this.pushQuiz(entry.entityId));
     } else if (entry.entityType === 'srs_card') await this._replaySRSCardEntry(entry.entityId);
     else if (entry.entityType === 'notebook') {
-      if (entry.operation === 'delete') await this.deleteRemoteNotebook(entry.entityId);
-      else await this._replayNotebookEntry(entry);
+      await (entry.operation === 'delete' ? this.deleteRemoteNotebook(entry.entityId) : this._replayNotebookEntry(entry));
     }
   }
 
@@ -277,10 +278,9 @@ export class GoogleDriveSyncService {
     await this._replayQueueEntries();
     await this.pushAppState();
 
-    const pulledNotebooks = await this.pullNotebooks();
-    const pulledNotes = await this.pullNotes();
-    const pulledQuizzes = await this.pullQuizzes();
-    const pulledChats = await this._chatSyncService.pullChats();
+    const [pulledNotebooks, pulledNotes, pulledQuizzes, pulledChats] = await Promise.all([
+      this.pullNotebooks(), this.pullNotes(), this.pullQuizzes(), this._chatSyncService.pullChats(),
+    ]);
     await this.pullAppState();
 
     await this._preferencesService.set(GoogleDriveSyncService._PREF_LAST_SYNC, nowIso);

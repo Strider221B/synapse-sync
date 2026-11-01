@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { DB_INDEXES, DB_STORES } from '../constants';
 import type { DatabaseService } from '../database_service';
 import type { Notebook } from '../models';
-import type { SyncQueueService } from './sync_queue_service';
+import { SyncQueueService } from './sync_queue_service';
 
 export type CreateNotebookInput = Omit<Notebook, 'id' | 'createdAt' | 'updatedAt' | 'isSynced'> & {
   isSynced?: boolean;
@@ -26,6 +26,8 @@ export class NotebookService {
   private static readonly _ERROR_CANNOT_MOVE_TO_DESCENDANT = 'Cannot move a folder into one of its sub-folders';
   private static readonly _ERROR_CANNOT_DELETE_NON_EMPTY = 'Cannot delete a folder that contains notes or sub-folders';
   private static readonly _ENTITY_TYPE = 'notebook';
+  private static readonly _OP_CREATE = 'create';
+  private static readonly _OP_UPDATE = 'update';
   private static readonly _OP_DELETE = 'delete';
 
   private readonly _databaseService: DatabaseService;
@@ -33,7 +35,7 @@ export class NotebookService {
 
   public constructor(databaseService: DatabaseService, syncQueueService?: SyncQueueService) {
     this._databaseService = databaseService;
-    this._syncQueueService = syncQueueService;
+    this._syncQueueService = syncQueueService ?? new SyncQueueService(databaseService);
   }
 
   /**
@@ -78,6 +80,14 @@ export class NotebookService {
     };
 
     await db.put(DB_STORES.NOTEBOOKS, notebook);
+    if (this._syncQueueService) {
+      await this._syncQueueService.enqueue(
+        NotebookService._ENTITY_TYPE,
+        notebook.id,
+        NotebookService._OP_CREATE,
+        { ...notebook } as Record<string, unknown>
+      );
+    }
     return notebook;
   }
 
@@ -188,9 +198,18 @@ export class NotebookService {
       ...existing,
       ...input,
       updatedAt: new Date().toISOString(),
+      isSynced: input.isSynced ?? false,
     };
 
     await db.put(DB_STORES.NOTEBOOKS, updated);
+    if (this._syncQueueService) {
+      await this._syncQueueService.enqueue(
+        NotebookService._ENTITY_TYPE,
+        id,
+        NotebookService._OP_UPDATE,
+        { ...updated } as Record<string, unknown>
+      );
+    }
     return updated;
   }
 

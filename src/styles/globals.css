@@ -796,6 +796,64 @@ button {
   background-color: var(--color-surface-raised);
 }
 
+.folder-tree-row {
+  position: relative;
+}
+
+.folder-tree-row .folder-row-actions {
+  display: none;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.folder-tree-row:hover .folder-row-actions,
+.folder-tree-row:focus-within .folder-row-actions {
+  display: flex;
+}
+
+.folder-action-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.1rem 0.25rem;
+  border-radius: var(--radius-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  line-height: 1;
+  transition: all var(--transition-fast);
+}
+
+.folder-action-btn:hover {
+  color: var(--color-primary);
+  background-color: var(--color-surface-raised);
+  border-color: var(--color-surface-border);
+}
+
+.folder-action-btn.action-delete:hover {
+  color: var(--color-error);
+  background-color: var(--color-error-bg);
+}
+
+.folder-action-btn.action-disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.folder-count-badge {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  min-width: 22px;
+  text-align: center;
+}
+
 @media (max-width: 768px) {
   .notes-main-grid {
     grid-template-columns: 1fr;
