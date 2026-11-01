@@ -43,10 +43,9 @@ export function NoteCard({ note, notebookName, onClick, onMove }: NoteCardProps)
     }
   };
 
-  const previewSnippet = note.content
-    .replace(/[#*`_>\[\]]/g, '')
-    .trim()
-    .slice(0, 140);
+  const previewSnippet = note.previewSnippet || (note.content
+    ? note.content.replace(/[#*`_>\[\]]/g, '').trim().slice(0, 140)
+    : '');
 
   return (
     <article

@@ -14,4 +14,6 @@ export interface Note {
   createdAt: string;
   updatedAt: string;
   isSynced: boolean;
+  isBodyLoaded?: boolean;
+  previewSnippet?: string;
 }
