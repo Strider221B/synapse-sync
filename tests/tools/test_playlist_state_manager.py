@@ -163,3 +163,45 @@ class TestPlaylistStateManager:
         assert "Lecture 2: Manual" in by_title
         assert by_title["Lecture 2: Manual"]["content"] == "Manual note content."
         assert by_title["Lecture 2: Manual"]["sourceType"] == "manual"
+
+    def test_load_notes_synthesizes_notebook_when_missing_but_markdown_exists(
+        self, manager: PlaylistStateManager, temp_notes_dir: Path
+    ) -> None:
+        """Verify load_notes synthesizes notebook.json if absent but markdown notes exist."""
+        p_dir = temp_notes_dir / "CS221_AI_2025"
+        notes_dir = p_dir / "notes"
+        notes_dir.mkdir(parents=True)
+        (notes_dir / "01_intro.md").write_text("# Intro to AI\n\nAI foundations content.")
+
+        nb, notes = manager.load_notes(p_dir)
+        assert nb["name"] == "CS221 AI 2025"
+        assert nb["source"] == "youtube_playlist"
+        assert len(notes) == 1
+        assert (p_dir / "notebook.json").is_file()
+
+    def test_init_playlist_creates_notebook_json_and_state(
+        self, manager: PlaylistStateManager, temp_notes_dir: Path
+    ) -> None:
+        """Verify init_playlist creates directory, notes subfolder, notebook.json and state.json."""
+        p_dir = temp_notes_dir / "Stanford_CS229"
+        notebook = manager.build_playlist_notebook("Stanford CS229", "https://youtube.com/pl")
+        manager.init_playlist(p_dir, notebook, "https://youtube.com/pl")
+
+        assert (p_dir / "notebook.json").is_file()
+        assert (p_dir / "state.json").is_file()
+        assert (p_dir / "notes").is_dir()
+        state = manager.load_state(p_dir)
+        assert state["playlistUrl"] == "https://youtube.com/pl"
+
+    def test_save_notebook_persists_metadata_and_notes_dir(
+        self, manager: PlaylistStateManager, temp_notes_dir: Path
+    ) -> None:
+        """Verify save_notebook writes notebook.json and creates notes directory."""
+        p_dir = temp_notes_dir / "Custom_Course"
+        notebook = {"name": "Custom Course", "tags": ["test"]}
+        nb_file = manager.save_notebook(p_dir, notebook)
+
+        assert nb_file.is_file()
+        assert (p_dir / "notes").is_dir()
+        loaded = json.loads(nb_file.read_text(encoding="utf-8"))
+        assert loaded["name"] == "Custom Course"

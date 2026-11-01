@@ -147,6 +147,39 @@ class TestYouTubeCli:
         exit_code = cli.run(["push", "--notebook-dir", str(empty_dir)])
         assert exit_code == 1
 
+    def test_push_directory_fails_when_directory_does_not_exist(self, tmp_path: Path) -> None:
+        """Verify push command returns exit code 1 when target directory does not exist."""
+        cli, _, _, _, _ = self._create_mock_cli(tmp_path)
+        missing_dir = tmp_path / "non_existent_dir"
+        exit_code = cli.run(["push", "--notebook-dir", str(missing_dir)])
+        assert exit_code == 1
+
+    def test_push_directory_synthesizes_notebook_and_pushes_markdown_notes(
+        self, tmp_path: Path
+    ) -> None:
+        """Verify push succeeds without notebook.json when markdown notes exist."""
+        cli, _, _, _, mock_push = self._create_mock_cli(tmp_path)
+        nb_dir = tmp_path / "CS221_AI_2025"
+        notes_dir = nb_dir / "notes"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        (notes_dir / "01_intro.md").write_text("# Intro to AI\n\nAI content here.")
+
+        exit_code = cli.run(["push", "--notebook-dir", str(nb_dir)])
+        assert exit_code == 0
+        mock_push.push.assert_called_once()
+        assert (nb_dir / "notebook.json").is_file()
+
+    def test_process_playlist_transcripts_only_initializes_playlist_dir(
+        self, tmp_path: Path
+    ) -> None:
+        """Verify process without --generate-notes initializes playlist dir and notebook.json."""
+        cli, _, _, _, _ = self._create_mock_cli(tmp_path)
+        exit_code = cli.run(["process", "--url", self._PLAYLIST_URL])
+        assert exit_code == 0
+        playlist_dir = tmp_path / "notes" / "Stanford_CS229"
+        assert (playlist_dir / "notebook.json").is_file()
+        assert (playlist_dir / "notes").is_dir()
+
     def test_process_returns_error_on_unrecognized_url(self, tmp_path: Path) -> None:
         """Verify process returns exit code 1 when URL format is unrecognized."""
         cli, _, _, _, _ = self._create_mock_cli(tmp_path)

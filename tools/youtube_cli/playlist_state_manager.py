@@ -23,6 +23,7 @@ class PlaylistStateManager:
     _KEY_STATUS: ClassVar[str] = "status"
     _KEY_VIDEO_ID: ClassVar[str] = "videoId"
     _KEY_TITLE: ClassVar[str] = "title"
+    _KEY_NAME: ClassVar[str] = "name"
     _KEY_URL: ClassVar[str] = "url"
     _KEY_ERROR: ClassVar[str] = "error"
     _KEY_UPDATED_AT: ClassVar[str] = "updatedAt"
@@ -86,6 +87,28 @@ class PlaylistStateManager:
             "tags": ["youtube", "lecture"],
         }
 
+    def init_playlist(
+        self, playlist_dir: Path, notebook: dict[str, Any], playlist_url: str = ""
+    ) -> None:
+        """Initialize playlist directory with notebook metadata and initial state."""
+        self.save_notebook(playlist_dir, notebook)
+        state_file = playlist_dir / self._FILE_STATE
+        if not state_file.is_file():
+            state = self._build_initial_state(playlist_dir.name)
+            if playlist_url:
+                state[self._KEY_PLAYLIST_URL] = playlist_url
+            if notebook.get(self._KEY_NAME):
+                state[self._KEY_PLAYLIST_TITLE] = notebook[self._KEY_NAME]
+            self._write_json(state_file, state)
+
+    def save_notebook(self, playlist_dir: Path, notebook: dict[str, Any]) -> Path:
+        """Persist notebook metadata dictionary to notebook.json in playlist directory."""
+        playlist_dir.mkdir(parents=True, exist_ok=True)
+        (playlist_dir / self._DIR_NOTES_MD).mkdir(parents=True, exist_ok=True)
+        nb_path = playlist_dir / self._FILE_NOTEBOOK
+        self._write_json(nb_path, notebook)
+        return nb_path
+
     def load_state(self, playlist_dir: Path) -> dict[str, Any]:
         """Read state.json from target playlist directory, or initialize default."""
         state_file = playlist_dir / self._FILE_STATE
@@ -116,6 +139,8 @@ class PlaylistStateManager:
             else []
         )
         synced_notes = self._sync_markdown_files(playlist_dir, notes_data)
+        if not nb_data and synced_notes:
+            nb_data = self._synthesize_notebook(playlist_dir, nb_file)
         return nb_data, synced_notes
 
     def get_completed_ids(self, playlist_dir: Path) -> set[str]:
@@ -269,6 +294,16 @@ class PlaylistStateManager:
     def _sanitize_filename(self, name: str) -> str:
         """Replace non-alphanumeric characters with underscore to form safe filenames."""
         return "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in name)
+
+    def _synthesize_notebook(self, playlist_dir: Path, nb_file: Path) -> dict[str, Any]:
+        """Synthesize and save notebook metadata when notes exist but notebook.json is missing."""
+        state = self.load_state(playlist_dir)
+        raw_title = state.get(self._KEY_PLAYLIST_TITLE) or playlist_dir.name
+        title = raw_title.replace("_", " ").strip()
+        url = state.get(self._KEY_PLAYLIST_URL, "")
+        nb_data = self.build_playlist_notebook(title, url)
+        self._write_json(nb_file, nb_data)
+        return nb_data
 
     def _sync_markdown_files(
         self, playlist_dir: Path, notes: list[dict[str, Any]]
