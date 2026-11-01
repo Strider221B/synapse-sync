@@ -6,6 +6,7 @@ import { DatabaseService } from '../../lib/db/database_service';
 import type { Notebook } from '../../lib/db/models';
 import type { SynapseSyncDB } from '../../lib/db/schema';
 import { NotebookService } from '../../lib/db/services/notebook_service';
+import { NoteService } from '../../lib/db/services/note_service';
 
 describe('NotebookService', () => {
   const TEST_DB_NAME = 'synapse-notebook-service-test';
@@ -203,6 +204,120 @@ describe('NotebookService', () => {
     assert.equal(path[0].name, 'Level 1');
     assert.equal(path[1].name, 'Level 2');
     assert.equal(path[2].name, 'Level 3');
+
+    await dbService.close();
+  });
+
+  it('canDelete returns true for empty notebook and false when containing notes', async () => {
+    const dbService = new DatabaseService('synapse-notebook-candelete-notes-test');
+    const nbService = new NotebookService(dbService);
+    const noteService = new NoteService(dbService);
+
+    const folder = await nbService.create({ name: 'Math Folder', source: 'manual', tags: [] });
+
+    // When empty
+    const checkEmpty = await nbService.canDelete(folder.id);
+    assert.equal(checkEmpty.canDelete, true);
+    assert.equal(checkEmpty.noteCount, 0);
+    assert.equal(checkEmpty.subfolderCount, 0);
+
+    // Add note to folder
+    await noteService.create({
+      notebookId: folder.id,
+      title: 'Calculus Notes',
+      content: 'Derivatives',
+      contentFormat: 'markdown',
+      sourceType: 'manual',
+    });
+
+    const checkWithNotes = await nbService.canDelete(folder.id);
+    assert.equal(checkWithNotes.canDelete, false);
+    assert.equal(checkWithNotes.noteCount, 1);
+    assert.ok(checkWithNotes.reason?.includes('contains notes or sub-folders'));
+
+    // Trying to delete folder with notes must throw
+    await assert.rejects(
+      async () => nbService.delete(folder.id),
+      /Cannot delete a folder that contains notes or sub-folders/
+    );
+
+    await dbService.close();
+  });
+
+  it('canDelete returns false and delete throws when containing sub-folders', async () => {
+    const dbService = new DatabaseService('synapse-notebook-candelete-subfolders-test');
+    const nbService = new NotebookService(dbService);
+
+    const parent = await nbService.create({ name: 'Parent Folder', source: 'manual', tags: [] });
+    const child = await nbService.create({ name: 'Child Folder', parentId: parent.id, source: 'manual', tags: [] });
+
+    const checkParent = await nbService.canDelete(parent.id);
+    assert.equal(checkParent.canDelete, false);
+    assert.equal(checkParent.subfolderCount, 1);
+
+    await assert.rejects(
+      async () => nbService.delete(parent.id),
+      /Cannot delete a folder that contains notes or sub-folders/
+    );
+
+    // Child is empty, so deleting child succeeds
+    await nbService.delete(child.id);
+
+    // Now parent is empty, so deleting parent succeeds
+    const checkParentAfter = await nbService.canDelete(parent.id);
+    assert.equal(checkParentAfter.canDelete, true);
+    await nbService.delete(parent.id);
+
+    await dbService.close();
+  });
+
+  it('moves a folder to another parent or to root', async () => {
+    const dbService = new DatabaseService('synapse-notebook-move-test');
+    const nbService = new NotebookService(dbService);
+
+    const folderA = await nbService.create({ name: 'Folder A', source: 'manual', tags: [] });
+    const folderB = await nbService.create({ name: 'Folder B', source: 'manual', tags: [] });
+
+    // Move B under A
+    const movedToA = await nbService.move(folderB.id, folderA.id);
+    assert.equal(movedToA.parentId, folderA.id);
+
+    // Move B back to root (null)
+    const movedToRoot = await nbService.move(folderB.id, null);
+    assert.equal(movedToRoot.parentId, null);
+
+    await dbService.close();
+  });
+
+  it('prevents cyclic movement into self or descendants', async () => {
+    const dbService = new DatabaseService('synapse-notebook-cyclic-test');
+    const nbService = new NotebookService(dbService);
+
+    const root = await nbService.create({ name: 'Root', source: 'manual', tags: [] });
+    const child = await nbService.create({ name: 'Child', parentId: root.id, source: 'manual', tags: [] });
+    const grandchild = await nbService.create({ name: 'Grandchild', parentId: child.id, source: 'manual', tags: [] });
+
+    // Moving root into root itself must throw
+    await assert.rejects(
+      async () => nbService.move(root.id, root.id),
+      /Cannot move a folder into itself/
+    );
+
+    // Moving root into child or grandchild must throw
+    await assert.rejects(
+      async () => nbService.move(root.id, child.id),
+      /Cannot move a folder into one of its sub-folders/
+    );
+    await assert.rejects(
+      async () => nbService.move(root.id, grandchild.id),
+      /Cannot move a folder into one of its sub-folders/
+    );
+
+    // Synchronous list helper tests
+    const all = await nbService.getAll();
+    const rootDescendants = NotebookService.getDescendantIdsFromList(root.id, all);
+    assert.equal(rootDescendants.has(child.id), true);
+    assert.equal(rootDescendants.has(grandchild.id), true);
 
     await dbService.close();
   });

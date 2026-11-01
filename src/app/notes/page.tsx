@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { NoteCard } from '@/components/notes/NoteCard';
 import { NotebookList } from '@/components/notes/NotebookList';
+import { MoveFolderModal } from '@/components/notes/MoveFolderModal';
 import { Skeleton } from '@/components/common/Skeleton';
 import { DatabaseService } from '@/lib/db/database_service';
 import type { Note, Notebook } from '@/lib/db/models';
@@ -23,6 +24,7 @@ export default function NotesPage() {
   const [viewMode, setViewMode] = useState<'grouped' | 'list'>('grouped');
   const [isLoading, setIsLoading] = useState(true);
   const [noteToMove, setNoteToMove] = useState<Note | null>(null);
+  const [folderToMove, setFolderToMove] = useState<Notebook | null>(null);
   const [targetMoveFolderId, setTargetMoveFolderId] = useState<string>('');
   const [isMoving, setIsMoving] = useState(false);
   const [, startTransition] = useTransition();
@@ -170,6 +172,27 @@ export default function NotesPage() {
   };
 
   const selectedNotebook = selectedNotebookId ? notebookMap.get(selectedNotebookId) : null;
+  const selectedFolderNotesCount = selectedNotebook ? (noteCounts[selectedNotebook.id] ?? 0) : 0;
+  const selectedFolderSubfoldersCount = currentSubfolders.length;
+  const isSelectedFolderEmpty = selectedFolderNotesCount === 0 && selectedFolderSubfoldersCount === 0;
+
+  const handleDeleteSelectedFolder = async () => {
+    if (!selectedNotebook) return;
+    if (!isSelectedFolderEmpty) {
+      alert('Cannot delete folder: it contains notes or subfolders.');
+      return;
+    }
+    const confirmed = window.confirm(
+      `Are you sure you want to delete the empty folder "${selectedNotebook.name}"?`
+    );
+    if (!confirmed) return;
+
+    const dbService = new DatabaseService();
+    const nbService = new NotebookService(dbService);
+    await nbService.delete(selectedNotebook.id);
+    setNotebooks((prev) => prev.filter((nb) => nb.id !== selectedNotebook.id));
+    setSelectedNotebookId(null);
+  };
 
   return (
     <div className="notes-page-container">
@@ -317,6 +340,13 @@ export default function NotesPage() {
               setNotebooks((prev) => [...prev, nb]);
               setSelectedNotebookId(nb.id);
             }}
+            onNotebookUpdated={(updated) => {
+              setNotebooks((prev) => prev.map((nb) => (nb.id === updated.id ? updated : nb)));
+            }}
+            onNotebookDeleted={(id) => {
+              setNotebooks((prev) => prev.filter((nb) => nb.id !== id));
+              if (selectedNotebookId === id) setSelectedNotebookId(null);
+            }}
           />
         </aside>
 
@@ -385,20 +415,63 @@ export default function NotesPage() {
                 })}
               </nav>
 
-              <Link
-                href={`/notes/notebook/${selectedNotebook.id}`}
-                style={{
-                  fontSize: '0.8rem',
-                  color: 'var(--color-primary)',
-                  fontWeight: 600,
-                  padding: '0.35rem 0.75rem',
-                  borderRadius: 'var(--radius-sm)',
-                  backgroundColor: 'var(--color-primary-light)',
-                  textDecoration: 'none',
-                }}
-              >
-                Manage Folder →
-              </Link>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => setFolderToMove(selectedNotebook)}
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--color-text-secondary)',
+                    fontWeight: 600,
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'var(--color-surface-raised)',
+                    border: '1px solid var(--color-surface-border)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  📁 Move Folder
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!isSelectedFolderEmpty}
+                  onClick={handleDeleteSelectedFolder}
+                  title={
+                    isSelectedFolderEmpty
+                      ? `Delete empty folder "${selectedNotebook.name}"`
+                      : `Cannot delete: contains ${selectedFolderNotesCount} note(s) and ${selectedFolderSubfoldersCount} sub-folder(s)`
+                  }
+                  style={{
+                    fontSize: '0.8rem',
+                    color: isSelectedFolderEmpty ? 'var(--color-error)' : 'var(--color-text-muted)',
+                    fontWeight: 600,
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'transparent',
+                    border: '1px solid var(--color-surface-border)',
+                    cursor: isSelectedFolderEmpty ? 'pointer' : 'not-allowed',
+                    opacity: isSelectedFolderEmpty ? 1 : 0.4,
+                  }}
+                >
+                  🗑️ Delete Folder
+                </button>
+
+                <Link
+                  href={`/notes/notebook/${selectedNotebook.id}`}
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--color-primary)',
+                    fontWeight: 600,
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'var(--color-primary-light)',
+                    textDecoration: 'none',
+                  }}
+                >
+                  Manage Folder →
+                </Link>
+              </div>
             </div>
           )}
 
@@ -720,6 +793,18 @@ export default function NotesPage() {
           </div>
         </div>
       )}
+
+      {/* Move Folder Modal */}
+      <MoveFolderModal
+        folder={folderToMove}
+        notebooks={notebooks}
+        isOpen={Boolean(folderToMove)}
+        onClose={() => setFolderToMove(null)}
+        onMoved={(updated) => {
+          setNotebooks((prev) => prev.map((nb) => (nb.id === updated.id ? updated : nb)));
+          setFolderToMove(null);
+        }}
+      />
     </div>
   );
 }

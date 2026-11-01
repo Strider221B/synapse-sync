@@ -4,6 +4,7 @@ import React, { useMemo, useState, useTransition } from 'react';
 import type { Notebook } from '@/lib/db/models';
 import { DatabaseService } from '@/lib/db/database_service';
 import { NotebookService } from '@/lib/db/services/notebook_service';
+import { MoveFolderModal } from './MoveFolderModal';
 
 interface NotebookListProps {
   notebooks: Notebook[];
@@ -11,6 +12,8 @@ interface NotebookListProps {
   selectedNotebookId?: string | null;
   onSelectNotebook?: (id: string | null) => void;
   onNotebookCreated?: (notebook: Notebook) => void;
+  onNotebookUpdated?: (notebook: Notebook) => void;
+  onNotebookDeleted?: (id: string) => void;
 }
 
 interface FolderTreeNode {
@@ -28,8 +31,11 @@ export function NotebookList({
   selectedNotebookId,
   onSelectNotebook,
   onNotebookCreated,
+  onNotebookUpdated,
+  onNotebookDeleted,
 }: NotebookListProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [folderToMove, setFolderToMove] = useState<Notebook | null>(null);
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState<string | null>(null);
   const [description, setDescription] = useState('');
@@ -142,11 +148,40 @@ export function NotebookList({
     });
   };
 
+  const handleDeleteFolder = (folder: Notebook, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const count = noteCounts?.[folder.id] ?? 0;
+    const hasSubfolders = notebooks.some((nb) => nb.parentId === folder.id);
+    if (count > 0 || hasSubfolders) {
+      alert('Cannot delete folder: it contains notes or sub-folders.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Are you sure you want to delete the empty folder "${folder.name}"?`
+    );
+    if (!confirmed) return;
+
+    startTransition(async () => {
+      try {
+        const dbService = new DatabaseService();
+        const notebookService = new NotebookService(dbService);
+        await notebookService.delete(folder.id);
+        if (onNotebookDeleted) {
+          onNotebookDeleted(folder.id);
+        }
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Failed to delete folder');
+      }
+    });
+  };
+
   const renderTreeNode = (node: FolderTreeNode) => {
     const isSelected = selectedNotebookId === node.notebook.id;
     const hasChildren = node.children.length > 0;
     const isCollapsed = collapsedFolderIds.has(node.notebook.id);
     const count = noteCounts?.[node.notebook.id] ?? 0;
+    const isEmptyFolder = count === 0 && !hasChildren;
 
     return (
       <div key={node.notebook.id} style={{ display: 'flex', flexDirection: 'column' }}>
@@ -238,6 +273,59 @@ export function NotebookList({
               }}
             >
               + Sub
+            </button>
+
+            {/* Move Folder button */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setFolderToMove(node.notebook);
+              }}
+              title={`Move folder "${node.notebook.name}"`}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--color-text-muted)',
+                fontSize: '0.75rem',
+                cursor: 'pointer',
+                padding: '0.1rem 0.35rem',
+                borderRadius: 'var(--radius-xs)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--color-primary)';
+                e.currentTarget.style.backgroundColor = 'var(--color-surface-raised)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--color-text-muted)';
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              Move
+            </button>
+
+            {/* Delete Empty Folder button */}
+            <button
+              type="button"
+              disabled={!isEmptyFolder}
+              onClick={(e) => handleDeleteFolder(node.notebook, e)}
+              title={
+                isEmptyFolder
+                  ? `Delete empty folder "${node.notebook.name}"`
+                  : `Cannot delete: contains ${count} note${count === 1 ? '' : 's'} and ${node.children.length} sub-folder${node.children.length === 1 ? '' : 's'}`
+              }
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: isEmptyFolder ? 'var(--color-error)' : 'var(--color-text-muted)',
+                fontSize: '0.75rem',
+                cursor: isEmptyFolder ? 'pointer' : 'not-allowed',
+                opacity: isEmptyFolder ? 0.9 : 0.3,
+                padding: '0.1rem 0.25rem',
+                borderRadius: 'var(--radius-xs)',
+              }}
+            >
+              🗑️
             </button>
 
             <span
@@ -568,6 +656,18 @@ export function NotebookList({
           </div>
         </div>
       )}
+
+      {/* Move Folder Modal */}
+      <MoveFolderModal
+        folder={folderToMove}
+        notebooks={notebooks}
+        isOpen={Boolean(folderToMove)}
+        onClose={() => setFolderToMove(null)}
+        onMoved={(updated) => {
+          onNotebookUpdated?.(updated);
+          setFolderToMove(null);
+        }}
+      />
     </div>
   );
 }

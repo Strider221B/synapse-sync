@@ -59,12 +59,9 @@ export class GoogleDriveSyncService {
   private _notebooksFolderId: string | null = null;
 
   public constructor(
-    databaseService: DatabaseService,
-    googleDriveClient: GoogleDriveApiClient,
-    authService: AuthService,
-    syncQueueService?: SyncQueueService,
-    preferencesService?: PreferencesService,
-    appStateSyncService?: AppStateSyncService,
+    databaseService: DatabaseService, googleDriveClient: GoogleDriveApiClient,
+    authService: AuthService, syncQueueService?: SyncQueueService,
+    preferencesService?: PreferencesService, appStateSyncService?: AppStateSyncService,
     chatSyncService?: ChatSyncService
   ) {
     this._dbService = databaseService;
@@ -72,12 +69,8 @@ export class GoogleDriveSyncService {
     this._authService = authService;
     this._syncQueueService = syncQueueService;
     this._preferencesService = preferencesService ?? new PreferencesService(databaseService);
-    this._appStateSyncService =
-      appStateSyncService ??
-      new AppStateSyncService(databaseService, googleDriveClient, this._preferencesService);
-    this._chatSyncService =
-      chatSyncService ??
-      new ChatSyncService(databaseService, googleDriveClient);
+    this._appStateSyncService = appStateSyncService ?? new AppStateSyncService(databaseService, googleDriveClient, this._preferencesService);
+    this._chatSyncService = chatSyncService ?? new ChatSyncService(databaseService, googleDriveClient);
   }
 
   /**
@@ -145,6 +138,16 @@ export class GoogleDriveSyncService {
   public async deleteRemoteQuiz(quizId: string): Promise<void> {
     const folderId = await this._getQuizzesFolderId();
     const fileName = `${GoogleDriveSyncService._PREFIX_QUIZ}${quizId}${GoogleDriveSyncService._JSON_EXT}`;
+    const file = await this._gdriveClient.findFileByName(fileName, folderId);
+    if (file) await this._gdriveClient.deleteFile(file.id);
+  }
+
+  /**
+   * Removes a notebook collection file from Google Drive when deleted locally.
+   */
+  public async deleteRemoteNotebook(notebookId: string): Promise<void> {
+    const folderId = await this._getNotebooksFolderId();
+    const fileName = `${GoogleDriveSyncService._PREFIX_NOTEBOOK}${notebookId}${GoogleDriveSyncService._JSON_EXT}`;
     const file = await this._gdriveClient.findFileByName(fileName, folderId);
     if (file) await this._gdriveClient.deleteFile(file.id);
   }
@@ -240,7 +243,10 @@ export class GoogleDriveSyncService {
       if (entry.operation === 'delete') await this.deleteRemoteQuiz(entry.entityId);
       else await this.pushQuiz(entry.entityId);
     } else if (entry.entityType === 'srs_card') await this._replaySRSCardEntry(entry.entityId);
-    else if (entry.entityType === 'notebook') await this._replayNotebookEntry(entry);
+    else if (entry.entityType === 'notebook') {
+      if (entry.operation === 'delete') await this.deleteRemoteNotebook(entry.entityId);
+      else await this._replayNotebookEntry(entry);
+    }
   }
 
   /**
