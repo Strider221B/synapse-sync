@@ -48,6 +48,14 @@ function MoveFolderModalDialog({
         const updated = await notebookService.move(folder.id, newParentId);
         onMoved(updated);
         onClose();
+
+        const { SyncManager } = await import('@/lib/db/sync_manager');
+        const syncManager = SyncManager.getInstance();
+        const syncService = syncManager.getSyncService();
+        if (syncService && syncService.isConnected()) {
+          await syncService.pushNotebook(updated);
+        }
+        void syncManager.forceSync().catch(() => {});
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to move folder');
       }

@@ -15,23 +15,15 @@ interface NotebookDetailPageProps {
 }
 
 const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '0.625rem 0.875rem',
-  borderRadius: 'var(--radius-md)',
-  backgroundColor: 'var(--color-bg-secondary)',
-  border: '1px solid var(--color-surface-border)',
+  width: '100%', padding: '0.625rem 0.875rem', borderRadius: 'var(--radius-md)',
+  backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-surface-border)',
   color: 'var(--color-text-primary)',
 };
 
 const actionBtnStyle: React.CSSProperties = {
-  padding: '0.5rem 0.875rem',
-  borderRadius: 'var(--radius-md)',
-  backgroundColor: 'var(--color-surface-raised)',
-  border: '1px solid var(--color-surface-border)',
-  color: 'var(--color-text-primary)',
-  fontSize: '0.85rem',
-  fontWeight: 500,
-  cursor: 'pointer',
+  padding: '0.5rem 0.875rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-surface-raised)',
+  border: '1px solid var(--color-surface-border)', color: 'var(--color-text-primary)',
+  fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer',
 };
 
 function NotebookDetailContent({ params }: NotebookDetailPageProps) {
@@ -107,6 +99,14 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
       setNotebook(updated);
       setIsEditing(false);
       void loadData();
+
+      const { SyncManager } = await import('@/lib/db/sync_manager');
+      const syncManager = SyncManager.getInstance();
+      const syncService = syncManager.getSyncService();
+      if (syncService && syncService.isConnected()) {
+        await syncService.pushNotebook(updated);
+      }
+      void syncManager.forceSync().catch(() => {});
     });
   };
 

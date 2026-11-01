@@ -166,6 +166,14 @@ export default function NotesPage() {
 
       setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)));
       setNoteToMove(null);
+
+      const { SyncManager } = await import('@/lib/db/sync_manager');
+      const syncManager = SyncManager.getInstance();
+      const syncService = syncManager.getSyncService();
+      if (syncService && syncService.isConnected()) {
+        await syncService.pushNote(updated);
+      }
+      void syncManager.forceSync().catch(() => {});
     } finally {
       setIsMoving(false);
     }

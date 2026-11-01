@@ -210,6 +210,42 @@ describe('GoogleDriveSyncService', () => {
     await dbService.close();
   });
 
+  it('pushes local note to Drive during pullNotes when local note is newer than remote', async () => {
+    const dbService = new DatabaseService(`${TEST_DB_PREFIX}-pull-notes-newer-local`);
+    const noteService = new NoteService(dbService);
+    const { client, savedFiles } = createMockDriveClient();
+    const syncService = new GoogleDriveSyncService(dbService, client, createMockAuth());
+
+    const note = await noteService.create({
+      notebookId: 'nb-psychology',
+      title: 'Game Theory',
+      content: 'Evolution of Cooperation',
+      contentFormat: 'markdown',
+      sourceType: 'manual',
+      isSynced: true,
+    });
+
+    const olderRemoteNote: Note = {
+      ...note,
+      notebookId: 'nb-old-folder',
+      updatedAt: new Date(Date.now() - 60000).toISOString(),
+    };
+    savedFiles[`note_${note.id}.json`] = {
+      content: JSON.stringify(olderRemoteNote),
+      parentFolderId: 'folder-notes-id',
+    };
+
+    const pulledCount = await syncService.pullNotes();
+    assert.equal(pulledCount, 0);
+
+    const remoteSavedText = savedFiles[`note_${note.id}.json`]?.content;
+    assert.ok(remoteSavedText);
+    const parsed = JSON.parse(remoteSavedText) as Note;
+    assert.equal(parsed.notebookId, 'nb-psychology');
+
+    await dbService.close();
+  });
+
   it('pulls remote quizzes and imports them with cards and SRS states', async () => {
     const dbService = new DatabaseService(`${TEST_DB_PREFIX}-pull-quiz`);
     const quizService = new QuizService(dbService);

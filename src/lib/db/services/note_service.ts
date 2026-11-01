@@ -2,8 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { DB_INDEXES, DB_STORES } from '../constants';
 import type { DatabaseService } from '../database_service';
 import type { Note } from '../models';
-
-import type { SyncQueueService } from './sync_queue_service';
+import { SyncQueueService } from './sync_queue_service';
 
 export type CreateNoteInput = Omit<
   Note,
@@ -30,7 +29,7 @@ export class NoteService {
 
   public constructor(databaseService: DatabaseService, syncQueueService?: SyncQueueService) {
     this._databaseService = databaseService;
-    this._syncQueueService = syncQueueService;
+    this._syncQueueService = syncQueueService ?? new SyncQueueService(databaseService);
   }
 
   /**
@@ -138,6 +137,7 @@ export class NoteService {
       ...input,
       wordCount,
       updatedAt: new Date().toISOString(),
+      isSynced: input.isSynced ?? false,
     };
 
     await db.put(DB_STORES.NOTES, updated);
