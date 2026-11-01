@@ -110,6 +110,18 @@ describe('NoteService', () => {
     });
     assert.equal(titleUpdated.wordCount, 5);
     assert.equal(titleUpdated.title, 'New Title');
+    assert.equal(titleUpdated.isSynced, false);
+
+    const syncedExplicit = await service.update(created.id, {
+      isSynced: true,
+    });
+    assert.equal(syncedExplicit.isSynced, true);
+
+    const movedNote = await service.update(created.id, {
+      notebookId: NOTEBOOK_ID_B,
+    });
+    assert.equal(movedNote.notebookId, NOTEBOOK_ID_B);
+    assert.equal(movedNote.isSynced, false);
 
     await dbService.close();
   });

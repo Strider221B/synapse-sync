@@ -145,12 +145,28 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
     const quizService = new QuizService(dbService);
 
     async function fetchNote() {
-      const foundNote = await noteService.getById(noteId);
+      let foundNote = await noteService.getById(noteId);
       if (!active) return;
       if (!foundNote) {
         setIsLoading(false);
         return;
       }
+
+      if (foundNote.isBodyLoaded === false || !foundNote.content) {
+        try {
+          const { SyncManager } = await import('@/lib/db/sync_manager');
+          const syncService = SyncManager.getInstance().getSyncService();
+          if (syncService && syncService.isConnected()) {
+            const loaded = await syncService.pullNoteBody(noteId);
+            if (loaded && active) {
+              foundNote = loaded;
+            }
+          }
+        } catch (err) {
+          console.warn('Failed to fetch note body on-demand:', err);
+        }
+      }
+
       setNote(foundNote);
       if (foundNote.notebookId) {
         const [foundNb, path] = await Promise.all([
@@ -1065,7 +1081,16 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
           boxShadow: 'var(--shadow-sm)',
         }}
       >
-        {note.contentFormat === 'markdown' ? (
+        {!note.content ? (
+          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+            <p style={{ fontWeight: 600, fontSize: '1.05rem', marginBottom: '0.5rem' }}>
+              Note content is not yet downloaded locally.
+            </p>
+            <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+              Connect to Google Drive or verify your internet connection to fetch the full note body.
+            </p>
+          </div>
+        ) : note.contentFormat === 'markdown' ? (
           <MarkdownRenderer content={note.content} />
         ) : (
           <div

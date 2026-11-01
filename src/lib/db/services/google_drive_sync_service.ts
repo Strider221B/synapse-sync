@@ -9,6 +9,7 @@ import type { SyncQueueService } from './sync_queue_service';
 import { PreferencesService } from './preferences_service';
 import { AppStateSyncService } from './app_state_sync_service';
 import { ChatSyncService } from './chat_sync_service';
+import { NoteManifestSyncService } from './note_manifest_sync_service';
 
 export interface SyncResult {
   success: boolean; reason?: string;
@@ -51,6 +52,7 @@ export class GoogleDriveSyncService {
   private readonly _preferencesService: PreferencesService;
   private readonly _appStateSyncService: AppStateSyncService;
   private readonly _chatSyncService: ChatSyncService;
+  private readonly _noteManifestSyncService: NoteManifestSyncService;
   private readonly _activeQuizPushes = new Map<string, Promise<void>>();
 
   private _appFolderId: string | null = null;
@@ -62,7 +64,7 @@ export class GoogleDriveSyncService {
     databaseService: DatabaseService, googleDriveClient: GoogleDriveApiClient,
     authService: AuthService, syncQueueService?: SyncQueueService,
     preferencesService?: PreferencesService, appStateSyncService?: AppStateSyncService,
-    chatSyncService?: ChatSyncService
+    chatSyncService?: ChatSyncService, noteManifestSyncService?: NoteManifestSyncService
   ) {
     this._dbService = databaseService;
     this._gdriveClient = googleDriveClient;
@@ -71,6 +73,7 @@ export class GoogleDriveSyncService {
     this._preferencesService = preferencesService ?? new PreferencesService(databaseService);
     this._appStateSyncService = appStateSyncService ?? new AppStateSyncService(databaseService, googleDriveClient, this._preferencesService);
     this._chatSyncService = chatSyncService ?? new ChatSyncService(databaseService, googleDriveClient);
+    this._noteManifestSyncService = noteManifestSyncService ?? new NoteManifestSyncService(databaseService, googleDriveClient);
   }
 
   /**
@@ -90,7 +93,7 @@ export class GoogleDriveSyncService {
     await this._gdriveClient.saveFile(fileName, payload, GoogleDriveSyncService._JSON_MIME, folderId);
 
     const db = await this._dbService.getDB();
-    await db.put(DB_STORES.NOTES, { ...note, isSynced: true });
+    await db.put(DB_STORES.NOTES, { ...note, isSynced: true, isBodyLoaded: true });
   }
 
   /**
@@ -130,6 +133,7 @@ export class GoogleDriveSyncService {
     const file = await this._gdriveClient.findFileByName(fileName, folderId);
     if (file) await this._gdriveClient.deleteFile(file.id);
     await this._chatSyncService.deleteRemoteChat(noteId);
+    await this._noteManifestSyncService.deleteFromManifest(noteId);
   }
 
   /**
@@ -161,25 +165,19 @@ export class GoogleDriveSyncService {
   }
 
   /**
-   * Pulls all study notes from Google Drive into local IndexedDB.
+   * Pulls note metadata from Google Drive manifest into local IndexedDB without downloading full bodies.
    */
   public async pullNotes(): Promise<number> {
-    const folderId = await this._getNotesFolderId();
-    const files = await this._gdriveClient.listAllFolderItems(folderId);
-    const db = await this._dbService.getDB();
-    let count = 0;
+    return this._noteManifestSyncService.pullNotes(async (note) => {
+      await this.pushNote(note);
+    });
+  }
 
-    for (const file of files) {
-      if (!this._isNoteFileName(file.name)) continue;
-      const text = await this._gdriveClient.getFileText(file.id);
-      const remoteNote = JSON.parse(text) as Note;
-      const local = await db.get(DB_STORES.NOTES, remoteNote.id);
-      if (!local || new Date(remoteNote.updatedAt) > new Date(local.updatedAt)) {
-        await db.put(DB_STORES.NOTES, { ...remoteNote, isSynced: true });
-        count += 1;
-      }
-    }
-    return count;
+  /**
+   * Downloads the full body content for a specific note on-demand from Google Drive.
+   */
+  public async pullNoteBody(noteId: string): Promise<Note | null> {
+    return this._noteManifestSyncService.pullNoteBody(noteId);
   }
 
   /**
@@ -225,6 +223,8 @@ export class GoogleDriveSyncService {
       if (!local || new Date(remoteNb.updatedAt) > new Date(local.updatedAt)) {
         await db.put(DB_STORES.NOTEBOOKS, { ...remoteNb, isSynced: true });
         count += 1;
+      } else if (local && new Date(local.updatedAt) > new Date(remoteNb.updatedAt)) {
+        await this.pushNotebook(local);
       }
     }
     return count;
@@ -282,6 +282,7 @@ export class GoogleDriveSyncService {
       this.pullNotebooks(), this.pullNotes(), this.pullQuizzes(), this._chatSyncService.pullChats(),
     ]);
     await this.pullAppState();
+    await this._noteManifestSyncService.pushManifest();
 
     await this._preferencesService.set(GoogleDriveSyncService._PREF_LAST_SYNC, nowIso);
     const result: SyncResult = {
@@ -375,8 +376,7 @@ export class GoogleDriveSyncService {
 
   private async _getNotesFolderId(): Promise<string> {
     if (!this._notesFolderId) {
-      const appFolder = await this._getAppFolderId();
-      const folder = await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._NOTES_FOLDER_NAME, appFolder);
+      const folder = await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._NOTES_FOLDER_NAME, await this._getAppFolderId());
       this._notesFolderId = folder.id;
     }
     return this._notesFolderId;
@@ -384,8 +384,7 @@ export class GoogleDriveSyncService {
 
   private async _getQuizzesFolderId(): Promise<string> {
     if (!this._quizzesFolderId) {
-      const appFolder = await this._getAppFolderId();
-      const folder = await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._QUIZZES_FOLDER_NAME, appFolder);
+      const folder = await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._QUIZZES_FOLDER_NAME, await this._getAppFolderId());
       this._quizzesFolderId = folder.id;
     }
     return this._quizzesFolderId;
@@ -393,8 +392,7 @@ export class GoogleDriveSyncService {
 
   private async _getNotebooksFolderId(): Promise<string> {
     if (!this._notebooksFolderId) {
-      const app = await this._getAppFolderId();
-      this._notebooksFolderId = (await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._NOTEBOOKS_FOLDER_NAME, app)).id;
+      this._notebooksFolderId = (await this._gdriveClient.getOrCreateFolder(GoogleDriveSyncService._NOTEBOOKS_FOLDER_NAME, await this._getAppFolderId())).id;
     }
     return this._notebooksFolderId;
   }
@@ -409,16 +407,14 @@ export class GoogleDriveSyncService {
   private async _replayNoteEntry(entry: SyncEntry): Promise<void> {
     if (entry.operation === 'delete') {
       await this.deleteRemoteNote(entry.entityId);
-    } else {
-      const db = await this._dbService.getDB();
-      const note = await db.get(DB_STORES.NOTES, entry.entityId);
-      if (note) await this.pushNote(note);
+      return;
     }
+    const note = await (await this._dbService.getDB()).get(DB_STORES.NOTES, entry.entityId);
+    if (note) await this.pushNote(note);
   }
 
   private async _replayNotebookEntry(entry: SyncEntry): Promise<void> {
-    const db = await this._dbService.getDB();
-    const nb = await db.get(DB_STORES.NOTEBOOKS, entry.entityId);
+    const nb = await (await this._dbService.getDB()).get(DB_STORES.NOTEBOOKS, entry.entityId);
     if (nb) await this.pushNotebook(nb);
   }
 

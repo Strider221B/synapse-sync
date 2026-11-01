@@ -33,4 +33,6 @@ export { GoogleDriveSyncService } from './google_drive_sync_service';
 export type { SyncResult, QuizDrivePayload } from './google_drive_sync_service';
 
 export { ChatSyncService } from './chat_sync_service';
+export { NoteManifestSyncService } from './note_manifest_sync_service';
+export type { NoteManifestEntry } from './note_manifest_sync_service';
 
