@@ -13,6 +13,18 @@ describe('PWA Offline Components Test Suite', () => {
     assert.ok(markup.includes('Online'));
   });
 
+  it('renders ConnectionStatus sync button disabled when Google Drive is disconnected', () => {
+    const markup = renderToStaticMarkup(React.createElement(ConnectionStatus, { isAuthenticated: false }));
+    assert.ok(markup.includes('disabled=""') || markup.includes('disabled'));
+    assert.ok(markup.includes('Google Drive is not connected'));
+  });
+
+  it('renders ConnectionStatus sync button enabled when Google Drive is connected', () => {
+    const markup = renderToStaticMarkup(React.createElement(ConnectionStatus, { isAuthenticated: true }));
+    assert.ok(markup.includes('Force sync notes and quizzes with Google Drive'));
+    assert.ok(!markup.includes('Google Drive is not connected'));
+  });
+
   it('renders OfflineNotice component markup', () => {
     const noticeMarkup = renderToStaticMarkup(
       React.createElement(OfflineNotice, {

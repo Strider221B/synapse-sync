@@ -79,7 +79,7 @@ class TestGoogleDrivePusher:
 
         assert result["notebookId"] == "nb_100"
         assert mock_session.post.call_count == 0
-        assert mock_session.patch.call_count == 2
+        assert mock_session.patch.call_count == 3
 
     def test_push_raises_value_error_on_empty_notebook(self) -> None:
         """Verify push raises ValueError when notebook payload is empty."""
@@ -138,4 +138,41 @@ class TestGoogleDrivePusher:
             pusher = GoogleDrivePusher(access_token=None)
             with pytest.raises(PermissionError, match="access token missing"):
                 pusher.push_quiz({"quiz": {"id": "quiz_test"}})
+
+    def test_push_reuses_existing_notebook_by_name_when_id_missing(self) -> None:
+        """Verify push finds existing notebook by name and reuses its identifier."""
+        mock_session = MagicMock(spec=requests.Session)
+
+        def fake_get(url: str, *args: Any, **kwargs: Any) -> MagicMock:
+            resp = MagicMock(spec=requests.Response)
+            resp.status_code = 200
+            params = kwargs.get("params", {})
+            q = params.get("q", "")
+            if "alt=media" in url:
+                resp.json.return_value = {"id": "nb_existing", "name": "Machine Learning Series"}
+            elif "'mock_created_resource_id' in parents" in q and "name = " not in q:
+                resp.json.return_value = {
+                    "files": [{"id": "file_nb_1", "name": "notebook_nb_existing.json"}]
+                }
+            else:
+                resp.json.return_value = {"files": []}
+            return resp
+
+        mock_session.get.side_effect = fake_get
+        post_response = MagicMock(spec=requests.Response)
+        post_response.status_code = 200
+        post_response.json.return_value = {"id": "mock_created_resource_id"}
+
+        patch_response = MagicMock(spec=requests.Response)
+        patch_response.status_code = 200
+
+        mock_session.post.return_value = post_response
+        mock_session.patch.return_value = patch_response
+
+        pusher = GoogleDrivePusher(access_token=self._VALID_TOKEN, session=mock_session)
+        nb_without_id = {"name": "Machine Learning Series", "source": "youtube_playlist"}
+        result = pusher.push(nb_without_id, [dict(n) for n in self._NOTES])
+
+        assert result["notebookId"] == "nb_existing"
+        assert nb_without_id["id"] == "nb_existing"
 

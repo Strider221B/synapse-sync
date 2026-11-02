@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useGoogleAuth } from '@/components/auth/GoogleAuthProviderWrapper';
 import { DatabaseService } from '@/lib/db/database_service';
 import type { Note, Notebook } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
@@ -12,11 +13,25 @@ import { SyncManager } from '@/lib/db/sync_manager';
  * Displays YouTube notebooks, videos count, and individual lecture notes with Google Drive synchronization.
  */
 export function YouTubeNotesViewer() {
+  const auth = useGoogleAuth();
+  const [externalDriveConnected, setExternalDriveConnected] = useState<boolean | null>(null);
+  const isDriveConnected = externalDriveConnected !== null ? externalDriveConnected : auth.isAuthenticated;
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [notesByNotebook, setNotesByNotebook] = useState<Record<string, Note[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleAuthChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ isAuthenticated?: boolean }>).detail;
+      if (detail && typeof detail.isAuthenticated === 'boolean') {
+        setExternalDriveConnected(detail.isAuthenticated);
+      }
+    };
+    window.addEventListener('synapse-auth-changed', handleAuthChange);
+    return () => window.removeEventListener('synapse-auth-changed', handleAuthChange);
+  }, []);
 
   const loadLocalData = useCallback(async () => {
     const dbService = new DatabaseService();
@@ -50,6 +65,7 @@ export function YouTubeNotesViewer() {
   }, [loadLocalData]);
 
   const handleSyncWithDrive = async () => {
+    if (!isDriveConnected || isSyncing) return;
     setIsSyncing(true);
     setSyncStatus('Syncing notebooks and notes with Google Drive...');
 
@@ -104,8 +120,21 @@ export function YouTubeNotesViewer() {
         </div>
 
         <button
+          type="button"
           onClick={handleSyncWithDrive}
-          disabled={isSyncing}
+          disabled={isSyncing || !isDriveConnected}
+          title={
+            !isDriveConnected
+              ? 'Google Drive is not connected. Connect Google Drive to sync.'
+              : isSyncing
+              ? 'Syncing with Google Drive...'
+              : 'Sync latest notebooks and notes from Google Drive'
+          }
+          aria-label={
+            !isDriveConnected
+              ? 'Google Drive is not connected'
+              : 'Sync latest notebooks and notes from Google Drive'
+          }
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -114,10 +143,11 @@ export function YouTubeNotesViewer() {
             borderRadius: 'var(--radius-md)',
             backgroundColor: 'var(--color-bg-tertiary)',
             border: '1px solid var(--color-border)',
-            color: 'var(--color-text-primary)',
+            color: !isDriveConnected ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
             fontSize: '0.875rem',
             fontWeight: 500,
-            cursor: isSyncing ? 'not-allowed' : 'pointer',
+            cursor: isSyncing ? 'not-allowed' : !isDriveConnected ? 'not-allowed' : 'pointer',
+            opacity: !isDriveConnected ? 0.6 : 1,
             transition: 'all var(--transition-fast)',
           }}
         >

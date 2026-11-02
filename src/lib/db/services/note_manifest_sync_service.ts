@@ -1,7 +1,7 @@
 import { DB_STORES } from '../constants';
 import type { DatabaseService } from '../database_service';
 import type { Note } from '../models';
-import type { GoogleDriveApiClient } from '../../api/google_drive_client';
+import type { DriveItem, GoogleDriveApiClient } from '../../api/google_drive_client';
 
 export interface NoteManifestEntry {
   id: string;
@@ -15,6 +15,7 @@ export interface NoteManifestEntry {
   createdAt: string;
   updatedAt: string;
   previewSnippet?: string;
+  order?: number;
 }
 
 export type PushNoteCallback = (note: Note) => Promise<void>;
@@ -78,7 +79,8 @@ export class NoteManifestSyncService {
 
     const text = await this._gdriveClient.getFileText(file.id);
     const remoteEntries: NoteManifestEntry[] = JSON.parse(text);
-    return this._applyManifestEntries(remoteEntries, pushLocalFn);
+    const reconciledEntries = await this._reconcileUnmanifestedNotes(remoteEntries);
+    return this._applyManifestEntries(reconciledEntries, pushLocalFn);
   }
 
   /**
@@ -167,6 +169,7 @@ export class NoteManifestSyncService {
       createdAt: note.createdAt,
       updatedAt: note.updatedAt,
       previewSnippet: snippet,
+      order: note.order,
     };
   }
 
@@ -238,6 +241,63 @@ export class NoteManifestSyncService {
       );
     }
     return this._applyManifestEntries(remoteEntries, pushLocalFn);
+  }
+
+  private async _reconcileUnmanifestedNotes(
+    manifestEntries: NoteManifestEntry[]
+  ): Promise<NoteManifestEntry[]> {
+    const folderId = await this._getNotesFolderId();
+    const files = await this._gdriveClient.listAllFolderItems(folderId);
+    const manifestIdSet = new Set(manifestEntries.map((e) => e.id));
+    const unmanifested = files.filter((f) => this._isUnmanifestedNoteFile(f.name, manifestIdSet));
+    if (unmanifested.length === 0) return manifestEntries;
+
+    const newlyDiscovered = await this._fetchUnmanifestedEntries(unmanifested, manifestIdSet);
+    if (newlyDiscovered.length === 0) return manifestEntries;
+
+    const merged = [...manifestEntries, ...newlyDiscovered];
+    const rootId = await this._getAppFolderId();
+    await this._gdriveClient.saveFile(
+      NoteManifestSyncService._MANIFEST_FILE_NAME,
+      JSON.stringify(merged, null, 2),
+      NoteManifestSyncService._JSON_MIME,
+      rootId
+    );
+    return merged;
+  }
+
+  private _isUnmanifestedNoteFile(name: string, manifestIdSet: Set<string>): boolean {
+    if (!name.startsWith(NoteManifestSyncService._PREFIX_NOTE) || !name.endsWith(NoteManifestSyncService._JSON_EXT)) {
+      return false;
+    }
+    const noteId = this._extractNoteIdFromFileName(name);
+    return !manifestIdSet.has(noteId);
+  }
+
+  private _extractNoteIdFromFileName(fileName: string): string {
+    const prefixLen = NoteManifestSyncService._PREFIX_NOTE.length;
+    const extLen = NoteManifestSyncService._JSON_EXT.length;
+    return fileName.slice(prefixLen, fileName.length - extLen);
+  }
+
+  private async _fetchUnmanifestedEntries(
+    files: DriveItem[],
+    manifestIdSet: Set<string>
+  ): Promise<NoteManifestEntry[]> {
+    const entries: NoteManifestEntry[] = [];
+    for (const file of files) {
+      try {
+        const text = await this._gdriveClient.getFileText(file.id);
+        const note = JSON.parse(text) as Note;
+        if (note && note.id && !manifestIdSet.has(note.id)) {
+          manifestIdSet.add(note.id);
+          entries.push(this._toManifestEntry(note));
+        }
+      } catch {
+        // Skip unreadable or corrupted note files
+      }
+    }
+    return entries;
   }
 
   private async _getAppFolderId(): Promise<string> {

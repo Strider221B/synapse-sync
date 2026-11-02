@@ -11,6 +11,7 @@ import { DatabaseService } from '@/lib/db/database_service';
 import type { Note, Notebook } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
 import { NotebookService } from '@/lib/db/services/notebook_service';
+import { NoteSortService } from '@/lib/db/services/note_sort_service';
 
 /**
  * Main notes directory page with folder & sub-folder hierarchy, grouped views, and responsive mobile UI.
@@ -111,12 +112,13 @@ export default function NotesPage() {
     });
   }, [notebooks, selectedNotebookId]);
 
-  // Notes filtered by search and selected folder
+  // Notes filtered by search and selected folder, sorted in playlist order
   const displayedNotes = useMemo(() => {
-    return notes.filter((n) => {
+    const filtered = notes.filter((n) => {
       if (!selectedNotebookId) return true;
       return n.notebookId === selectedNotebookId;
     });
+    return NoteSortService.sortNotes(filtered);
   }, [notes, selectedNotebookId]);
 
   // Grouped notes by folder when viewing All Notes in grouped mode

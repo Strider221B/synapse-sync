@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { DB_INDEXES, DB_STORES } from '../constants';
 import type { DatabaseService } from '../database_service';
 import type { Note } from '../models';
+import { NoteSortService } from './note_sort_service';
 import { SyncQueueService } from './sync_queue_service';
 
 export type CreateNoteInput = Omit<
@@ -51,6 +52,7 @@ export class NoteService {
       createdAt: timestamp,
       updatedAt: timestamp,
       isSynced: input.isSynced ?? false,
+      order: input.order,
     };
 
     await db.put(DB_STORES.NOTES, note);
@@ -74,7 +76,8 @@ export class NoteService {
    */
   public async getAll(): Promise<Note[]> {
     const db = await this._databaseService.getDB();
-    return db.getAll(DB_STORES.NOTES);
+    const notes = await db.getAll(DB_STORES.NOTES);
+    return NoteSortService.sortNotes(notes);
   }
 
   /**
@@ -90,7 +93,8 @@ export class NoteService {
    */
   public async getByNotebook(notebookId: string): Promise<Note[]> {
     const db = await this._databaseService.getDB();
-    return db.getAllFromIndex(DB_STORES.NOTES, DB_INDEXES.BY_NOTEBOOK, notebookId);
+    const notes = await db.getAllFromIndex(DB_STORES.NOTES, DB_INDEXES.BY_NOTEBOOK, notebookId);
+    return NoteSortService.sortNotes(notes);
   }
 
   /**
@@ -98,7 +102,8 @@ export class NoteService {
    */
   public async getBySourceType(sourceType: Note['sourceType']): Promise<Note[]> {
     const db = await this._databaseService.getDB();
-    return db.getAllFromIndex(DB_STORES.NOTES, DB_INDEXES.BY_SOURCE_TYPE, sourceType);
+    const notes = await db.getAllFromIndex(DB_STORES.NOTES, DB_INDEXES.BY_SOURCE_TYPE, sourceType);
+    return NoteSortService.sortNotes(notes);
   }
 
   /**

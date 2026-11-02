@@ -31,6 +31,8 @@ class GoogleDrivePusher:
     _PREFIX_NOTE: ClassVar[str] = "note_"
     _PREFIX_NOTEBOOK: ClassVar[str] = "notebook_"
     _PREFIX_QUIZ: ClassVar[str] = "quiz_"
+    _MANIFEST_FILE_NAME: ClassVar[str] = "notes_manifest.json"
+    _SNIPPET_LENGTH: ClassVar[int] = 140
     _EXT_JSON: ClassVar[str] = ".json"
     _FORMAT_MARKDOWN: ClassVar[str] = "markdown"
     _SOURCE_TYPE: ClassVar[str] = "youtube_transcript"
@@ -64,11 +66,12 @@ class GoogleDrivePusher:
         nb_folder_id = self._get_or_create_folder(self._SUBFOLDER_NOTEBOOKS, root_id)
         notes_folder_id = self._get_or_create_folder(self._SUBFOLDER_NOTES, root_id)
 
-        nb_id = self._prepare_notebook(notebook)
+        nb_id = self._prepare_notebook(notebook, nb_folder_id)
         nb_filename = f"{self._PREFIX_NOTEBOOK}{nb_id}{self._EXT_JSON}"
         self._upload_json_file(nb_filename, notebook, nb_folder_id)
 
         note_ids = self._prepare_and_upload_notes(notes, nb_id, notes_folder_id)
+        self._update_manifest(notes, root_id)
         return {"notebookId": nb_id, "noteIds": note_ids, "notesStored": len(note_ids)}
 
     def push_quiz(self, quiz_payload: dict[str, Any]) -> str:
@@ -96,9 +99,15 @@ class GoogleDrivePusher:
         if not notes:
             raise ValueError("Notes list cannot be empty for push")
 
-    def _prepare_notebook(self, notebook: dict[str, Any]) -> str:
+    def _prepare_notebook(
+        self, notebook: dict[str, Any], nb_folder_id: str | None = None
+    ) -> str:
         """Ensure notebook record has identifier, timestamps, and sync metadata."""
-        nb_id = str(notebook.get("id") or f"nb_{uuid.uuid4()}")
+        nb_id = str(notebook.get("id") or "")
+        if not nb_id and nb_folder_id:
+            nb_id = self._find_notebook_id_by_name(notebook.get("name", ""), nb_folder_id) or ""
+        if not nb_id:
+            nb_id = f"nb_{uuid.uuid4()}"
         notebook["id"] = nb_id
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         notebook.setdefault("createdAt", now_iso)
@@ -108,6 +117,100 @@ class GoogleDrivePusher:
         notebook.setdefault("tags", ["youtube"])
         return nb_id
 
+    def _find_notebook_id_by_name(self, name: str, folder_id: str) -> str | None:
+        """Find existing notebook id in Google Drive folder matching notebook name."""
+        if not name:
+            return None
+        files = self._list_folder_files(folder_id)
+        matched_id: str | None = None
+        for f in files:
+            fname = str(f.get("name", ""))
+            if fname.startswith(self._PREFIX_NOTEBOOK) and fname.endswith(self._EXT_JSON):
+                data = self._download_json_file(str(f["id"]))
+                if data.get("name") == name and data.get("id"):
+                    if matched_id is None:
+                        matched_id = str(data["id"])
+                    else:
+                        self._delete_file_by_id(str(f["id"]))
+        return matched_id
+
+    def _list_folder_files(self, folder_id: str) -> list[dict[str, Any]]:
+        """List all non-trashed files within parent folder."""
+        query = f"'{folder_id}' in parents and trashed = false"
+        headers = self._build_auth_headers()
+        params = {"q": query, "fields": "files(id, name)", "spaces": "drive"}
+        response = self._session.get(
+            self._FILES_URL, headers=headers, params=params, timeout=self._TIMEOUT_SECONDS
+        )
+        self._check_response_status(response)
+        files = response.json().get("files", [])
+        return list(files)
+
+    def _download_json_file(self, file_id: str) -> dict[str, Any]:
+        """Download and parse JSON file from Google Drive."""
+        url = f"{self._FILES_URL}/{file_id}?alt=media"
+        headers = self._build_auth_headers()
+        response = self._session.get(url, headers=headers, timeout=self._TIMEOUT_SECONDS)
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                return {}
+        return {}
+
+    def _delete_file_by_id(self, file_id: str) -> None:
+        """Delete an existing file by identifier from Google Drive."""
+        headers = self._build_auth_headers()
+        url = f"{self._FILES_URL}/{file_id}"
+        self._session.delete(url, headers=headers, timeout=self._TIMEOUT_SECONDS)
+
+    def _update_manifest(self, notes: list[dict[str, Any]], root_folder_id: str) -> None:
+        """Merge newly pushed notes into the notes_manifest.json on Google Drive."""
+        manifest_entries = self._load_remote_manifest(root_folder_id)
+        entries_by_id = {str(e.get("id", "")): e for e in manifest_entries if e.get("id")}
+        for note in notes:
+            entry = self._build_manifest_entry(note)
+            if entry["id"]:
+                entries_by_id[entry["id"]] = entry
+        updated_list = list(entries_by_id.values())
+        self._upload_json_file(self._MANIFEST_FILE_NAME, updated_list, root_folder_id)
+
+    def _load_remote_manifest(self, root_folder_id: str) -> list[dict[str, Any]]:
+        """Retrieve and parse notes_manifest.json from root folder if it exists."""
+        file_id = self._find_file(self._MANIFEST_FILE_NAME, root_folder_id)
+        if not file_id:
+            return []
+        try:
+            url = f"{self._FILES_URL}/{file_id}?alt=media"
+            headers = self._build_auth_headers()
+            response = self._session.get(url, headers=headers, timeout=self._TIMEOUT_SECONDS)
+            if response.status_code == 200:
+                data = response.json()
+                return data if isinstance(data, list) else []
+        except Exception:
+            pass
+        return []
+
+    def _build_manifest_entry(self, note: dict[str, Any]) -> dict[str, Any]:
+        """Convert a note dictionary to a lightweight manifest entry."""
+        content = str(note.get("content", ""))
+        clean_text = "".join(c for c in content if c not in "#*`_>[\\]")
+        snippet = str(note.get("previewSnippet") or clean_text.strip()[: self._SNIPPET_LENGTH])
+        return {
+            "id": str(note.get("id", "")),
+            "notebookId": str(note.get("notebookId", "")),
+            "title": str(note.get("title", "")),
+            "contentFormat": str(note.get("contentFormat", self._FORMAT_MARKDOWN)),
+            "sourceType": str(note.get("sourceType", self._SOURCE_TYPE)),
+            "sourceUrl": str(note.get("sourceUrl", "")),
+            "wordCount": int(note.get("wordCount", len(content.split()))),
+            "createdAt": str(note.get("createdAt", "")),
+            "updatedAt": str(note.get("updatedAt", "")),
+            "previewSnippet": snippet,
+            "order": note.get("order"),
+        }
+
     def _prepare_and_upload_notes(
         self, notes: list[dict[str, Any]], notebook_id: str, notes_folder_id: str
     ) -> list[str]:
@@ -115,7 +218,7 @@ class GoogleDrivePusher:
         note_ids: list[str] = []
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-        for note in notes:
+        for idx, note in enumerate(notes, start=1):
             note_id = str(note.get("id") or f"note_{uuid.uuid4()}")
             note["id"] = note_id
             note["notebookId"] = notebook_id
@@ -125,6 +228,7 @@ class GoogleDrivePusher:
             note.setdefault("contentFormat", self._FORMAT_MARKDOWN)
             note.setdefault("sourceType", self._SOURCE_TYPE)
             note.setdefault("wordCount", len(note.get("content", "").split()))
+            note.setdefault("order", idx)
 
             filename = f"{self._PREFIX_NOTE}{note_id}{self._EXT_JSON}"
             self._upload_json_file(filename, note, notes_folder_id)
@@ -174,7 +278,7 @@ class GoogleDrivePusher:
         return created_id
 
     def _upload_json_file(
-        self, file_name: str, payload: dict[str, Any], folder_id: str
+        self, file_name: str, payload: dict[str, Any] | list[Any], folder_id: str
     ) -> str:
         """Upload or overwrite a JSON file within the specified Google Drive folder."""
         content_str = json.dumps(payload, indent=2)

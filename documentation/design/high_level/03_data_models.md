@@ -39,6 +39,7 @@ erDiagram
         datetime createdAt
         datetime updatedAt
         boolean isSynced
+        number order
     }
 
     NOTE {
@@ -54,6 +55,7 @@ erDiagram
         datetime createdAt
         datetime updatedAt
         boolean isSynced
+        number order
     }
 
     QUIZ {
@@ -212,6 +214,15 @@ interface Note {
   
   /** Sync status */
   isSynced: boolean;
+
+  /** Whether the full body has been loaded from remote or remains a shallow manifest preview */
+  isBodyLoaded?: boolean;
+
+  /** Truncated snippet for shallow preview rendering */
+  previewSnippet?: string;
+
+  /** 0-based sequence index preserving original playlist appearance order */
+  order?: number;
 }
 ```
 
@@ -548,12 +559,57 @@ interface AppStatePayload {
 ```
 SynapseSync/
 ├── app_state.json                 # Global state, streaks, due cards, preferences, chat
+├── notes_manifest.json            # Lightweight notes manifest array for O(1) sync
 ├── notebooks/
 │   └── notebook_<id>.json         # Notebook collections
 ├── notes/
 │   └── note_<id>.json             # Study notes
 └── quizzes/
     └── quiz_<id>.json             # Quizzes bundled with MCQs, flashcards, and SRS cards
+```
+
+---
+
+### 3.12 Notes Manifest (`notes_manifest.json`)
+
+Stored at `SynapseSync/notes_manifest.json` on Google Drive. Contains an array of lightweight metadata entries representing all notes in the account. Enables $O(1)$ app-level synchronization and shallow IndexedDB hydration without downloading large markdown bodies until accessed.
+
+```typescript
+interface NoteManifestEntry {
+  /** UUID v4 matching Note.id */
+  id: string;
+
+  /** FK → Notebook.id */
+  notebookId: string;
+
+  /** Note title */
+  title: string;
+
+  /** Content format */
+  contentFormat: 'markdown' | 'plaintext';
+
+  /** Origin source type */
+  sourceType: 'gdrive_docx' | 'gdrive_md' | 'gdrive_doc' | 'youtube_transcript' | 'manual';
+
+  /** Source URL */
+  sourceUrl?: string;
+
+  /** Remote Google Drive file ID */
+  googleDriveFileId?: string;
+
+  /** Approximate word count */
+  wordCount: number;
+
+  /** ISO 8601 timestamps */
+  createdAt: string;
+  updatedAt: string;
+
+  /** Plaintext preview snippet (up to 140 characters) */
+  previewSnippet?: string;
+
+  /** Sequence order within playlist or notebook */
+  order?: number;
+}
 ```
 
 ---

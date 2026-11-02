@@ -16,4 +16,5 @@ export interface Note {
   isSynced: boolean;
   isBodyLoaded?: boolean;
   previewSnippet?: string;
+  order?: number;
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useGoogleAuth } from '@/components/auth/GoogleAuthProviderWrapper';
 import { GoogleDriveConnectButton } from '@/components/auth/GoogleDriveConnectButton';
 import { ThemeToggle } from '@/components/common/ThemeToggle';
 import { SettingRow } from '@/components/settings/SettingRow';
@@ -26,6 +27,9 @@ const THROTTLE_OPTIONS: SelectOption[] = [
 
 export default function SettingsPage() {
   const toast = useToast();
+  const auth = useGoogleAuth();
+  const [externalDriveConnected, setExternalDriveConnected] = useState<boolean | null>(null);
+  const isDriveConnected = externalDriveConnected !== null ? externalDriveConnected : auth.isAuthenticated;
 
   const [dailyGoal, setDailyGoal] = useState<number>(20);
   const [difficulty, setDifficulty] = useState<string>('medium');
@@ -35,6 +39,17 @@ export default function SettingsPage() {
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [isSyncingDrive, setIsSyncingDrive] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleAuthChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ isAuthenticated?: boolean }>).detail;
+      if (detail && typeof detail.isAuthenticated === 'boolean') {
+        setExternalDriveConnected(detail.isAuthenticated);
+      }
+    };
+    window.addEventListener('synapse-auth-changed', handleAuthChange);
+    return () => window.removeEventListener('synapse-auth-changed', handleAuthChange);
+  }, []);
 
   useEffect(() => {
     async function loadPreferences() {
@@ -95,6 +110,7 @@ export default function SettingsPage() {
   };
 
   const handleForceSyncDrive = async () => {
+    if (!isDriveConnected || isSyncingDrive) return;
     setIsSyncingDrive(true);
     try {
       const { SyncManager } = await import('@/lib/db/sync_manager');
@@ -245,13 +261,15 @@ export default function SettingsPage() {
           label="Google Drive Integration"
           description="Link your Google account to import documents and sync study notes from Google Drive."
         >
-          <GoogleDriveConnectButton />
+          <GoogleDriveConnectButton onConnectionChange={setExternalDriveConnected} />
         </SettingRow>
 
         <SettingRow
           label="Force Cloud Sync"
           description={
-            lastSyncTime
+            !isDriveConnected
+              ? 'Connect Google Drive above to manually sync local notes & quizzes with cloud storage.'
+              : lastSyncTime
               ? `Manually push local notes & quizzes and retrieve cloud updates. Last synced: ${new Date(lastSyncTime).toLocaleString()}`
               : 'Manually push local notes & quizzes and retrieve cloud updates. Never synced.'
           }
@@ -259,17 +277,30 @@ export default function SettingsPage() {
           <button
             type="button"
             onClick={handleForceSyncDrive}
-            disabled={isSyncingDrive}
+            disabled={isSyncingDrive || !isDriveConnected}
             className="btn-interactive"
+            title={
+              !isDriveConnected
+                ? 'Google Drive is not connected. Connect Google Drive above to enable sync.'
+                : isSyncingDrive
+                ? 'Syncing with Google Drive...'
+                : 'Force sync notes and quizzes with Google Drive'
+            }
+            aria-label={
+              !isDriveConnected
+                ? 'Google Drive is not connected'
+                : 'Force sync notes and quizzes with Google Drive'
+            }
             style={{
               padding: '0.5rem 1rem',
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--color-surface-border)',
               backgroundColor: 'var(--color-surface-raised)',
-              color: 'var(--color-text-primary)',
+              color: !isDriveConnected ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
               fontSize: '0.875rem',
               fontWeight: 600,
-              cursor: isSyncingDrive ? 'wait' : 'pointer',
+              cursor: isSyncingDrive ? 'wait' : !isDriveConnected ? 'not-allowed' : 'pointer',
+              opacity: !isDriveConnected ? 0.6 : 1,
               display: 'inline-flex',
               alignItems: 'center',
               gap: '0.5rem',

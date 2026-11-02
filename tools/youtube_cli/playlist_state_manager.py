@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -36,6 +37,7 @@ class PlaylistStateManager:
     _KEY_FAILED_VIDEOS: ClassVar[str] = "failedVideos"
     _KEY_CONTENT: ClassVar[str] = "content"
     _KEY_WORD_COUNT: ClassVar[str] = "wordCount"
+    _KEY_ORDER: ClassVar[str] = "order"
     _EXT_MD: ClassVar[str] = ".md"
     _ENCODING_UTF8: ClassVar[str] = "utf-8"
 
@@ -52,11 +54,11 @@ class PlaylistStateManager:
         return target_dir
 
     def build_note_record(
-        self, video_id: str, note_data: dict[str, Any], url: str
+        self, video_id: str, note_data: dict[str, Any], url: str, order: int | None = None
     ) -> dict[str, Any]:
         """Format processed note dictionary conforming to API schema."""
         content = note_data.get("markdown_notes", "")
-        return {
+        record: dict[str, Any] = {
             "id": f"note_{video_id}",
             "title": note_data.get("title", f"Lecture {video_id}"),
             "content": content,
@@ -66,6 +68,9 @@ class PlaylistStateManager:
             "videoId": video_id,
             "wordCount": len(content.split()),
         }
+        if order is not None:
+            record[self._KEY_ORDER] = order
+        return record
 
     def build_playlist_notebook(self, title: str, url: str) -> dict[str, Any]:
         """Build notebook metadata dictionary for a playlist."""
@@ -108,6 +113,13 @@ class PlaylistStateManager:
         nb_path = playlist_dir / self._FILE_NOTEBOOK
         self._write_json(nb_path, notebook)
         return nb_path
+
+    def save_notes(self, playlist_dir: Path, notes: list[dict[str, Any]]) -> Path:
+        """Persist notes collection list to notes.json in playlist directory."""
+        playlist_dir.mkdir(parents=True, exist_ok=True)
+        notes_path = playlist_dir / self._FILE_NOTES
+        self._write_json(notes_path, notes)
+        return notes_path
 
     def load_state(self, playlist_dir: Path) -> dict[str, Any]:
         """Read state.json from target playlist directory, or initialize default."""
@@ -314,23 +326,45 @@ class PlaylistStateManager:
             return notes
         changed = False
         by_title = {n.get(self._KEY_TITLE): n for n in notes if n.get(self._KEY_TITLE)}
-        for md_path in sorted(notes_dir.glob(f"*{self._EXT_MD}")):
+        for idx, md_path in enumerate(sorted(notes_dir.glob(f"*{self._EXT_MD}")), start=1):
             raw_text = md_path.read_text(encoding=self._ENCODING_UTF8)
             title, body = self._extract_title_and_body(md_path, raw_text)
+            file_order = self._extract_order_from_filename(md_path.stem) or idx
             existing = by_title.get(title)
             if existing is not None:
-                if existing.get(self._KEY_CONTENT) != body:
-                    existing[self._KEY_CONTENT] = body
-                    existing[self._KEY_WORD_COUNT] = len(body.split())
-                    changed = True
+                changed = self._update_existing_note(existing, body, file_order) or changed
             else:
-                new_n = self._build_manual_note(title, body)
+                new_n = self._build_manual_note(title, body, order=file_order)
                 notes.append(new_n)
                 by_title[title] = new_n
                 changed = True
         if changed:
             self._write_json(playlist_dir / self._FILE_NOTES, notes)
         return notes
+
+    def _update_existing_note(self, note: dict[str, Any], body: str, order: int) -> bool:
+        """Update content, word count, and order of existing note if changed."""
+        changed = False
+        if note.get(self._KEY_CONTENT) != body:
+            note[self._KEY_CONTENT] = body
+            note[self._KEY_WORD_COUNT] = len(body.split())
+            changed = True
+        if note.get(self._KEY_ORDER) != order:
+            note[self._KEY_ORDER] = order
+            changed = True
+        return changed
+
+    def _extract_order_from_filename(self, stem: str) -> int | None:
+        """Extract leading numeric prefix or lecture sequence number from filename."""
+        match = re.match(r"^([0-9]+)", stem)
+        if match:
+            return int(match.group(1))
+        match = re.search(
+            r"(?:lecture|lec|session|part|episode|chapter|class|#)\s*([0-9]+)",
+            stem,
+            re.IGNORECASE,
+        )
+        return int(match.group(1)) if match else None
 
     def _extract_title_and_body(self, path: Path, text: str) -> tuple[str, str]:
         """Extract title from markdown h1 header or filename, returning stripped body."""
@@ -349,9 +383,11 @@ class PlaylistStateManager:
         body = "\n".join(lines[start_idx:]).strip()
         return title, body
 
-    def _build_manual_note(self, title: str, body: str) -> dict[str, Any]:
+    def _build_manual_note(
+        self, title: str, body: str, order: int | None = None
+    ) -> dict[str, Any]:
         """Construct dictionary for manually created markdown note."""
-        return {
+        record: dict[str, Any] = {
             "id": f"note_{self._sanitize_filename(title)}",
             "title": title,
             "content": body,
@@ -359,3 +395,6 @@ class PlaylistStateManager:
             "sourceType": "manual",
             "wordCount": len(body.split()),
         }
+        if order is not None:
+            record[self._KEY_ORDER] = order
+        return record

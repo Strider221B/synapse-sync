@@ -9,6 +9,7 @@ import { DatabaseService } from '@/lib/db/database_service';
 import type { Note, Notebook } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
 import { NotebookService } from '@/lib/db/services/notebook_service';
+import { NoteSortService } from '@/lib/db/services/note_sort_service';
 
 interface NotebookDetailPageProps {
   params: Promise<{ id: string }>;
@@ -58,7 +59,7 @@ function NotebookDetailContent({ params }: NotebookDetailPageProps) {
     ]);
 
     setNotebook(foundNb ?? null);
-    setNotes(foundNotes);
+    setNotes(NoteSortService.sortNotes(foundNotes));
     setSubfolders(foundSubfolders);
     setAllNotebooks(allNbs);
     if (foundNb) {
