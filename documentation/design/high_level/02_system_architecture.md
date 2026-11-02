@@ -278,6 +278,7 @@ Google Drive serves as the central cloud store for cross-device synchronization.
 ```
 Google Drive: SynapseSync/
 ├── app_state.json                 # Global snapshot (streaks today/yesterday, cards due, preferences)
+├── notes_manifest.json            # Lightweight metadata manifest (id, notebookId, title, previewSnippet, order)
 ├── notebooks/
 │   └── notebook_<id>.json         # Notebook entities including parentId for hierarchical folders
 ├── notes/
@@ -322,6 +323,12 @@ Google Drive: SynapseSync/
    - CLI Ingestion (`PlaylistStateManager` & `GoogleDrivePusher`) synchronizes `order` into `notes_manifest.json` and individual `note_<id>.json` files.
    - **Ingestion Self-Healing (`NoteManifestSyncService`)**: If notes exist on Google Drive but are missing from `notes_manifest.json`, the sync service falls back to discovering unmanifested `note_<id>.json` files, ensuring lecture notes are never silently dropped.
    - **Notebook ID Stability**: `GoogleDrivePusher` caches and reuses existing notebook IDs in `notebook.json`, preventing duplicate folder creation across consecutive pushes.
+10. **Lightweight Notes Manifest (`notes_manifest.json`) & On-Demand Body Loading**:
+   - **$O(1)$ Manifest-Based Sync**: Instead of sequentially fetching every `note_<id>.json` file ($O(N)$ HTTP requests) during periodic or manual sync, `GoogleDriveSyncService.pullNotes()` delegates to `NoteManifestSyncService.pullNotes()`. A single metadata GET retrieves `notes_manifest.json` containing lightweight `NoteManifestEntry` objects (`id`, `notebookId`, `title`, `previewSnippet`, `wordCount`, `order`, etc.).
+   - **Shallow IndexedDB Hydration**: For newly discovered or updated remote notes, local IndexedDB is populated with `isSynced: true`, `isBodyLoaded: false`, `content: ''`, and the 140-character Markdown-stripped `previewSnippet`. Note listings, search, and directory views display instantly without transferring large Markdown payloads.
+   - **Lazy On-Demand Body Loading**: When a note is opened in `NoteReaderContent` (`src/app/notes/[id]/page.tsx`), the viewer checks `if (!foundNote.content || foundNote.isBodyLoaded === false)`. If true, it calls `syncService.pullNoteBody(noteId)` to download the full `note_<id>.json` file, updating IndexedDB with `isBodyLoaded: true` and the complete `content`. If offline and un-downloaded, the reader presents a clear offline notice explaining that internet connectivity or Google Drive connection is required.
+   - **Manifest Self-Healing**: If `notes_manifest.json` does not exist on Drive (or after manual cloud file additions), `_fallbackSynthesizeManifest` scans `SynapseSync/notes/`, synthesizes the manifest from discovered files, and saves it to Google Drive.
+   - **Immediate Push on Note & Folder Relocation**: When a note is moved via `NotesPage.handleConfirmMove` or a folder is relocated via `MoveFolderModal`, the local transaction is accompanied by an immediate remote `pushNote(updated)` or `pushNotebook(updated)` followed by `forceSync()`, ensuring changes propagate to Google Drive and other devices without delay.
 
 ```mermaid
 sequenceDiagram
