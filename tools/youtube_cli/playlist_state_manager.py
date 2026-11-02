@@ -109,6 +109,13 @@ class PlaylistStateManager:
         self._write_json(nb_path, notebook)
         return nb_path
 
+    def save_notes(self, playlist_dir: Path, notes: list[dict[str, Any]]) -> Path:
+        """Persist notes collection list to notes.json in playlist directory."""
+        playlist_dir.mkdir(parents=True, exist_ok=True)
+        notes_path = playlist_dir / self._FILE_NOTES
+        self._write_json(notes_path, notes)
+        return notes_path
+
     def load_state(self, playlist_dir: Path) -> dict[str, Any]:
         """Read state.json from target playlist directory, or initialize default."""
         state_file = playlist_dir / self._FILE_STATE

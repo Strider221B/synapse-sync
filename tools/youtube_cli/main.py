@@ -33,20 +33,13 @@ class YouTubeCli:
     _CMD_PROCESS: ClassVar[str] = "process"
     _CMD_PUSH: ClassVar[str] = "push"
     _CMD_RETRY: ClassVar[str] = "retry"
-    _OPT_URL: ClassVar[str] = "--url"
-    _OPT_LOCAL_ONLY: ClassVar[str] = "--local-only"
-    _OPT_DRIVE_FOLDER: ClassVar[str] = "--drive-folder"
-    _OPT_DRIVE_TOKEN: ClassVar[str] = "--drive-token"
-    _OPT_SERVER_URL: ClassVar[str] = "--server-url"
-    _OPT_NOTEBOOK_DIR: ClassVar[str] = "--notebook-dir"
-    _OPT_FORCE: ClassVar[str] = "--force"
-    _OPT_RETRY_FAILED: ClassVar[str] = "--retry-failed"
-    _OPT_GENERATE_NOTES: ClassVar[str] = "--generate-notes"
-    _OPT_WITH_GEMINI: ClassVar[str] = "--with-gemini"
-    _ENV_LOCAL_FILE: ClassVar[str] = ".env.local"
-    _ENV_FILE: ClassVar[str] = ".env"
-    _ENV_COMMENT_PREFIX: ClassVar[str] = "#"
-    _ENV_DELIMITER: ClassVar[str] = "="
+    _OPT_URL, _OPT_LOCAL_ONLY = "--url", "--local-only"
+    _OPT_DRIVE_FOLDER, _OPT_DRIVE_TOKEN = "--drive-folder", "--drive-token"
+    _OPT_SERVER_URL, _OPT_NOTEBOOK_DIR = "--server-url", "--notebook-dir"
+    _OPT_FORCE, _OPT_RETRY_FAILED = "--force", "--retry-failed"
+    _OPT_GENERATE_NOTES, _OPT_WITH_GEMINI = "--generate-notes", "--with-gemini"
+    _ENV_LOCAL_FILE, _ENV_FILE = ".env.local", ".env"
+    _ENV_COMMENT_PREFIX, _ENV_DELIMITER = "#", "="
 
     def __init__(
         self,
@@ -168,6 +161,8 @@ class YouTubeCli:
             dest = f"server ({server_url})" if server_url else "Google Drive"
             self._console.print(f"[cyan]Uploading {len(notes)} note(s) to {dest}...[/cyan]")
             res = self._execute_push(notebook, notes, server_url, drive_folder, drive_token)
+            self._state_manager.save_notebook(nb_path, notebook)
+            self._state_manager.save_notes(nb_path, notes)
             stored_count = res.get("notesStored", len(notes))
             self._console.print(
                 f"[bold green]Push successful! Stored {stored_count} notes.[/bold green]"

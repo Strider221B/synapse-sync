@@ -195,4 +195,60 @@ describe('NoteManifestSyncService', () => {
 
     await dbService.close();
   });
+
+  it('reconciles unmanifested notes from notes folder when manifest already exists', async () => {
+    const dbService = new DatabaseService(`${TEST_DB_PREFIX}-reconcile`);
+    const noteService = new NoteService(dbService);
+    const { client, savedFiles } = createMockDriveClient();
+    const manifestService = new NoteManifestSyncService(dbService, client);
+
+    const existingManifestEntry = {
+      id: 'note-existing',
+      notebookId: 'nb-1',
+      title: 'Existing Note',
+      contentFormat: 'markdown',
+      sourceType: 'manual',
+      wordCount: 100,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      previewSnippet: 'Existing note snippet',
+    };
+    savedFiles['notes_manifest.json'] = {
+      content: JSON.stringify([existingManifestEntry]),
+      parentFolderId: 'folder-root-synapse',
+    };
+
+    const unmanifestedNote: Note = {
+      id: 'note_Lecture_1_-_Transformer',
+      notebookId: 'nb-cme295',
+      title: 'Lecture 1 - Transformer',
+      content: '# Transformers\nFull transformer notes content.',
+      contentFormat: 'markdown',
+      sourceType: 'manual',
+      wordCount: 50,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      isSynced: true,
+    };
+    savedFiles['note_note_Lecture_1_-_Transformer.json'] = {
+      content: JSON.stringify(unmanifestedNote),
+      parentFolderId: 'folder-notes-id',
+    };
+
+    const count = await manifestService.pullNotes();
+    assert.equal(count, 2);
+
+    const pulledUnmanifested = await noteService.getById('note_Lecture_1_-_Transformer');
+    assert.ok(pulledUnmanifested);
+    assert.equal(pulledUnmanifested.title, 'Lecture 1 - Transformer');
+    assert.equal(pulledUnmanifested.notebookId, 'nb-cme295');
+
+    const updatedManifestText = savedFiles['notes_manifest.json']?.content;
+    assert.ok(updatedManifestText);
+    const parsedManifest = JSON.parse(updatedManifestText);
+    assert.equal(parsedManifest.length, 2);
+    assert.ok(parsedManifest.some((e: { id: string }) => e.id === 'note_Lecture_1_-_Transformer'));
+
+    await dbService.close();
+  });
 });
