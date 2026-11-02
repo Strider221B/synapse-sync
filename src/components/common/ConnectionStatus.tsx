@@ -17,7 +17,19 @@ export interface ConnectionStatusProps {
 export function ConnectionStatus(props: ConnectionStatusProps): React.JSX.Element {
   const { isAuthenticated: authOverride } = props;
   const auth = useGoogleAuth();
-  const isDriveConnected = authOverride ?? auth.isAuthenticated;
+  const [externalDriveConnected, setExternalDriveConnected] = useState<boolean | null>(null);
+  const isDriveConnected = authOverride ?? externalDriveConnected ?? auth.isAuthenticated;
+
+  useEffect(() => {
+    const handleAuthChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ isAuthenticated?: boolean }>).detail;
+      if (detail && typeof detail.isAuthenticated === 'boolean') {
+        setExternalDriveConnected(detail.isAuthenticated);
+      }
+    };
+    window.addEventListener('synapse-auth-changed', handleAuthChange);
+    return () => window.removeEventListener('synapse-auth-changed', handleAuthChange);
+  }, []);
 
   const [isOnline, setIsOnline] = useState<boolean>(() => {
     if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
