@@ -15,6 +15,7 @@ export interface NoteManifestEntry {
   createdAt: string;
   updatedAt: string;
   previewSnippet?: string;
+  order?: number;
 }
 
 export type PushNoteCallback = (note: Note) => Promise<void>;
@@ -168,6 +169,7 @@ export class NoteManifestSyncService {
       createdAt: note.createdAt,
       updatedAt: note.updatedAt,
       previewSnippet: snippet,
+      order: note.order,
     };
   }
 

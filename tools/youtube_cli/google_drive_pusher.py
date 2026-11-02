@@ -208,6 +208,7 @@ class GoogleDrivePusher:
             "createdAt": str(note.get("createdAt", "")),
             "updatedAt": str(note.get("updatedAt", "")),
             "previewSnippet": snippet,
+            "order": note.get("order"),
         }
 
     def _prepare_and_upload_notes(
@@ -217,7 +218,7 @@ class GoogleDrivePusher:
         note_ids: list[str] = []
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-        for note in notes:
+        for idx, note in enumerate(notes, start=1):
             note_id = str(note.get("id") or f"note_{uuid.uuid4()}")
             note["id"] = note_id
             note["notebookId"] = notebook_id
@@ -227,6 +228,7 @@ class GoogleDrivePusher:
             note.setdefault("contentFormat", self._FORMAT_MARKDOWN)
             note.setdefault("sourceType", self._SOURCE_TYPE)
             note.setdefault("wordCount", len(note.get("content", "").split()))
+            note.setdefault("order", idx)
 
             filename = f"{self._PREFIX_NOTE}{note_id}{self._EXT_JSON}"
             self._upload_json_file(filename, note, notes_folder_id)

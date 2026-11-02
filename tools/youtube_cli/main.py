@@ -373,7 +373,9 @@ class YouTubeCli:
         n_data = self._generator.generate(
             t_data["transcript"], title, on_retry=self._on_model_retry
         )
-        note_rec = self._state_manager.build_note_record(vid_id, n_data, vid["url"])
+        note_rec = self._state_manager.build_note_record(
+            vid_id, n_data, vid["url"], order=vid.get("index")
+        )
         notes_file, md_file = self._state_manager.record_video_success(
             playlist_dir, notebook, note_rec, vid
         )
