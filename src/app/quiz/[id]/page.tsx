@@ -174,7 +174,7 @@ function QuizContent({ params }: QuizPageProps) {
   }, [quizId]);
 
   const handleManualSync = async () => {
-    if (!quiz || isSyncingDrive) return;
+    if (!quiz || isSyncingDrive || !isAuthenticated) return;
     setIsSyncingDrive(true);
     try {
       const { SyncManager } = await import('@/lib/db/sync_manager');
@@ -713,42 +713,42 @@ function QuizContent({ params }: QuizPageProps) {
             >
               ☁️ Saved to Drive
             </span>
-          ) : isAuthenticated ? (
+          ) : (
             <button
               type="button"
               onClick={handleManualSync}
-              disabled={isSyncingDrive}
-              title="Quiz is stored locally. Click to sync to Google Drive."
+              disabled={isSyncingDrive || !isAuthenticated}
+              title={
+                !isAuthenticated
+                  ? 'Google Drive is not connected. Connect your Google account in Settings to sync.'
+                  : isSyncingDrive
+                  ? 'Syncing to Drive...'
+                  : 'Quiz is stored locally. Click to sync to Google Drive.'
+              }
+              aria-label={
+                !isAuthenticated
+                  ? 'Google Drive is not connected'
+                  : 'Sync quiz to Google Drive'
+              }
               style={{
                 fontSize: '0.75rem',
-                color: 'var(--color-warning, #d97706)',
+                color: !isAuthenticated ? 'var(--color-text-muted)' : 'var(--color-warning, #d97706)',
                 backgroundColor: 'transparent',
-                border: '1px dashed var(--color-warning, #d97706)',
+                border: !isAuthenticated
+                  ? '1px dashed var(--color-surface-border)'
+                  : '1px dashed var(--color-warning, #d97706)',
                 borderRadius: 'var(--radius-sm)',
                 padding: '0.2rem 0.5rem',
-                cursor: isSyncingDrive ? 'wait' : 'pointer',
+                cursor: isSyncingDrive ? 'wait' : !isAuthenticated ? 'not-allowed' : 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.25rem',
                 fontWeight: 500,
+                opacity: !isAuthenticated ? 0.6 : 1,
               }}
             >
               {isSyncingDrive ? '⏳ Syncing to Drive...' : '☁️ Sync to Drive'}
             </button>
-          ) : (
-            <span
-              style={{
-                fontSize: '0.75rem',
-                color: 'var(--color-text-secondary)',
-                fontWeight: 500,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.25rem',
-              }}
-              title="Stored in local browser workspace."
-            >
-              💾 Local Workspace
-            </span>
           )}
 
           <div

@@ -2,11 +2,23 @@
 
 import React, { useEffect, useState } from 'react';
 import { SyncManager } from '@/lib/db/sync_manager';
+import { useGoogleAuth } from '@/components/auth/GoogleAuthProviderWrapper';
+
+/**
+ * Props for ConnectionStatus component.
+ */
+export interface ConnectionStatusProps {
+  isAuthenticated?: boolean;
+}
 
 /**
  * Header connection status badge displaying online/offline state and sync feedback.
  */
-export function ConnectionStatus() {
+export function ConnectionStatus(props: ConnectionStatusProps): React.JSX.Element {
+  const { isAuthenticated: authOverride } = props;
+  const auth = useGoogleAuth();
+  const isDriveConnected = authOverride ?? auth.isAuthenticated;
+
   const [isOnline, setIsOnline] = useState<boolean>(() => {
     if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
       return navigator.onLine;
@@ -70,7 +82,7 @@ export function ConnectionStatus() {
   }, []);
 
   const handleForceSync = async () => {
-    if (isSyncing || !isOnline) return;
+    if (isSyncing || !isOnline || !isDriveConnected) return;
     setIsSyncing(true);
     try {
       const syncManager = SyncManager.getInstance();
@@ -153,9 +165,19 @@ export function ConnectionStatus() {
           <button
             type="button"
             onClick={handleForceSync}
-            disabled={isSyncing}
-            title="Force sync notes and quizzes with Google Drive"
-            aria-label="Force sync notes and quizzes with Google Drive"
+            disabled={isSyncing || !isDriveConnected}
+            title={
+              !isDriveConnected
+                ? 'Google Drive is not connected. Connect Google Drive to enable sync.'
+                : isSyncing
+                ? 'Syncing with Google Drive...'
+                : 'Force sync notes and quizzes with Google Drive'
+            }
+            aria-label={
+              !isDriveConnected
+                ? 'Google Drive is not connected'
+                : 'Force sync notes and quizzes with Google Drive'
+            }
             className="btn-interactive"
             style={{
               display: 'inline-flex',
@@ -165,10 +187,13 @@ export function ConnectionStatus() {
               borderRadius: 'var(--radius-full)',
               backgroundColor: 'var(--color-surface-raised)',
               border: '1px solid var(--color-surface-border)',
-              color: 'var(--color-text-secondary)',
+              color: !isDriveConnected
+                ? 'var(--color-text-muted)'
+                : 'var(--color-text-secondary)',
               fontSize: '0.75rem',
               fontWeight: 500,
-              cursor: isSyncing ? 'wait' : 'pointer',
+              cursor: isSyncing ? 'wait' : !isDriveConnected ? 'not-allowed' : 'pointer',
+              opacity: !isDriveConnected ? 0.6 : 1,
               transition: 'all var(--transition-fast)',
               flexShrink: 0,
               whiteSpace: 'nowrap',

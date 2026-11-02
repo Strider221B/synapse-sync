@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useGoogleAuth } from '@/components/auth/GoogleAuthProviderWrapper';
 import { DatabaseService } from '@/lib/db/database_service';
 import type { Note, Notebook } from '@/lib/db/models';
 import { NoteService } from '@/lib/db/services/note_service';
@@ -12,6 +13,7 @@ import { SyncManager } from '@/lib/db/sync_manager';
  * Displays YouTube notebooks, videos count, and individual lecture notes with Google Drive synchronization.
  */
 export function YouTubeNotesViewer() {
+  const { isAuthenticated } = useGoogleAuth();
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [notesByNotebook, setNotesByNotebook] = useState<Record<string, Note[]>>({});
   const [isLoading, setIsLoading] = useState(true);
@@ -50,6 +52,7 @@ export function YouTubeNotesViewer() {
   }, [loadLocalData]);
 
   const handleSyncWithDrive = async () => {
+    if (!isAuthenticated || isSyncing) return;
     setIsSyncing(true);
     setSyncStatus('Syncing notebooks and notes with Google Drive...');
 
@@ -104,8 +107,21 @@ export function YouTubeNotesViewer() {
         </div>
 
         <button
+          type="button"
           onClick={handleSyncWithDrive}
-          disabled={isSyncing}
+          disabled={isSyncing || !isAuthenticated}
+          title={
+            !isAuthenticated
+              ? 'Google Drive is not connected. Connect Google Drive to sync.'
+              : isSyncing
+              ? 'Syncing with Google Drive...'
+              : 'Sync latest notebooks and notes from Google Drive'
+          }
+          aria-label={
+            !isAuthenticated
+              ? 'Google Drive is not connected'
+              : 'Sync latest notebooks and notes from Google Drive'
+          }
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -114,10 +130,11 @@ export function YouTubeNotesViewer() {
             borderRadius: 'var(--radius-md)',
             backgroundColor: 'var(--color-bg-tertiary)',
             border: '1px solid var(--color-border)',
-            color: 'var(--color-text-primary)',
+            color: !isAuthenticated ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
             fontSize: '0.875rem',
             fontWeight: 500,
-            cursor: isSyncing ? 'not-allowed' : 'pointer',
+            cursor: isSyncing ? 'not-allowed' : !isAuthenticated ? 'not-allowed' : 'pointer',
+            opacity: !isAuthenticated ? 0.6 : 1,
             transition: 'all var(--transition-fast)',
           }}
         >
