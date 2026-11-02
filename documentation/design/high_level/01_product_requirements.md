@@ -48,6 +48,8 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 | NM-17 | Mermaid UML diagram rendering in notes markdown supporting flowcharts, sequence, class, state, and ER diagrams with dark/light theme adaptation and syntax error fallback | P1 |
 | NM-18 | Hierarchical folder relocation ("Move Folder"): move an entire folder with its notes and sub-folders under another folder or to root, with cyclic dependency validation | P1 |
 | NM-19 | Safe empty folder deletion: folders may only be deleted when empty (0 notes and 0 subfolders); delete button is disabled when folder contains contents | P1 |
+| NM-20 | Chronological playlist order sorting: study notes within a notebook preserve their original playlist appearance order (`order` index) via `NoteSortService`, with natural alphanumeric title fallback sorting (e.g., "Lecture 2" before "Lecture 10") | P0 |
+| NM-21 | Resilient Drive manifest self-healing: `NoteManifestSyncService` automatically discovers and pulls lecture notes stored on Google Drive even if missing or omitted from `notes_manifest.json` | P0 |
 
 ### 3.2 YouTube Transcript Ingestion (Local-First Pipeline)
 
@@ -111,6 +113,7 @@ SynapseSync is an **AI-powered, offline-first study companion** that unifies not
 | OL-05 | **Sync queue**: track offline mutations; replay to server on reconnect                          | P0       |
 | OL-06 | Conflict resolution: last-write-wins with timestamp-based merging                               | P1       |
 | OL-07 | Background Sync API for automatic replay when connectivity returns                              | P1       |
+| OL-08 | Reactive sync action guards: all manual sync triggers (header badge, settings page, YouTube viewer, and quiz viewer) are strictly disabled when Google Drive is disconnected, displaying informative tooltips and preventing unauthenticated sync calls | P0 |
 
 ---
 

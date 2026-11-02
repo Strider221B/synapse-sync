@@ -39,6 +39,7 @@ erDiagram
         datetime createdAt
         datetime updatedAt
         boolean isSynced
+        number order
     }
 
     NOTE {
@@ -54,6 +55,7 @@ erDiagram
         datetime createdAt
         datetime updatedAt
         boolean isSynced
+        number order
     }
 
     QUIZ {
@@ -212,6 +214,15 @@ interface Note {
   
   /** Sync status */
   isSynced: boolean;
+
+  /** Whether the full body has been loaded from remote or remains a shallow manifest preview */
+  isBodyLoaded?: boolean;
+
+  /** Truncated snippet for shallow preview rendering */
+  previewSnippet?: string;
+
+  /** 0-based sequence index preserving original playlist appearance order */
+  order?: number;
 }
 ```
 

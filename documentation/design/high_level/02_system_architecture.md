@@ -309,6 +309,19 @@ Google Drive: SynapseSync/
    - Google Drive's API permits multiple files with identical names due to eventual consistency search delays.
    - In `GoogleDriveApiClient.saveFile()`, if `findAllFilesByName()` finds more than one file, it updates the primary file and deletes extra duplicates automatically.
    - In `GoogleDriveSyncService.pullQuizzes()`, seen filenames are tracked, and any duplicate quiz JSON files are purged automatically from Google Drive.
+8. **Multi-Channel Reactive Sync Action Guards**:
+   - Manual sync triggers across all entry points (`ConnectionStatus.tsx`, `settings/page.tsx`, `YouTubeNotesViewer.tsx`, `quiz/[id]/page.tsx`) are strictly disabled when Google Drive is disconnected.
+   - To overcome PWA Service Worker script caching (`@serwist/next` `CacheFirst` on `/_next/static/`), components implement triple-channel state synchronization:
+     1. Primary subscription to `useGoogleAuth().isAuthenticated`.
+     2. Component-level callback binding via `<GoogleDriveConnectButton onConnectionChange={setExternalDriveConnected} />`.
+     3. Global event listener for `synapse-auth-changed` dispatched on login, logout, and identity switches.
+   - UI controls render with `disabled={isSyncing || !isDriveConnected}`, `cursor: not-allowed`, `opacity: 0.6`, muted text styling, and informative tooltips explaining that Google Drive must be connected. Handlers (`handleForceSyncDrive`, `handleForceSync`, `handleSyncWithDrive`, `handleManualSync`) abort execution immediately if disconnected.
+9. **Chronological Playlist Ordering & Ingestion Manifest Healing**:
+   - `NoteSortService` (`src/lib/db/services/note_sort_service.ts`) ensures study notes preserve natural playlist order rather than naive alphabetical string sorting (which erroneously puts "Lecture 10" before "Lecture 2").
+   - Notes define an optional `order?: number` field derived from the playlist item index.
+   - CLI Ingestion (`PlaylistStateManager` & `GoogleDrivePusher`) synchronizes `order` into `notes_manifest.json` and individual `note_<id>.json` files.
+   - **Ingestion Self-Healing (`NoteManifestSyncService`)**: If notes exist on Google Drive but are missing from `notes_manifest.json`, the sync service falls back to discovering unmanifested `note_<id>.json` files, ensuring lecture notes are never silently dropped.
+   - **Notebook ID Stability**: `GoogleDrivePusher` caches and reuses existing notebook IDs in `notebook.json`, preventing duplicate folder creation across consecutive pushes.
 
 ```mermaid
 sequenceDiagram
