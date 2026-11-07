@@ -40,8 +40,22 @@ describe('NoteManifestSyncService', () => {
         }
         return '{}';
       },
+      findAllFilesByName: async (name: string, parentFolderId = 'root') => {
+        const matches: DriveItem[] = [];
+        for (const [n, data] of Object.entries(savedFiles)) {
+          if (n === name && data.parentFolderId === parentFolderId) {
+            matches.push({ id: `file-${n}-id`, name: n, file: { mimeType: 'application/json' } } as DriveItem);
+          }
+        }
+        return matches;
+      },
       deleteFile: async (fileId: string) => {
         deletedFiles.push(fileId);
+        for (const name of Object.keys(savedFiles)) {
+          if (`file-${name}-id` === fileId) {
+            delete savedFiles[name];
+          }
+        }
       },
       listAllFolderItems: async (folderId: string) => {
         const results: DriveItem[] = [];
@@ -248,6 +262,92 @@ describe('NoteManifestSyncService', () => {
     const parsedManifest = JSON.parse(updatedManifestText);
     assert.equal(parsedManifest.length, 2);
     assert.ok(parsedManifest.some((e: { id: string }) => e.id === 'note_Lecture_1_-_Transformer'));
+
+    await dbService.close();
+  });
+
+  it('does not resurrect a deleted note during pullNotes when queued for deletion in sync_queue', async () => {
+    const dbService = new DatabaseService(`${TEST_DB_PREFIX}-resurrection`);
+    const noteService = new NoteService(dbService);
+    const { client, savedFiles } = createMockDriveClient();
+    const manifestService = new NoteManifestSyncService(dbService, client);
+
+    const deletedNoteId = 'note_CS336_Lecture_16';
+    const remoteEntry = {
+      id: deletedNoteId,
+      notebookId: 'nb-cs336',
+      title: 'Stanford CS336: Language Modeling - Lecture 16',
+      contentFormat: 'markdown' as const,
+      sourceType: 'youtube_transcript' as const,
+      wordCount: 200,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      previewSnippet: 'Lecture 16 transformer scaling notes',
+    };
+
+    savedFiles['notes_manifest.json'] = {
+      content: JSON.stringify([remoteEntry]),
+      parentFolderId: 'folder-root-synapse',
+    };
+    savedFiles['note_note_CS336_Lecture_16.json'] = {
+      content: JSON.stringify({ ...remoteEntry, content: 'Lecture 16 notes' }),
+      parentFolderId: 'folder-notes-id',
+    };
+
+    // Queue note for deletion in sync_queue
+    const db = await dbService.getDB();
+    await db.put('sync_queue', {
+      id: 'queue-del-1',
+      entityType: 'note',
+      entityId: deletedNoteId,
+      operation: 'delete',
+      payload: { id: deletedNoteId },
+      status: 'pending',
+      retryCount: 0,
+      createdAt: new Date().toISOString(),
+    });
+
+    const pulledCount = await manifestService.pullNotes();
+    assert.equal(pulledCount, 0, 'Must not pull or restore note queued for deletion');
+
+    const inDb = await noteService.getById(deletedNoteId);
+    assert.equal(inDb, undefined, 'Note must not be resurrected in local IndexedDB');
+
+    await dbService.close();
+  });
+
+  it('deletes remote note files for all filename variants and prunes manifest', async () => {
+    const dbService = new DatabaseService(`${TEST_DB_PREFIX}-delete-variants`);
+    const { client, savedFiles, deletedFiles } = createMockDriveClient();
+    const manifestService = new NoteManifestSyncService(dbService, client);
+
+    const noteId = 'note_CS336_Lecture_16';
+    savedFiles['note_CS336_Lecture_16.json'] = {
+      content: '{}',
+      parentFolderId: 'folder-notes-id',
+    };
+    savedFiles['note_note_CS336_Lecture_16.json'] = {
+      content: '{}',
+      parentFolderId: 'folder-notes-id',
+    };
+    savedFiles['notes_manifest.json'] = {
+      content: JSON.stringify([
+        { id: noteId, title: 'Lecture 16' },
+        { id: 'note-keep', title: 'Keep Note' },
+      ]),
+      parentFolderId: 'folder-root-synapse',
+    };
+
+    await manifestService.deleteRemoteNoteFiles(noteId);
+
+    assert.ok(deletedFiles.includes('file-note_CS336_Lecture_16.json-id'));
+    assert.ok(deletedFiles.includes('file-note_note_CS336_Lecture_16.json-id'));
+
+    const manifestText = savedFiles['notes_manifest.json']?.content;
+    assert.ok(manifestText);
+    const parsed = JSON.parse(manifestText);
+    assert.equal(parsed.length, 1);
+    assert.equal(parsed[0].id, 'note-keep');
 
     await dbService.close();
   });

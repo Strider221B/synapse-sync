@@ -51,10 +51,20 @@ export class ChatSyncService {
    */
   public async deleteRemoteChat(noteId: string): Promise<void> {
     const folderId = await this._getChatsFolderId();
-    const fileName = `${ChatSyncService._PREFIX_CHAT}${noteId}${ChatSyncService._JSON_EXT}`;
-    const file = await this._gdriveClient.findFileByName(fileName, folderId);
-    if (file) {
-      await this._gdriveClient.deleteFile(file.id);
+    const rawId = noteId.replace(/^note_+/, '');
+    const prefix = ChatSyncService._PREFIX_CHAT;
+    const ext = ChatSyncService._JSON_EXT;
+    const names = new Set<string>([
+      `${prefix}${noteId}${ext}`,
+      `${prefix}${rawId}${ext}`,
+    ]);
+    for (const name of names) {
+      const files = this._gdriveClient.findAllFilesByName
+        ? await this._gdriveClient.findAllFilesByName(name, folderId)
+        : (await this._gdriveClient.findFileByName(name, folderId).then((f) => (f ? [f] : [])));
+      for (const f of files) {
+        await this._gdriveClient.deleteFile(f.id);
+      }
     }
   }
 
