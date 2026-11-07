@@ -37,6 +37,9 @@ export function Sidebar({ className = '' }: SidebarProps) {
   const isActive = (href: string) => {
     if (!pathname) return href === '/';
     if (href === '/') return pathname === '/';
+    if (href === '/quizzes') {
+      return pathname.startsWith('/quizzes') || pathname === '/quiz' || pathname.startsWith('/quiz/');
+    }
     return pathname.startsWith(href);
   };
 

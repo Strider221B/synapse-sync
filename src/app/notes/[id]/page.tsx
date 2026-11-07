@@ -441,7 +441,6 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
     const syncQueueService = new SyncQueueService(dbService);
     const noteService = new NoteService(dbService, syncQueueService);
 
-    const { QuizService } = await import('@/lib/db/services/quiz_service');
     const quizService = new QuizService(dbService, syncQueueService);
     const associatedQuizzes = await quizService.getByNote(note.id).catch(() => []);
     for (const q of associatedQuizzes) {

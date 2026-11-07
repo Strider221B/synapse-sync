@@ -287,3 +287,6 @@ export class QuizService {
     };
   }
 }
+
+export default QuizService;
+
