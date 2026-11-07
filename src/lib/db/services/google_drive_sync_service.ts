@@ -88,7 +88,8 @@ export class GoogleDriveSyncService {
    */
   public async pushNote(note: Note): Promise<void> {
     const folderId = await this._getNotesFolderId();
-    const fileName = `${GoogleDriveSyncService._PREFIX_NOTE}${note.id}${GoogleDriveSyncService._JSON_EXT}`;
+    const rawId = note.id.replace(/^note_+/, '');
+    const fileName = `${GoogleDriveSyncService._PREFIX_NOTE}${rawId}${GoogleDriveSyncService._JSON_EXT}`;
     const payload = JSON.stringify({ ...note, isSynced: true }, null, 2);
     await this._gdriveClient.saveFile(fileName, payload, GoogleDriveSyncService._JSON_MIME, folderId);
 
@@ -128,12 +129,8 @@ export class GoogleDriveSyncService {
    * Removes a note file and its chat history from Google Drive when deleted locally.
    */
   public async deleteRemoteNote(noteId: string): Promise<void> {
-    const folderId = await this._getNotesFolderId();
-    const fileName = `${GoogleDriveSyncService._PREFIX_NOTE}${noteId}${GoogleDriveSyncService._JSON_EXT}`;
-    const file = await this._gdriveClient.findFileByName(fileName, folderId);
-    if (file) await this._gdriveClient.deleteFile(file.id);
+    await this._noteManifestSyncService.deleteRemoteNoteFiles(noteId);
     await this._chatSyncService.deleteRemoteChat(noteId);
-    await this._noteManifestSyncService.deleteFromManifest(noteId);
   }
 
   /**

@@ -230,7 +230,12 @@ class GoogleDrivePusher:
             note.setdefault("wordCount", len(note.get("content", "").split()))
             note.setdefault("order", idx)
 
-            filename = f"{self._PREFIX_NOTE}{note_id}{self._EXT_JSON}"
+            clean_id = (
+                note_id[len(self._PREFIX_NOTE) :]
+                if note_id.startswith(self._PREFIX_NOTE)
+                else note_id
+            )
+            filename = f"{self._PREFIX_NOTE}{clean_id}{self._EXT_JSON}"
             self._upload_json_file(filename, note, notes_folder_id)
             note_ids.append(note_id)
 

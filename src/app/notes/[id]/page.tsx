@@ -441,7 +441,40 @@ function NoteReaderContent({ params }: NoteReaderPageProps) {
     const syncQueueService = new SyncQueueService(dbService);
     const noteService = new NoteService(dbService, syncQueueService);
 
+    const { QuizService } = await import('@/lib/db/services/quiz_service');
+    const quizService = new QuizService(dbService, syncQueueService);
+    const associatedQuizzes = await quizService.getByNote(note.id).catch(() => []);
+    for (const q of associatedQuizzes) {
+      await quizService.delete(q.id).catch(() => {});
+    }
+
+    const { ChatMessageService } = await import('@/lib/db/services/chat_message_service');
+    const chatService = new ChatMessageService(dbService);
+    await chatService.deleteByNote(note.id).catch(() => {});
+
     await noteService.delete(note.id);
+
+    try {
+      const { GoogleDriveSyncService } = await import('@/lib/db/services/google_drive_sync_service');
+      const { GoogleDriveApiClient } = await import('@/lib/api/google_drive_client');
+      const { AuthService } = await import('@/lib/auth/auth_service');
+      const authService = new AuthService();
+      if (authService.isAuthenticated()) {
+        const gdriveClient = new GoogleDriveApiClient(authService);
+        const syncService = new GoogleDriveSyncService(dbService, gdriveClient, authService, syncQueueService);
+        await syncService.deleteRemoteNote(note.id).catch(() => {});
+        for (const q of associatedQuizzes) {
+          await syncService.deleteRemoteQuiz(q.id).catch(() => {});
+        }
+      }
+    } catch (syncErr) {
+      console.warn('Could not immediately delete remote note:', syncErr);
+    }
+
+    const { SyncManager } = await import('@/lib/db/sync_manager');
+    const syncManager = SyncManager.getInstance(syncQueueService);
+    void syncManager.forceSync().catch(() => {});
+
     router.push('/notes');
   };
 
