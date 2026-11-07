@@ -196,7 +196,6 @@ function QuizContent({ params }: QuizPageProps) {
       if (!syncService && authService && authService.isAuthenticated()) {
         const { GoogleDriveApiClient } = await import('@/lib/api/google_drive_client');
         const { GoogleDriveSyncService } = await import('@/lib/db/services/google_drive_sync_service');
-        const { DatabaseService } = await import('@/lib/db/database_service');
         syncService = new GoogleDriveSyncService(new DatabaseService(), new GoogleDriveApiClient(authService), authService);
         syncManager.setSyncService(syncService);
       }

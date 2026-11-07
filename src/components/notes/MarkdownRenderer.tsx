@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { MermaidDiagram } from './MermaidDiagram';
+import { MarkdownMathNormalizer } from '@/lib/utils/markdown_math_normalizer';
 
 const MERMAID_LANG = 'mermaid';
 const REGEX_LANG = /language-(\w+)/;
@@ -34,6 +35,10 @@ function isMermaidElement(children: React.ReactNode): boolean {
  * Renders GitHub Flavored Markdown, LaTeX math equations, and Mermaid UML diagrams safely.
  */
 export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps) {
+  const normalizedContent = React.useMemo(() => {
+    return MarkdownMathNormalizer.normalize(content);
+  }, [content]);
+
   return (
     <div className={`markdown-body ${className}`.trim()}>
       <ReactMarkdown
@@ -59,7 +64,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
           },
         }}
       >
-        {content}
+        {normalizedContent}
       </ReactMarkdown>
     </div>
   );
