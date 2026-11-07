@@ -107,4 +107,44 @@ sequenceDiagram
     assert.ok(html.includes('<ul>'), 'Must render unordered list');
     assert.ok(html.includes('<a href="https://example.com"'), 'Must render link with href');
   });
+
+  it('renders multiline math equations where $$ has content on the opening and closing lines', () => {
+    const content = `### 8.2 Policy
+Model-based exploration policy:
+
+$$a = \\begin{cases}
+\\text{random action from the exploration policy} & \\text{with probability } \\epsilon \\\\
+\\arg\\max_a \\hat{Q}(s,a) & \\text{with probability } 1-\\epsilon
+\\end{cases}$$
+
+- Typical $\\epsilon = 0.1$.`;
+
+    const html = renderToStaticMarkup(
+      React.createElement(MarkdownRenderer, { content })
+    );
+
+    assert.ok(!html.includes('katex-error'), 'Must not produce katex parse errors');
+    assert.ok(html.includes('katex-display'), 'Must render as a display block element');
+    assert.ok(html.includes('Typical'), 'Must render subsequent list items without swallowing text');
+  });
+
+  it('renders standalone single-line display math as katex-display block', () => {
+    const content = '$$u_i = r_i + \\gamma\\, u_{i+1}$$';
+    const html = renderToStaticMarkup(
+      React.createElement(MarkdownRenderer, { content })
+    );
+
+    assert.ok(!html.includes('katex-error'), 'Must not produce katex parse errors');
+    assert.ok(html.includes('katex-display'), 'Standalone single line must be display mode');
+  });
+
+  it('renders currency expressions and math with escaped dollar signs safely', () => {
+    const content = 'Receive $\\$10$ and settle $\\$1.5\\text{ billion}$. Or outside math \\$100.';
+    const html = renderToStaticMarkup(
+      React.createElement(MarkdownRenderer, { content })
+    );
+
+    assert.ok(!html.includes('katex-error'), 'Must not produce katex parse errors');
+    assert.ok(html.includes('$10'), 'Must render dollar amount');
+  });
 });
