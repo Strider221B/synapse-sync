@@ -7,6 +7,7 @@ import { SRSCardService } from '@/lib/db/services/srs_card_service';
 import { SM2Engine } from '@/lib/srs/sm2';
 import { QualityRating } from './QualityRating';
 import { ReviewStats, type ReviewStatsData } from './ReviewStats';
+import { MarkdownRenderer } from '@/components/notes/MarkdownRenderer';
 
 export interface DueCardItem {
   srsCard: SRSCard;
@@ -272,9 +273,13 @@ export const ReviewSession: React.FC<ReviewSessionProps> = ({
                 color: 'var(--color-text-primary)',
                 lineHeight: 1.6,
                 maxWidth: '560px',
+                width: '100%',
               }}
             >
-              {isFlipped ? currentItem.flashcard.back : currentItem.flashcard.front}
+              <MarkdownRenderer
+                content={isFlipped ? (currentItem.flashcard?.back || '') : (currentItem.flashcard?.front || '')}
+                className="markdown-card-content"
+              />
             </div>
 
             {!isFlipped && (
@@ -326,7 +331,9 @@ export const ReviewSession: React.FC<ReviewSessionProps> = ({
               boxShadow: 'var(--shadow-sm)',
             }}
           >
-            <h3
+            <div
+              role="heading"
+              aria-level={3}
               style={{
                 fontSize: '1.2rem',
                 fontWeight: 600,
@@ -334,8 +341,8 @@ export const ReviewSession: React.FC<ReviewSessionProps> = ({
                 lineHeight: 1.5,
               }}
             >
-              {currentItem.mcq.question}
-            </h3>
+              <MarkdownRenderer content={currentItem.mcq.question} className="markdown-card-content" />
+            </div>
           </div>
 
           {/* MCQ Options */}
@@ -346,16 +353,19 @@ export const ReviewSession: React.FC<ReviewSessionProps> = ({
               const isCorrect = optIdx === currentItem.mcq?.correctIndex;
 
               let bg = 'var(--color-surface)';
-              let border = '1px solid var(--color-surface-border)';
+              let borderWidth = '1px';
+              let borderColor = 'var(--color-surface-border)';
               let color = 'var(--color-text-primary)';
 
               if (isAnswered) {
                 if (isCorrect) {
                   bg = 'var(--color-success-bg)';
-                  border = '1.5px solid var(--color-success)';
+                  borderWidth = '1.5px';
+                  borderColor = 'var(--color-success)';
                 } else if (isSelected && !isCorrect) {
                   bg = 'var(--color-error-bg)';
-                  border = '1.5px solid var(--color-error)';
+                  borderWidth = '1.5px';
+                  borderColor = 'var(--color-error)';
                 } else {
                   color = 'var(--color-text-muted)';
                 }
@@ -374,7 +384,9 @@ export const ReviewSession: React.FC<ReviewSessionProps> = ({
                     padding: '1rem 1.25rem',
                     borderRadius: 'var(--radius-md)',
                     backgroundColor: bg,
-                    border,
+                    borderWidth,
+                    borderStyle: 'solid',
+                    borderColor,
                     color,
                     fontSize: '0.95rem',
                     fontWeight: 500,
@@ -390,7 +402,9 @@ export const ReviewSession: React.FC<ReviewSessionProps> = ({
                       height: '28px',
                       borderRadius: 'var(--radius-sm)',
                       backgroundColor: 'var(--color-surface-raised)',
-                      border: '1px solid var(--color-surface-border)',
+                      borderWidth: '1px',
+                      borderStyle: 'solid',
+                      borderColor: 'var(--color-surface-border)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -401,7 +415,9 @@ export const ReviewSession: React.FC<ReviewSessionProps> = ({
                   >
                     {MCQ_LABELS[optIdx]}
                   </span>
-                  <span style={{ flex: 1 }}>{opt}</span>
+                  <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                    <MarkdownRenderer content={opt} inline />
+                  </span>
                 </button>
               );
             })}
@@ -441,15 +457,15 @@ export const ReviewSession: React.FC<ReviewSessionProps> = ({
               </div>
 
               {currentItem.mcq.explanation && (
-                <p
+                <div
                   style={{
                     fontSize: '0.9rem',
                     color: 'var(--color-text-secondary)',
                     lineHeight: 1.5,
                   }}
                 >
-                  {currentItem.mcq.explanation}
-                </p>
+                  <MarkdownRenderer content={currentItem.mcq.explanation} className="markdown-card-content" />
+                </div>
               )}
 
               {/* Quality Rating */}

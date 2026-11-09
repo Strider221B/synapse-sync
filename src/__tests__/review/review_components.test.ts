@@ -189,5 +189,29 @@ describe('Spaced Repetition Review Components Test Suite', () => {
       );
       assert.ok(html.includes('Tap anywhere to reveal answer'), 'Must prompt user to flip');
     });
+
+    it('renders LaTeX mathematical expressions in review cards and options', () => {
+      const mathDueItems: DueCardItem[] = [
+        {
+          srsCard: mockSRSCardMCQ,
+          cardType: 'mcq',
+          mcq: {
+            ...mockMCQ,
+            question: 'What is $\\gamma$ in MDP discount factor?',
+            options: ['$\\gamma \\in [0, 1)$', '$\\gamma > 1$', '$\\gamma = -1$', 'None'],
+            explanation: 'Discount $\\gamma$ ensures geometric series convergence.',
+          },
+        },
+      ];
+
+      const html = renderToStaticMarkup(
+        React.createElement(ReviewSession, {
+          cards: mathDueItems,
+        })
+      );
+
+      assert.ok(html.includes('katex'), 'Must render KaTeX math in ReviewSession');
+      assert.ok(!html.includes('katex-error'), 'Must not produce katex parse errors');
+    });
   });
 });

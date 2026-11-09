@@ -647,6 +647,53 @@ button {
   color: var(--color-text-primary);
 }
 
+.markdown-body.markdown-inline {
+  display: inline;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+.markdown-body.markdown-inline p,
+.markdown-body.markdown-inline span.markdown-inline-p {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+.markdown-body.markdown-inline .katex {
+  color: inherit;
+  font-size: 1.05em;
+}
+
+.markdown-body.markdown-card-content {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+.markdown-body.markdown-card-content p {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  margin-bottom: 0.75rem;
+}
+
+.markdown-body.markdown-card-content p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body.markdown-card-content .katex {
+  color: inherit;
+}
+
 .markdown-body .katex-display {
   overflow-x: auto;
   overflow-y: hidden;

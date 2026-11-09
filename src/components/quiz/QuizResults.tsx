@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import type { MCQCard } from '@/lib/db/models';
+import { MarkdownRenderer } from '@/components/notes/MarkdownRenderer';
 
 export interface QuizResultsProps {
   mcqCards: MCQCard[];
@@ -226,7 +227,7 @@ export const QuizResults: React.FC<QuizResultsProps> = ({
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem' }}>
                   <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontSize: '0.95rem' }}>
                     <span style={{ color: 'var(--color-text-muted)', marginRight: '0.5rem' }}>#{idx + 1}</span>
-                    {card.question}
+                    <MarkdownRenderer content={card.question} inline />
                   </div>
                   <span
                     style={{
@@ -241,15 +242,21 @@ export const QuizResults: React.FC<QuizResultsProps> = ({
                 </div>
 
                 {!isCorrect && (
-                  <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
-                    Your answer: <strong style={{ color: 'var(--color-error)' }}>{userAnswer !== null ? card.options[userAnswer] : 'None'}</strong>
-                    {' • '}
-                    Correct answer: <strong style={{ color: 'var(--color-success)' }}>{card.options[card.correctIndex]}</strong>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                    <span>Your answer:</span>
+                    <strong style={{ color: 'var(--color-error)' }}>
+                      <MarkdownRenderer content={userAnswer !== null ? card.options[userAnswer] : 'None'} inline />
+                    </strong>
+                    <span>•</span>
+                    <span>Correct answer:</span>
+                    <strong style={{ color: 'var(--color-success)' }}>
+                      <MarkdownRenderer content={card.options[card.correctIndex]} inline />
+                    </strong>
                   </div>
                 )}
 
                 <div style={{ fontSize: '0.825rem', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
-                  {card.explanation}
+                  <MarkdownRenderer content={card.explanation} className="markdown-card-content" />
                 </div>
               </div>
             );

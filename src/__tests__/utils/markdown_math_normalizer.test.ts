@@ -58,4 +58,11 @@ Here is \`$$inline_code$$\`.`;
     assert.ok(result.includes(String.raw`\$3`), 'Must include \\$3');
     assert.ok(result.includes(String.raw`\$1.5 billion`), 'Must include \\$1.5 billion');
   });
+
+  it('normalizes bracket LaTeX delimiters \\[...\\] and \\(...\\) to fences and dollars', () => {
+    const input = 'Given \\( x + y = 10 \\) and display equation:\n\\[ \\int_0^1 f(x) dx \\]';
+    const result = MarkdownMathNormalizer.normalize(input);
+    assert.ok(result.includes('$x + y = 10$'), 'Inline bracket math must convert to $...$');
+    assert.ok(result.includes('\n$$\n\\int_0^1 f(x) dx\n$$\n'), 'Display bracket math must convert to $$...$$');
+  });
 });

@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import type { Flashcard } from '@/lib/db/models';
 import { ClipboardService } from '@/lib/utils/clipboard_service';
+import { MarkdownRenderer } from '@/components/notes/MarkdownRenderer';
 
 export interface FlashCardProps {
   card: Flashcard;
@@ -163,17 +164,18 @@ export const FlashCard: React.FC<FlashCardProps> = ({
             >
               Question / Prompt
             </span>
-            <p
+            <div
               style={{
                 fontSize: '1.25rem',
                 fontWeight: 600,
                 lineHeight: 1.6,
                 color: 'var(--color-text-primary)',
                 margin: 0,
+                width: '100%',
               }}
             >
-              {card.front}
-            </p>
+              <MarkdownRenderer content={card.front} className="markdown-card-content" />
+            </div>
             <span
               style={{
                 marginTop: '1.5rem',
@@ -202,17 +204,18 @@ export const FlashCard: React.FC<FlashCardProps> = ({
             >
               Answer / Explanation
             </span>
-            <p
+            <div
               style={{
                 fontSize: '1.15rem',
                 fontWeight: 500,
                 lineHeight: 1.6,
                 color: 'var(--color-text-primary)',
                 margin: 0,
+                width: '100%',
               }}
             >
-              {card.back}
-            </p>
+              <MarkdownRenderer content={card.back} className="markdown-card-content" />
+            </div>
             <span
               style={{
                 marginTop: '1.5rem',
@@ -276,7 +279,9 @@ export const FlashCard: React.FC<FlashCardProps> = ({
                 padding: '0.6rem 0.85rem',
                 borderRadius: 'var(--radius-md)',
                 backgroundColor: 'var(--color-surface)',
-                border: `1.5px solid var(--color-surface-border)`,
+                borderWidth: '1.5px',
+                borderStyle: 'solid',
+                borderColor: 'var(--color-surface-border)',
                 color: 'var(--color-text-primary)',
                 cursor: 'pointer',
                 transition: 'all var(--transition-fast)',

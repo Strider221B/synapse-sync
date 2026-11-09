@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import type { MCQCard as MCQCardType } from '@/lib/db/models';
 import { ClipboardService } from '@/lib/utils/clipboard_service';
+import { MarkdownRenderer } from '@/components/notes/MarkdownRenderer';
 
 export interface MCQCardProps {
   card: MCQCardType;
@@ -48,7 +49,9 @@ export const MCQCard: React.FC<MCQCardProps> = ({
       gap: '1rem',
       padding: '1rem 1.25rem',
       borderRadius: 'var(--radius-md)',
-      border: '1.5px solid var(--color-surface-border)',
+      borderWidth: '1.5px',
+      borderStyle: 'solid',
+      borderColor: 'var(--color-surface-border)',
       backgroundColor: 'var(--color-surface)',
       color: 'var(--color-text-primary)',
       fontSize: '0.95rem',
@@ -114,7 +117,9 @@ export const MCQCard: React.FC<MCQCardProps> = ({
       borderRadius: 'var(--radius-sm)',
       backgroundColor: bg,
       color: text,
-      border: `1px solid ${border}`,
+      borderWidth: '1px',
+      borderStyle: 'solid',
+      borderColor: border,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -221,7 +226,9 @@ export const MCQCard: React.FC<MCQCardProps> = ({
       </div>
 
       {/* Question prompt */}
-      <h3
+      <div
+        role="heading"
+        aria-level={3}
         style={{
           fontSize: '1.25rem',
           fontWeight: 600,
@@ -230,8 +237,8 @@ export const MCQCard: React.FC<MCQCardProps> = ({
           margin: 0,
         }}
       >
-        {card.question}
-      </h3>
+        <MarkdownRenderer content={card.question} className="markdown-card-content" />
+      </div>
 
       {/* Options grid / list */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -244,7 +251,9 @@ export const MCQCard: React.FC<MCQCardProps> = ({
             style={getOptionStyle(idx)}
           >
             <span style={getBadgeStyle(idx)}>{OPTION_LABELS[idx] ?? idx + 1}</span>
-            <span style={{ flex: 1 }}>{option}</span>
+            <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+              <MarkdownRenderer content={option} inline />
+            </span>
           </button>
         ))}
       </div>
@@ -275,7 +284,7 @@ export const MCQCard: React.FC<MCQCardProps> = ({
           >
             💡 Explanation
           </div>
-          <p
+          <div
             style={{
               margin: 0,
               fontSize: '0.9rem',
@@ -283,8 +292,8 @@ export const MCQCard: React.FC<MCQCardProps> = ({
               color: 'var(--color-text-secondary)',
             }}
           >
-            {card.explanation}
-          </p>
+            <MarkdownRenderer content={card.explanation} className="markdown-card-content" />
+          </div>
         </div>
       )}
     </div>
