@@ -69,6 +69,38 @@ describe('Quiz Components Test Suite', () => {
       assert.ok(html.includes('Explanation'), 'HTML must include Explanation');
       assert.ok(html.includes('Supervised learning uses labeled training pairs.'), 'HTML has explanation text');
     });
+
+    it('renders LaTeX mathematical expressions correctly in question, options, and explanation', async () => {
+      const { renderToStaticMarkup } = await import('react-dom/server');
+      const mathMCQ: MCQCardType = {
+        id: 'mcq-math-1',
+        quizId: 'quiz-1',
+        question: 'Solve for $x$: $T(s, a, s\')$ with discount $\\gamma$ and state values $V_\\pi(s)$.',
+        options: [
+          'Value is $Q_\\pi(s_0, a_{\\text{new}}) = \\sum_{s\'} T(s_0, a, s\')[R + \\gamma V_*(s\')]$',
+          'Option B: $V_*(s) = \\max_a Q_*(s, a)$',
+          'Option C: $\\pi_*(s) = \\arg\\max_a Q_*(s, a)$',
+          'Option D: constant $0$',
+        ],
+        correctIndex: 0,
+        explanation: 'Bellman optimality equation: $V^*(s) = \\max_a \\sum_{s\'} P(s\'|s,a)[R + \\gamma V^*(s\')]$.',
+      };
+
+      const html = renderToStaticMarkup(
+        React.createElement(MCQCard, {
+          card: mathMCQ,
+          questionIndex: 0,
+          totalQuestions: 1,
+          selectedOption: 0,
+          onSelectOption: () => {},
+        })
+      );
+
+      assert.ok(html.includes('katex'), 'HTML must include rendered KaTeX math elements');
+      assert.ok(!html.includes('katex-error'), 'Must not produce katex parse errors');
+      assert.ok(html.includes('border-width:1.5px'), 'Must use separate borderWidth property');
+      assert.ok(html.includes('border-color:'), 'Must use separate borderColor property');
+    });
   });
 
   describe('QuizResults Component', () => {
@@ -134,6 +166,29 @@ describe('Quiz Components Test Suite', () => {
       assert.ok(html.includes('Copy'), 'HTML should contain Copy button');
       assert.ok(html.includes('Delete'), 'HTML should contain Delete button');
       assert.equal(ratedScore, -1);
+    });
+
+    it('renders LaTeX mathematical expressions correctly on front and back faces', async () => {
+      const { renderToStaticMarkup } = await import('react-dom/server');
+      const mathFlashcard: Flashcard = {
+        id: 'flash-math-1',
+        quizId: 'quiz-1',
+        front: 'What is Euler\'s identity: $e^{i\\pi} + 1 = 0$?',
+        back: 'Derived from $e^{ix} = \\cos(x) + i\\sin(x)$ when $x = \\pi$.',
+        tags: ['Math'],
+      };
+
+      const html = renderToStaticMarkup(
+        React.createElement(FlashCard, {
+          card: mathFlashcard,
+          cardIndex: 0,
+          totalCards: 1,
+          onRate: () => {},
+        })
+      );
+
+      assert.ok(html.includes('katex'), 'HTML should contain rendered KaTeX element');
+      assert.ok(!html.includes('katex-error'), 'Must not produce katex parse errors');
     });
   });
 });

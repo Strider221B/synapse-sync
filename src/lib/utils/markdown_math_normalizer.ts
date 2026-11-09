@@ -7,6 +7,8 @@ export class MarkdownMathNormalizer {
   private static readonly _PLACEHOLDER_PREFIX = '@@@SYNAPSE_CODE_BLOCK_';
   private static readonly _PLACEHOLDER_SUFFIX = '@@@';
   private static readonly _CODE_BLOCK_REGEX = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/g;
+  private static readonly _BRACKET_DISPLAY_MATH_REGEX = /(?<!\\)\\\[([\s\S]+?)(?<!\\)\\\]/g;
+  private static readonly _BRACKET_INLINE_MATH_REGEX = /(?<!\\)\\\(([\s\S]+?)(?<!\\)\\\)/g;
   private static readonly _DISPLAY_MATH_REGEX = /(?<![\\$])\$\$(?!\$)((?:\\\$|[\s\S])+?)(?<![\\$])\$\$(?!\$)/g;
   private static readonly _INLINE_MATH_REGEX = /(?<![\\$])\$(?!\$)((?:\\\$|[^$\n])+?)(?<![\\$])\$(?!\$)/g;
   private static readonly _CURRENCY_MATH_REGEX = /\$\\\$([0-9][^\n$]*?)\$/g;
@@ -25,6 +27,7 @@ export class MarkdownMathNormalizer {
     }
     const codeBlocks: string[] = [];
     let text = this._protectCodeBlocks(markdown, codeBlocks);
+    text = this._normalizeBracketMath(text);
     text = this._normalizeFauxCurrency(text);
     text = this._normalizeDisplayMath(text);
     text = this._normalizeInlineMath(text);
@@ -50,6 +53,19 @@ export class MarkdownMathNormalizer {
     return text.replace(pattern, (_, idx) => {
       return blocks[Number(idx)];
     });
+  }
+
+  /**
+   * Converts bracket LaTeX delimiters (\[...\] and \(...\)) to $$...$$ and $...$.
+   */
+  private static _normalizeBracketMath(text: string): string {
+    let result = text.replace(this._BRACKET_DISPLAY_MATH_REGEX, (_, inner) => {
+      return `\n$$\n${inner.trim()}\n$$\n`;
+    });
+    result = result.replace(this._BRACKET_INLINE_MATH_REGEX, (_, inner) => {
+      return `$${inner.trim()}$`;
+    });
+    return result;
   }
 
   /**

@@ -147,4 +147,16 @@ $$a = \\begin{cases}
     assert.ok(!html.includes('katex-error'), 'Must not produce katex parse errors');
     assert.ok(html.includes('$10'), 'Must render dollar amount');
   });
+
+  it('renders inline math with inline=true without wrapping in <p> tag', () => {
+    const content = 'Value is $x = 42$ inline';
+    const html = renderToStaticMarkup(
+      React.createElement(MarkdownRenderer, { content, inline: true })
+    );
+
+    assert.ok(html.startsWith('<span class="markdown-body markdown-inline'), 'Must be wrapped in span');
+    assert.ok(!html.includes('<p>'), 'Must not include block <p> tag');
+    assert.ok(html.includes('katex'), 'Must contain rendered KaTeX element');
+    assert.ok(html.includes('markdown-inline-p'), 'Must contain inline paragraph span');
+  });
 });

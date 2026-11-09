@@ -11,9 +11,10 @@ import { MarkdownMathNormalizer } from '@/lib/utils/markdown_math_normalizer';
 const MERMAID_LANG = 'mermaid';
 const REGEX_LANG = /language-(\w+)/;
 
-interface MarkdownRendererProps {
+export interface MarkdownRendererProps {
   content: string;
   className?: string;
+  inline?: boolean;
 }
 
 /**
@@ -34,17 +35,28 @@ function isMermaidElement(children: React.ReactNode): boolean {
 /**
  * Renders GitHub Flavored Markdown, LaTeX math equations, and Mermaid UML diagrams safely.
  */
-export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps) {
+export function MarkdownRenderer({ content, className = '', inline = false }: MarkdownRendererProps) {
   const normalizedContent = React.useMemo(() => {
     return MarkdownMathNormalizer.normalize(content);
   }, [content]);
 
+  const Component = inline ? 'span' : 'div';
+  const inlineClass = inline ? 'markdown-inline' : '';
+  const combinedClass = `markdown-body ${inlineClass} ${className}`.trim();
+
   return (
-    <div className={`markdown-body ${className}`.trim()}>
+    <Component className={combinedClass}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
         components={{
+          ...(inline
+            ? {
+                p({ children }) {
+                  return <span className="markdown-inline-p">{children}</span>;
+                },
+              }
+            : {}),
           pre({ children, ...rest }) {
             if (isMermaidElement(children)) {
               return <>{children}</>;
@@ -66,6 +78,6 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
       >
         {normalizedContent}
       </ReactMarkdown>
-    </div>
+    </Component>
   );
 }
